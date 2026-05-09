@@ -55,9 +55,10 @@ export function Home({ user }: { user: ApiUser | null }) {
             Every log, from every provider, in five minutes.
           </Title>
           <Text size="xl" c="dimmed" ta="center" maw={620}>
-            Connect your cloud accounts. We discover every Worker, function,
-            app, and gateway that emits a log line — then ship a streaming
-            forwarder you control. Nothing is retained on our side.
+            Connect your cloud accounts. We find every Worker, function,
+            app, and gateway that emits a log line, then ship you a
+            streaming forwarder you run yourself. Nothing is retained on
+            our side.
           </Text>
 
           {errorMsg && (
@@ -113,32 +114,32 @@ export function Home({ user }: { user: ApiUser | null }) {
           <Feature
             icon={<IconRadar size={22} />}
             title="Discover everything"
-            body="Connect once. We enumerate every log source — Workers, edge functions, Lambdas, droplets, machines, AI gateways — and keep the list current as you ship."
+            body="Connect once. We enumerate every log source you have: Workers, edge functions, Lambdas, droplets, machines, AI gateways. The list stays current as you ship."
           />
           <Feature
             icon={<IconLockOff size={22} />}
-            title="Zero retention, by architecture"
-            body="Logs stream through the collector to your destination. The control plane never receives a byte of log content. Not a policy — a property of the system."
+            title="Zero retention"
+            body="Logs stream through the collector straight to your destination. The control plane never sees a byte of log content. The architecture makes it impossible."
           />
           <Feature
             icon={<IconRoute size={22} />}
             title="Send anywhere"
-            body="Better Stack, Datadog, Axiom, Honeycomb, Grafana Loki, S3, or any HTTPS endpoint. Built on Vector, so your sink is whatever Vector supports."
+            body="Better Stack, Datadog, Axiom, Honeycomb, Grafana Loki, S3, any HTTPS endpoint. Built on Vector, so the sink list is whatever Vector supports."
           />
           <Feature
             icon={<IconSparkles size={22} />}
             title="Anomaly detection on the edge"
-            body="Catch novel errors and unusual token distributions in real time, with bounded memory and zero retention. Backed by published research."
+            body="Catch novel errors and unusual token distributions as they happen, in bounded memory, without retaining the logs. There's a research paper to back it up."
           />
           <Feature
             icon={<IconCurrencyDollarOff size={22} />}
             title="Per-source pricing"
-            body="Pay for the sources you have, not the bytes you ship. The agency with 100 small sites stays on the free tier — that's the design, not a loophole."
+            body="Pay per source. The free tier is sized for an agency running 100 small sites. They never have to upgrade."
           />
           <Feature
             icon={<IconPaperBag size={22} />}
             title="Open-source forwarder"
-            body="The collector is Vector plus our open-source transforms. Self-host the whole thing, or run it through us. Leave anytime and keep the pipeline."
+            body="The collector is Vector plus our open-source transforms. Self-host the whole thing, or run it through us. Leave anytime and the pipeline keeps running."
           />
         </SimpleGrid>
       </Container>
@@ -151,9 +152,8 @@ export function Home({ user }: { user: ApiUser | null }) {
           </Title>
           <Text c="dimmed" ta="center" maw={620}>
             Enterprise log pipelines charge by the byte and start at "let's
-            get on a call." We charge per source, run on a free tier, and
-            ship in five minutes. If you've ever lost an error to a
-            forgotten provider, this is for you.
+            get on a call." We charge per source, have a real free tier,
+            and ship in five minutes.
           </Text>
           <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg" mt="md" w="100%">
             <Persona
@@ -183,7 +183,7 @@ export function Home({ user }: { user: ApiUser | null }) {
             Five minutes from sign-in to logs.
           </Title>
           <Text c="dimmed" ta="center">
-            No sales call. No per-byte pricing. No vendor lock-in.
+            Sign in with GitHub, paste an API token, copy a Dockerfile.
           </Text>
           {user ? (
             <Button component={Link} to="/app" size="lg" mt="md">

@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "db:create": "wrangler d1 create logtura",
     "db:migrate:local": "wrangler d1 migrations apply logtura --local",
-    "db:migrate:remote": "wrangler d1 migrations apply logtura --remote"
+    "db:migrate:remote": "wrangler d1 migrations apply logtura --remote",
+    "secrets:sync": "node scripts/sync-secrets.mjs"
   },
   "dependencies": {
     "@mantine/core": "^8.0.0",
