@@ -4,13 +4,13 @@ compatibility_date = "2025-05-01"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
-APP_URL = "http://localhost:8787"
+APP_URL = "https://logtura.erik-f0c.workers.dev"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "logtura"
-database_id = "00000000-0000-0000-0000-000000000000"
-preview_database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "f8275804-591c-479b-b628-f678233b6bb6"
+preview_database_id = "f8275804-591c-479b-b628-f678233b6bb6"
 migrations_dir = "migrations"
 
 [assets]
