@@ -1,0 +1,137 @@
+// Provider driver contract.
+//
+// Adding a new provider (e.g. Fly, AWS, Supabase) means implementing this
+// interface in a new `src/providers/<name>.ts` file and registering it in
+// `src/providers/index.ts`. No schema change, no route change, no view change.
+//
+// The driver owns:
+//   1. Form fields shown to the user when adding a connection
+//   2. Parsing those fields into the credential shape it stores
+//   3. Verifying credentials against the upstream API
+//   4. Discovering log sources for an authenticated account
+//   5. Generating Vector source-block YAML for each selected source
+//   6. Declaring runtime env vars and Dockerfile dependencies for the bundle
+
+export interface ProviderAccount {
+  id: string;
+  name: string;
+}
+
+export interface DiscoveredSource {
+  sourceKind: string; // namespaced per provider, e.g. "cf_worker", "fly_app"
+  externalId: string;
+  displayName: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface FormField {
+  name: string;
+  label: string;
+  type: "text" | "password";
+  placeholder?: string;
+  description?: string;
+  required: boolean;
+}
+
+export interface EnvVarSpec {
+  name: string;
+  description: string;
+  // How the bundle generator should suggest a value to the user. We never
+  // bake secrets into the image — these are placeholders shown in the
+  // `docker run` command on the bundle page.
+  source: "credential" | "external_account_id" | "destination" | "manual";
+  // Optional path within the credentials JSON, e.g. "apiToken". Only
+  // meaningful when source === "credential".
+  credentialPath?: string;
+}
+
+export interface DockerfileDep {
+  // Bash snippet appended into a single RUN block in the generated
+  // Dockerfile. Should be apt-get-friendly and idempotent.
+  install: string;
+  // apt packages required to support the install step (added to the
+  // base apt-get install line).
+  aptPackages?: string[];
+}
+
+export interface SourceBlock {
+  // The Vector source key (must be a valid YAML key).
+  key: string;
+  // The YAML body for `sources.<key>:` (without the key itself).
+  yaml: string;
+}
+
+// Minimal subset of ConnectionRow that drivers need. Avoids importing the
+// DB layer into provider modules.
+export interface ConnectionRef {
+  id: string;
+  externalAccountId: string | null;
+  displayName: string;
+}
+
+// Minimal subset of LogSourceRow that drivers need.
+export interface SourceRef {
+  externalId: string;
+  displayName: string;
+  sourceKind: string;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface ProviderDriver<TCreds = unknown> {
+  readonly id: string;
+  readonly displayName: string;
+
+  /** Form fields rendered on the "Add connection" page. */
+  readonly formFields: readonly FormField[];
+
+  /**
+   * Parse submitted form data into the credential shape (and optional
+   * explicit account id). Throws if required fields are missing or
+   * malformed.
+   */
+  parseFormData(form: FormData): {
+    credentials: TCreds;
+    explicitAccountId: string | null;
+  };
+
+  /** Verify credentials and return accessible accounts. */
+  verifyCredentials(credentials: TCreds): Promise<ProviderAccount[]>;
+
+  /** Enumerate log sources for an authenticated account. */
+  discoverSources(input: {
+    credentials: TCreds;
+    accountId: string;
+  }): Promise<DiscoveredSource[]>;
+
+  /**
+   * Render a single Vector source block for a selected source. The bundle
+   * generator concatenates these into the final `sources:` map.
+   */
+  generateSourceBlock(input: {
+    source: SourceRef;
+    connection: ConnectionRef;
+  }): SourceBlock;
+
+  /**
+   * Runtime spec — env vars and Dockerfile install steps the bundle
+   * needs in order to run. Per provider, not per source: if any source
+   * for this provider is selected, all of these apply.
+   */
+  runtimeSpec(connection: ConnectionRef): {
+    envVars: EnvVarSpec[];
+    dockerfileDeps: DockerfileDep[];
+  };
+
+  /** Friendly label for a discovered source's kind. UI only. */
+  sourceKindLabel(sourceKind: string): string;
+}
+
+export class ProviderError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "ProviderError";
+  }
+}

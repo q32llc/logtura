@@ -1,0 +1,42 @@
+{
+  "name": "logtura",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n vite,worker -c blue,green \"pnpm dev:vite\" \"pnpm dev:worker\"",
+    "dev:vite": "vite",
+    "dev:worker": "wrangler dev --port 8787",
+    "build": "vite build",
+    "deploy": "vite build && wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "db:create": "wrangler d1 create logtura",
+    "db:migrate:local": "wrangler d1 migrations apply logtura --local",
+    "db:migrate:remote": "wrangler d1 migrations apply logtura --remote"
+  },
+  "dependencies": {
+    "@mantine/core": "^8.0.0",
+    "@mantine/form": "^8.0.0",
+    "@mantine/hooks": "^8.0.0",
+    "@mantine/notifications": "^8.0.0",
+    "@tabler/icons-react": "^3.26.0",
+    "hono": "^4.6.14",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "postcss": "^8.4.49",
+    "postcss-preset-mantine": "^1.17.0",
+    "postcss-simple-vars": "^7.0.1",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.7",
+    "wrangler": "^3.99.0"
+  }
+}
