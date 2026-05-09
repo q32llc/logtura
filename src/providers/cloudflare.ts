@@ -86,12 +86,14 @@ const FORM_FIELDS: readonly FormField[] = [
   },
 ];
 
-// Cloudflare's prefilled token-creation URL. Sets the right permission
-// groups and a suggested name so the user just clicks through.
-const PERMISSION_GROUPS = [
-  { key: "workers_scripts", type: "read" },
-  { key: "ai_gateway", type: "read" },
-];
+// Cloudflare's prefilled token-creation URL. We only include
+// permission groups whose keys are confirmed working from the
+// Cloudflare docs (workers_scripts). AI Gateway:Read is a real
+// permission but its template-URL key isn't documented, so we ask the
+// user to add that one manually if they use AI Gateway. Discovery
+// soft-fails per resource, so a Workers-only token still yields a
+// working pipeline.
+const PERMISSION_GROUPS = [{ key: "workers_scripts", type: "read" }];
 
 const TOKEN_TEMPLATE_URL = (() => {
   const base = "https://dash.cloudflare.com/profile/api-tokens";
@@ -112,10 +114,10 @@ export const cloudflareDriver: ProviderDriver<CloudflareCredentials> = {
     url: TOKEN_TEMPLATE_URL,
     buttonLabel: "Connect with Cloudflare",
     buttonDescription:
-      "Opens Cloudflare with the right permissions pre-selected. Click Continue → Create Token, then paste the token below.",
+      "Opens Cloudflare with Workers Scripts:Read pre-selected. If you also want AI Gateway logs, click Add more in the form and pick AI Gateway:Read before continuing. Then click Continue → Create Token and paste the token below.",
     pasteFieldName: "api_token",
     manualInstructions:
-      "If you'd rather create the token yourself, go to dash.cloudflare.com/profile/api-tokens and create a custom token with Workers Scripts:Read and (optionally) AI Gateway:Read.",
+      "If you'd rather create the token yourself, go to dash.cloudflare.com/profile/api-tokens and create a custom token with Workers Scripts:Read (required) and AI Gateway:Read (optional, only if you want to forward AI Gateway logs).",
   },
   formFields: FORM_FIELDS,
 
@@ -142,22 +144,36 @@ export const cloudflareDriver: ProviderDriver<CloudflareCredentials> = {
   },
 
   async discoverSources({ credentials, accountId }): Promise<DiscoveredSource[]> {
+    // Soft-fail per resource so a Workers-only token still produces
+    // workers, and an AI-Gateway-only token still produces gateways.
+    // Only hard-fail if both calls failed (the connection is then
+    // genuinely useless and we want the user to know).
+    const errors: { kind: string; error: ProviderError }[] = [];
+
+    const tryList = async <T>(
+      kind: string,
+      path: string,
+    ): Promise<T[]> => {
+      try {
+        return await cfFetch<T[]>(path, credentials.apiToken);
+      } catch (err) {
+        if (err instanceof ProviderError) {
+          errors.push({ kind, error: err });
+          return [];
+        }
+        throw err;
+      }
+    };
+
     const [workers, gateways] = await Promise.all([
-      cfFetch<CfWorkerScript[]>(
+      tryList<CfWorkerScript>(
+        "Workers Scripts",
         `/accounts/${accountId}/workers/scripts`,
-        credentials.apiToken,
-      ).catch((err) => {
-        if (err instanceof ProviderError && err.status === 404) return [];
-        throw err;
-      }),
-      cfFetch<CfAiGateway[]>(
+      ),
+      tryList<CfAiGateway>(
+        "AI Gateway",
         `/accounts/${accountId}/ai-gateway/gateways`,
-        credentials.apiToken,
-      ).catch((err) => {
-        // 404 = account has never used AI Gateway. Treat as no gateways.
-        if (err instanceof ProviderError && err.status === 404) return [];
-        throw err;
-      }),
+      ),
     ]);
 
     const sources: DiscoveredSource[] = [];
@@ -177,6 +193,17 @@ export const cloudflareDriver: ProviderDriver<CloudflareCredentials> = {
         metadata: { collect_logs: g.collect_logs ?? null },
       });
     }
+
+    if (sources.length === 0 && errors.length === 2) {
+      const summary = errors
+        .map((e) => `${e.kind}: ${e.error.message}`)
+        .join("; ");
+      throw new ProviderError(
+        `Could not list any log sources. Check that the token has Workers Scripts:Read for this account. (${summary})`,
+        403,
+      );
+    }
+
     return sources;
   },
 
