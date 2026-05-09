@@ -39,9 +39,26 @@ export interface ApiFormField {
   required: boolean;
 }
 
+export type ApiConnectFlow =
+  | {
+      kind: "external_token";
+      url: string;
+      buttonLabel: string;
+      buttonDescription: string;
+      pasteFieldName: string;
+      manualInstructions?: string;
+    }
+  | {
+      kind: "oauth_redirect";
+      startPath: string;
+      buttonLabel: string;
+      buttonDescription: string;
+    };
+
 export interface ApiProvider {
   id: string;
   displayName: string;
+  connectFlow: ApiConnectFlow | null;
   formFields: ApiFormField[];
 }
 

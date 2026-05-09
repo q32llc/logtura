@@ -33,6 +33,36 @@ export interface FormField {
   required: boolean;
 }
 
+/**
+ * How the user grants access to their provider account. Drivers declare
+ * a `connectFlow` so the UI can render a "Connect with X" affordance
+ * before the bare paste-a-credential form. Future providers with real
+ * OAuth use kind="oauth_redirect"; providers without a public OAuth
+ * server (Cloudflare today) use kind="external_token" pointing at a
+ * prefilled token-creation page.
+ */
+export type ConnectFlow =
+  | {
+      kind: "external_token";
+      /** Where to send the user to create the credential. */
+      url: string;
+      /** Primary button label, e.g. "Connect with Cloudflare". */
+      buttonLabel: string;
+      /** Short helper text shown under the button. */
+      buttonDescription: string;
+      /** Field name (in formFields) where the resulting token is pasted. */
+      pasteFieldName: string;
+      /** Optional manual instructions for users who'd rather DIY. */
+      manualInstructions?: string;
+    }
+  | {
+      kind: "oauth_redirect";
+      /** logtura-side path that begins the OAuth flow. */
+      startPath: string;
+      buttonLabel: string;
+      buttonDescription: string;
+    };
+
 export interface EnvVarSpec {
   name: string;
   description: string;
@@ -80,6 +110,13 @@ export interface SourceRef {
 export interface ProviderDriver<TCreds = unknown> {
   readonly id: string;
   readonly displayName: string;
+
+  /**
+   * Preferred way to grant access. The UI renders this as the primary
+   * affordance; `formFields` show as the "alt" path or for the resulting
+   * paste-back step.
+   */
+  readonly connectFlow?: ConnectFlow;
 
   /** Form fields rendered on the "Add connection" page. */
   readonly formFields: readonly FormField[];

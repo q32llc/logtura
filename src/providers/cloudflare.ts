@@ -68,11 +68,11 @@ async function cfFetch<T>(
 const FORM_FIELDS: readonly FormField[] = [
   {
     name: "api_token",
-    label: "Cloudflare API token",
+    label: "Paste the token Cloudflare gave you",
     type: "password",
     placeholder: "cfat_...",
     description:
-      "Token must include Workers Scripts:Read and (optionally) AI Gateway:Read for the account.",
+      "After clicking Continue → Create Token in Cloudflare, copy the token and paste it here.",
     required: true,
   },
   {
@@ -86,9 +86,37 @@ const FORM_FIELDS: readonly FormField[] = [
   },
 ];
 
+// Cloudflare's prefilled token-creation URL. Sets the right permission
+// groups and a suggested name so the user just clicks through.
+const PERMISSION_GROUPS = [
+  { key: "workers_scripts", type: "read" },
+  { key: "ai_gateway", type: "read" },
+];
+
+const TOKEN_TEMPLATE_URL = (() => {
+  const base = "https://dash.cloudflare.com/profile/api-tokens";
+  const params = new URLSearchParams({
+    permissionGroupKeys: JSON.stringify(PERMISSION_GROUPS),
+    accountId: "*",
+    zoneId: "all",
+    name: "logtura",
+  });
+  return `${base}?${params.toString()}`;
+})();
+
 export const cloudflareDriver: ProviderDriver<CloudflareCredentials> = {
   id: "cloudflare",
   displayName: "Cloudflare",
+  connectFlow: {
+    kind: "external_token",
+    url: TOKEN_TEMPLATE_URL,
+    buttonLabel: "Connect with Cloudflare",
+    buttonDescription:
+      "Opens Cloudflare with the right permissions pre-selected. Click Continue → Create Token, then paste the token below.",
+    pasteFieldName: "api_token",
+    manualInstructions:
+      "If you'd rather create the token yourself, go to dash.cloudflare.com/profile/api-tokens and create a custom token with Workers Scripts:Read and (optionally) AI Gateway:Read.",
+  },
   formFields: FORM_FIELDS,
 
   parseFormData(form) {

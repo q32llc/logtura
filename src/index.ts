@@ -55,6 +55,7 @@ api.get("/providers", (c) => {
   const providers = listProviders().map((p) => ({
     id: p.id,
     displayName: p.displayName,
+    connectFlow: p.connectFlow ?? null,
     formFields: p.formFields,
   }));
   return c.json({ providers });

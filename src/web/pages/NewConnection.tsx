@@ -1,20 +1,23 @@
 import {
   Alert,
+  Anchor,
   Button,
   Container,
   Group,
-  PasswordInput,
   Paper,
+  PasswordInput,
   Select,
   Stack,
+  Stepper,
   Text,
   TextInput,
   Title,
 } from "@mantine/core";
+import { IconExternalLink } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiError, api } from "../api";
-import type { ApiProvider } from "../types";
+import type { ApiConnectFlow, ApiFormField, ApiProvider } from "../types";
 
 export function NewConnection() {
   const navigate = useNavigate();
@@ -24,6 +27,8 @@ export function NewConnection() {
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [connectClicked, setConnectClicked] = useState(false);
+  const [showManual, setShowManual] = useState(false);
 
   useEffect(() => {
     api
@@ -39,6 +44,19 @@ export function NewConnection() {
   }, []);
 
   const driver = providers?.find((p) => p.id === providerId) ?? null;
+  const connect = driver?.connectFlow ?? null;
+  const pasteFieldName =
+    connect?.kind === "external_token" ? connect.pasteFieldName : null;
+
+  // Step state for the visual stepper.
+  const pasteValue = pasteFieldName ? (fieldValues[pasteFieldName] ?? "") : "";
+  const activeStep = !displayName.trim()
+    ? 0
+    : !connectClicked && connect
+      ? 1
+      : !pasteValue
+        ? 2
+        : 3;
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -74,8 +92,10 @@ export function NewConnection() {
             <Select
               label="Provider"
               data={
-                providers?.map((p) => ({ value: p.id, label: p.displayName })) ??
-                []
+                providers?.map((p) => ({
+                  value: p.id,
+                  label: p.displayName,
+                })) ?? []
               }
               value={providerId}
               onChange={setProviderId}
@@ -85,32 +105,40 @@ export function NewConnection() {
 
             <TextInput
               label="Connection name"
-              placeholder="My Cloudflare account"
+              placeholder={`My ${driver?.displayName ?? "Cloudflare"} account`}
               value={displayName}
               onChange={(e) => setDisplayName(e.currentTarget.value)}
               required
             />
 
-            {driver?.formFields.map((f) => {
-              const props = {
-                key: f.name,
-                label: f.label,
-                placeholder: f.placeholder,
-                description: f.description,
-                required: f.required,
-                value: fieldValues[f.name] ?? "",
-                onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
-                  setFieldValues((s) => ({
-                    ...s,
-                    [f.name]: e.currentTarget.value,
-                  })),
-              };
-              return f.type === "password" ? (
-                <PasswordInput {...props} autoComplete="off" />
-              ) : (
-                <TextInput {...props} autoComplete="off" />
-              );
-            })}
+            {connect && driver && (
+              <ConnectSection
+                providerName={driver.displayName}
+                flow={connect}
+                clicked={connectClicked}
+                onConnect={() => setConnectClicked(true)}
+                showManual={showManual}
+                toggleManual={() => setShowManual((v) => !v)}
+                stepIndex={activeStep}
+              />
+            )}
+
+            {driver?.formFields
+              .filter((f) => {
+                // Hide the paste field until the user clicks Connect, so
+                // the token paste step doesn't compete with the button
+                // for attention. If there's no connectFlow, show all
+                // fields up front.
+                if (!connect) return true;
+                if (
+                  connect.kind === "external_token" &&
+                  f.name === connect.pasteFieldName
+                ) {
+                  return connectClicked || showManual;
+                }
+                return connectClicked || showManual;
+              })
+              .map((f) => renderField(f, fieldValues, setFieldValues))}
 
             {error && (
               <Alert color="red" variant="light">
@@ -128,7 +156,7 @@ export function NewConnection() {
                 Cancel
               </Button>
               <Button type="submit" loading={submitting} disabled={!driver}>
-                Connect &amp; discover
+                Verify &amp; continue
               </Button>
             </Group>
           </Stack>
@@ -140,5 +168,109 @@ export function NewConnection() {
         plane never logs.
       </Text>
     </Container>
+  );
+}
+
+function ConnectSection({
+  providerName,
+  flow,
+  clicked,
+  onConnect,
+  showManual,
+  toggleManual,
+  stepIndex,
+}: {
+  providerName: string;
+  flow: ApiConnectFlow;
+  clicked: boolean;
+  onConnect: () => void;
+  showManual: boolean;
+  toggleManual: () => void;
+  stepIndex: number;
+}) {
+  if (flow.kind !== "external_token") {
+    // OAuth redirect flow placeholder; not used today.
+    return null;
+  }
+  return (
+    <Stack gap="md" mt="xs">
+      <Stepper
+        active={Math.min(stepIndex, 3)}
+        size="sm"
+        styles={{ separator: { marginInline: 8 } }}
+      >
+        <Stepper.Step label="Name" />
+        <Stepper.Step label={`Authorize ${providerName}`} />
+        <Stepper.Step label="Paste token" />
+        <Stepper.Step label="Verify" />
+      </Stepper>
+
+      <Stack gap={4}>
+        <Group gap="sm" align="center">
+          <Button
+            component="a"
+            href={flow.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={onConnect}
+            leftSection={<IconExternalLink size={16} />}
+            variant={clicked ? "default" : "filled"}
+          >
+            {clicked ? `Re-open ${providerName}` : flow.buttonLabel}
+          </Button>
+          {clicked && (
+            <Text size="sm" c="dimmed">
+              Paste the token below.
+            </Text>
+          )}
+        </Group>
+        <Text size="xs" c="dimmed">
+          {flow.buttonDescription}
+        </Text>
+      </Stack>
+
+      {flow.manualInstructions && (
+        <Stack gap={4}>
+          <Anchor
+            component="button"
+            type="button"
+            size="xs"
+            c="dimmed"
+            onClick={toggleManual}
+          >
+            {showManual
+              ? "Hide manual instructions"
+              : "Or create the token manually"}
+          </Anchor>
+          {showManual && (
+            <Text size="xs" c="dimmed">
+              {flow.manualInstructions}
+            </Text>
+          )}
+        </Stack>
+      )}
+    </Stack>
+  );
+}
+
+function renderField(
+  f: ApiFormField,
+  values: Record<string, string>,
+  setValues: React.Dispatch<React.SetStateAction<Record<string, string>>>,
+) {
+  const props = {
+    key: f.name,
+    label: f.label,
+    placeholder: f.placeholder,
+    description: f.description,
+    required: f.required,
+    value: values[f.name] ?? "",
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
+      setValues((s) => ({ ...s, [f.name]: e.currentTarget.value })),
+  };
+  return f.type === "password" ? (
+    <PasswordInput {...props} autoComplete="off" />
+  ) : (
+    <TextInput {...props} autoComplete="off" />
   );
 }
