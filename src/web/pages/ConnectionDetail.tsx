@@ -5,9 +5,12 @@ import {
   Card,
   Checkbox,
   Container,
+  Divider,
   Group,
   Loader,
+  ScrollArea,
   Stack,
+  Table,
   Text,
   TextInput,
   Title,
@@ -45,6 +48,7 @@ export function ConnectionDetail() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selection, setSelection] = useState<Set<string>>(new Set());
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const pollRef = useRef<number | null>(null);
   // Track which source IDs we've seen across polls. When discovery is
   // streaming sources in, each refetch surfaces a few new rows; we want
@@ -116,20 +120,28 @@ export function ConnectionDetail() {
     );
   }, [sources, search]);
 
-  const grouped = useMemo(() => {
-    const map = new Map<string, ApiSource[]>();
-    for (const s of filtered) {
-      const group = map.get(s.sourceKindLabel) ?? [];
-      group.push(s);
-      map.set(s.sourceKindLabel, group);
+  // Counts per kind for the summary chips. Sorted by kind label.
+  const breakdownByKind = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const s of sources) {
+      map.set(s.sourceKindLabel, (map.get(s.sourceKindLabel) ?? 0) + 1);
     }
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [filtered]);
+  }, [sources]);
 
-  function toggleAll(group: ApiSource[], checked: boolean) {
+  const selectedCount = useMemo(
+    () => sources.reduce((n, s) => (selection.has(s.id) ? n + 1 : n), 0),
+    [sources, selection],
+  );
+  const allFilteredSelected =
+    filtered.length > 0 && filtered.every((s) => selection.has(s.id));
+  const someFilteredSelected =
+    filtered.some((s) => selection.has(s.id)) && !allFilteredSelected;
+
+  function toggleFiltered(checked: boolean) {
     setSelection((prev) => {
       const next = new Set(prev);
-      for (const s of group) {
+      for (const s of filtered) {
         if (checked) next.add(s.id);
         else next.delete(s.id);
       }
@@ -265,17 +277,21 @@ export function ConnectionDetail() {
       <DiscoveryJobBanner job={latestJob} />
 
       <Card withBorder p="lg" mt="md">
-        <Group justify="space-between" mb="md">
+        <Group justify="space-between" mb="sm">
           <Title order={3} size="h4">
-            Discovered log sources ({sources.length})
+            Discovered log sources
           </Title>
-          <TextInput
-            placeholder="Filter…"
-            leftSection={<IconSearch size={14} />}
-            value={search}
-            onChange={(e) => setSearch(e.currentTarget.value)}
-            w={220}
-          />
+          {sources.length > 0 && (
+            <Button
+              size="xs"
+              variant="subtle"
+              onClick={() => setShowAdvanced((v) => !v)}
+            >
+              {showAdvanced
+                ? "Hide selection editor"
+                : "Customize selection"}
+            </Button>
+          )}
         </Group>
 
         {sources.length === 0 ? (
@@ -293,53 +309,120 @@ export function ConnectionDetail() {
             )}
           </Stack>
         ) : (
-          <Stack gap="lg">
-            {grouped.map(([label, group]) => {
-              const allSelected = group.every((s) => selection.has(s.id));
-              const someSelected = group.some((s) => selection.has(s.id));
-              return (
-                <Stack key={label} gap="xs">
-                  <Group justify="space-between">
-                    <Text fw={600} size="sm">
-                      {label}
-                      <Text component="span" c="dimmed" ml={6}>
-                        ({group.length})
-                      </Text>
-                    </Text>
-                    <Checkbox
-                      label="Select all"
-                      size="xs"
-                      checked={allSelected}
-                      indeterminate={!allSelected && someSelected}
-                      onChange={(e) =>
-                        toggleAll(group, e.currentTarget.checked)
-                      }
-                    />
-                  </Group>
-                  <Stack gap={6}>
-                    {group.map((s) => (
-                      <Checkbox
-                        key={s.id}
-                        label={s.displayName}
-                        checked={selection.has(s.id)}
-                        onChange={(e) =>
-                          toggleOne(s.id, e.currentTarget.checked)
-                        }
-                      />
-                    ))}
-                  </Stack>
-                </Stack>
-              );
-            })}
-          </Stack>
-        )}
-
-        {sources.length > 0 && (
-          <Group justify="space-between" mt="xl">
+          <Stack gap="md">
+            <Group gap="xs">
+              {breakdownByKind.map(([label, count]) => (
+                <Badge key={label} size="lg" variant="light" radius="sm">
+                  {count} {label}
+                  {count === 1 ? "" : "s"}
+                </Badge>
+              ))}
+            </Group>
             <Text size="sm" c="dimmed">
-              {selection.size} selected of {sources.length}
+              {selectedCount === sources.length
+                ? `Forwarding all ${sources.length}.`
+                : selectedCount === 0
+                  ? `None selected for forwarding.`
+                  : `Forwarding ${selectedCount} of ${sources.length}.`}
             </Text>
-            <Group>
+
+            {showAdvanced && (
+              <>
+                <Divider />
+                <Group justify="space-between" wrap="wrap" gap="sm">
+                  <TextInput
+                    placeholder="Filter sources…"
+                    leftSection={<IconSearch size={14} />}
+                    value={search}
+                    onChange={(e) => setSearch(e.currentTarget.value)}
+                    flex={1}
+                    miw={240}
+                  />
+                  <Group gap="xs">
+                    <Button
+                      size="xs"
+                      variant="default"
+                      onClick={() => toggleFiltered(true)}
+                    >
+                      Select all{search ? " filtered" : ""}
+                    </Button>
+                    <Button
+                      size="xs"
+                      variant="default"
+                      onClick={() => toggleFiltered(false)}
+                    >
+                      Deselect all{search ? " filtered" : ""}
+                    </Button>
+                  </Group>
+                </Group>
+
+                <ScrollArea h={420} type="auto">
+                  <Table
+                    stickyHeader
+                    striped
+                    highlightOnHover
+                    horizontalSpacing="md"
+                  >
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th style={{ width: 40 }}>
+                          <Checkbox
+                            checked={allFilteredSelected}
+                            indeterminate={someFilteredSelected}
+                            onChange={(e) =>
+                              toggleFiltered(e.currentTarget.checked)
+                            }
+                            aria-label="Select all"
+                          />
+                        </Table.Th>
+                        <Table.Th>Name</Table.Th>
+                        <Table.Th style={{ width: 160 }}>Kind</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {filtered.length === 0 ? (
+                        <Table.Tr>
+                          <Table.Td colSpan={3}>
+                            <Text c="dimmed" size="sm" ta="center" py="md">
+                              No sources match this filter.
+                            </Text>
+                          </Table.Td>
+                        </Table.Tr>
+                      ) : (
+                        filtered.map((s) => (
+                          <Table.Tr key={s.id}>
+                            <Table.Td>
+                              <Checkbox
+                                checked={selection.has(s.id)}
+                                onChange={(e) =>
+                                  toggleOne(s.id, e.currentTarget.checked)
+                                }
+                                aria-label={`Toggle ${s.displayName}`}
+                              />
+                            </Table.Td>
+                            <Table.Td>
+                              <Text size="sm" style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
+                                {s.displayName}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td>
+                              <Text size="sm" c="dimmed">
+                                {s.sourceKindLabel}
+                              </Text>
+                            </Table.Td>
+                          </Table.Tr>
+                        ))
+                      )}
+                    </Table.Tbody>
+                  </Table>
+                </ScrollArea>
+                <Text size="xs" c="dimmed">
+                  Showing {filtered.length} of {sources.length}
+                </Text>
+              </>
+            )}
+
+            <Group justify="flex-end" mt="xs">
               <Button
                 onClick={save}
                 disabled={!dirty}
@@ -356,7 +439,7 @@ export function ConnectionDetail() {
                 Generate Dockerfile
               </Button>
             </Group>
-          </Group>
+          </Stack>
         )}
       </Card>
     </Container>
