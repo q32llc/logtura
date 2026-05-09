@@ -46,20 +46,34 @@ export function ConnectionDetail() {
   const [search, setSearch] = useState("");
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const pollRef = useRef<number | null>(null);
+  // Track which source IDs we've seen across polls. When discovery is
+  // streaming sources in, each refetch surfaces a few new rows; we want
+  // any new server-selected source to go into the local selection so
+  // "auto-select all" actually catches everything that lands, not just
+  // the first batch. User edits to *existing* sources are preserved.
+  const seenSourceIdsRef = useRef<Set<string>>(new Set());
 
   const refetch = useCallback(async () => {
     if (!id) return;
     try {
       const r = await api.getConnection(id);
       setConnection(r.connection);
-      setSources(r.sources);
       setLatestJob(r.latestDiscoveryJob);
-      setSelection(
-        (prev) =>
-          // Preserve in-flight UI selection if user is mid-edit; only seed
-          // from server when we don't have a selection yet.
-          prev.size > 0 ? prev : new Set(r.sources.filter((s) => s.selected).map((s) => s.id)),
-      );
+
+      const seen = seenSourceIdsRef.current;
+      const newlySelectedIds: string[] = [];
+      for (const s of r.sources) {
+        if (!seen.has(s.id) && s.selected) newlySelectedIds.push(s.id);
+      }
+      seenSourceIdsRef.current = new Set(r.sources.map((s) => s.id));
+      setSources(r.sources);
+      if (newlySelectedIds.length > 0) {
+        setSelection((prev) => {
+          const next = new Set(prev);
+          for (const sid of newlySelectedIds) next.add(sid);
+          return next;
+        });
+      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load");
     }
