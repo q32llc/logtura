@@ -1,6 +1,9 @@
+import type { QueueEnvelope } from "./jobs/types";
+
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
+  JOBS_QUEUE: Queue<QueueEnvelope>;
   APP_URL: string;
   GITHUB_CLIENT_ID: string;
   GITHUB_CLIENT_SECRET: string;

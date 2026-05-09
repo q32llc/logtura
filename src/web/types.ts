@@ -76,3 +76,19 @@ export interface ApiBundle {
   envVars: ApiEnvVar[];
   selectedCount: number;
 }
+
+export type ApiJobStatus = "queued" | "running" | "succeeded" | "failed";
+
+export interface ApiJob {
+  id: string;
+  kind: string;
+  status: ApiJobStatus;
+  error: string | null;
+  attemptCount: number;
+  maxAttempts: number;
+  createdAt: number;
+  updatedAt: number;
+  startedAt: number | null;
+  completedAt: number | null;
+  result: Record<string, unknown> | null;
+}

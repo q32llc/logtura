@@ -1,6 +1,7 @@
 import type {
   ApiBundle,
   ApiConnection,
+  ApiJob,
   ApiProvider,
   ApiSource,
   ApiUser,
@@ -57,18 +58,22 @@ export const api = {
       body: form,
     }),
   getConnection: (id: string) =>
-    request<{ connection: ApiConnection; sources: ApiSource[] }>(
-      `/connections/${id}`,
-    ),
+    request<{
+      connection: ApiConnection;
+      sources: ApiSource[];
+      latestDiscoveryJob: ApiJob | null;
+    }>(`/connections/${id}`),
   setSourceSelections: (id: string, selectedSourceIds: string[]) =>
     request<{ sources: ApiSource[] }>(`/connections/${id}/sources`, {
       method: "POST",
       body: JSON.stringify({ selectedSourceIds }),
     }),
   rediscover: (id: string) =>
-    request<{ sources: ApiSource[] }>(`/connections/${id}/discover`, {
-      method: "POST",
-    }),
+    request<{ job: ApiJob; deduped: boolean }>(
+      `/connections/${id}/discover`,
+      { method: "POST" },
+    ),
+  getJob: (id: string) => request<{ job: ApiJob }>(`/jobs/${id}`),
   deleteConnection: (id: string) =>
     request<{ ok: true }>(`/connections/${id}`, { method: "DELETE" }),
   getBundle: (id: string) => request<ApiBundle>(`/connections/${id}/bundle`),

@@ -8,19 +8,23 @@ import {
 } from "./auth";
 import {
   createConnection,
-  decryptConnectionCredentials,
   deleteConnection,
   getConnection,
   listConnections,
   listSources,
-  markDiscovered,
   setSourceSelections,
-  upsertSources,
   type ConnectionRow,
   type LogSourceRow,
 } from "./db";
-import type { AppContext } from "./env";
+import type { AppContext, Env } from "./env";
 import { generateBundle } from "./generator";
+import { JobDriver } from "./jobs/driver";
+import { processQueueBatch } from "./jobs/queue";
+import {
+  type JobRecord,
+  dedupeKeyForDiscovery,
+  type QueueEnvelope,
+} from "./jobs/types";
 import { getProvider, listProviders, ProviderError } from "./providers";
 
 const app = new Hono<AppContext>();
@@ -121,18 +125,14 @@ apiAuth.post("/connections", async (c) => {
     credentials,
   });
 
-  // Run initial discovery synchronously so the next page has data.
-  try {
-    const discovered = await driver.discoverSources({
-      credentials,
-      accountId,
-    });
-    await upsertSources(c.env.DB, connection.id, discovered);
-    await markDiscovered(c.env.DB, connection.id);
-  } catch (err) {
-    console.error("initial discovery failed", err);
-    // Non-fatal — connection is still created.
-  }
+  // Queue an initial discovery instead of running it inline.
+  const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
+  await jobs.enqueue({
+    userId: user.id,
+    kind: "discovery",
+    payload: { connectionId: connection.id },
+    dedupeKey: dedupeKeyForDiscovery(connection.id),
+  });
 
   return c.json({ connection: toApiConnection(connection) });
 });
@@ -144,9 +144,14 @@ apiAuth.get("/connections/:id", async (c) => {
   if (!connection) return c.json({ error: "not_found" }, 404);
   const sources = await listSources(c.env.DB, connection.id);
   const driver = getProvider(connection.provider);
+  const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
+  const latestJob = await jobs.latestForDedupeKey(
+    dedupeKeyForDiscovery(connection.id),
+  );
   return c.json({
     connection: toApiConnection(connection),
     sources: sources.map((s) => toApiSource(s, driver)),
+    latestDiscoveryJob: latestJob ? toApiJob(latestJob) : null,
   });
 });
 
@@ -171,27 +176,17 @@ apiAuth.post("/connections/:id/discover", async (c) => {
   if (!connection.external_account_id) {
     return c.json({ error: "no_account_id" }, 400);
   }
-  const driver = getProvider(connection.provider);
-  if (!driver) return c.json({ error: "unknown_provider" }, 400);
-  const credentials = await decryptConnectionCredentials(c.env, connection);
-  try {
-    const discovered = await driver.discoverSources({
-      credentials,
-      accountId: connection.external_account_id,
-    });
-    await upsertSources(c.env.DB, connection.id, discovered);
-    await markDiscovered(c.env.DB, connection.id);
-  } catch (err) {
-    if (err instanceof ProviderError) {
-      return c.json(
-        { error: "discovery_failed", message: err.message },
-        400,
-      );
-    }
-    throw err;
-  }
-  const sources = await listSources(c.env.DB, connection.id);
-  return c.json({ sources: sources.map((s) => toApiSource(s, driver)) });
+  const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
+  const result = await jobs.enqueue({
+    userId: user.id,
+    kind: "discovery",
+    payload: { connectionId: connection.id },
+    dedupeKey: dedupeKeyForDiscovery(connection.id),
+  });
+  return c.json({
+    job: toApiJob(result.job),
+    deduped: result.deduped,
+  });
 });
 
 apiAuth.delete("/connections/:id", async (c) => {
@@ -221,15 +216,37 @@ apiAuth.get("/connections/:id/bundle", async (c) => {
   });
 });
 
+apiAuth.get("/jobs/:id", async (c) => {
+  const user = c.get("user")!;
+  const id = c.req.param("id");
+  const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
+  const job = await jobs.getById(id);
+  if (!job || job.userId !== user.id) {
+    return c.json({ error: "not_found" }, 404);
+  }
+  return c.json({ job: toApiJob(job) });
+});
+
 api.route("/", apiAuth);
 app.route("/api", api);
 
 // --- SPA fallback ---------------------------------------------------------
-// Anything we didn't handle falls through to ASSETS, which serves
-// index.html (Vite-built React app) for non-file paths thanks to
-// not_found_handling = "single-page-application".
 
 app.notFound(async (c) => c.env.ASSETS.fetch(c.req.raw));
+
+// --- Worker entry: fetch + queue ------------------------------------------
+
+export default {
+  async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    return app.fetch(req, env, ctx);
+  },
+  async queue(
+    batch: MessageBatch<QueueEnvelope>,
+    env: Env,
+  ): Promise<void> {
+    await processQueueBatch(batch, env);
+  },
+};
 
 // --- API response shapers -------------------------------------------------
 
@@ -261,4 +278,18 @@ function toApiSource(
   };
 }
 
-export default app;
+function toApiJob(j: JobRecord) {
+  return {
+    id: j.id,
+    kind: j.kind,
+    status: j.status,
+    error: j.error,
+    attemptCount: j.attemptCount,
+    maxAttempts: j.maxAttempts,
+    createdAt: j.createdAt,
+    updatedAt: j.updatedAt,
+    startedAt: j.startedAt,
+    completedAt: j.completedAt,
+    result: j.result,
+  };
+}

@@ -14,43 +14,83 @@ import {
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
+  IconAlertTriangle,
+  IconCheck,
+  IconClock,
   IconDownload,
   IconRefresh,
   IconSearch,
   IconTrash,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api } from "../api";
-import type { ApiConnection, ApiSource } from "../types";
+import type {
+  ApiConnection,
+  ApiJob,
+  ApiJobStatus,
+  ApiSource,
+} from "../types";
+
+const ACTIVE_STATUSES: ApiJobStatus[] = ["queued", "running"];
 
 export function ConnectionDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [connection, setConnection] = useState<ApiConnection | null>(null);
   const [sources, setSources] = useState<ApiSource[]>([]);
+  const [latestJob, setLatestJob] = useState<ApiJob | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<"discover" | "save" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selection, setSelection] = useState<Set<string>>(new Set());
+  const pollRef = useRef<number | null>(null);
+
+  const refetch = useCallback(async () => {
+    if (!id) return;
+    try {
+      const r = await api.getConnection(id);
+      setConnection(r.connection);
+      setSources(r.sources);
+      setLatestJob(r.latestDiscoveryJob);
+      setSelection(
+        (prev) =>
+          // Preserve in-flight UI selection if user is mid-edit; only seed
+          // from server when we don't have a selection yet.
+          prev.size > 0 ? prev : new Set(r.sources.filter((s) => s.selected).map((s) => s.id)),
+      );
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to load");
+    }
+  }, [id]);
 
   useEffect(() => {
-    if (!id) return;
-    api
-      .getConnection(id)
-      .then((r) => {
-        setConnection(r.connection);
-        setSources(r.sources);
-        setSelection(
-          new Set(r.sources.filter((s) => s.selected).map((s) => s.id)),
-        );
-      })
-      .catch((e) =>
-        setError(e instanceof ApiError ? e.message : "Failed to load"),
-      )
-      .finally(() => setLoading(false));
-  }, [id]);
+    setLoading(true);
+    refetch().finally(() => setLoading(false));
+  }, [refetch]);
+
+  // Poll while there's an active discovery job. Stops as soon as the
+  // job lands in a terminal status (succeeded/failed).
+  useEffect(() => {
+    if (!latestJob || !ACTIVE_STATUSES.includes(latestJob.status)) {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      return;
+    }
+    if (pollRef.current) return;
+    pollRef.current = window.setInterval(() => {
+      refetch();
+    }, 2000) as unknown as number;
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [latestJob, refetch]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -98,10 +138,7 @@ export function ConnectionDetail() {
     try {
       const res = await api.setSourceSelections(id, [...selection]);
       setSources(res.sources);
-      notifications.show({
-        message: "Selection saved",
-        color: "teal",
-      });
+      notifications.show({ message: "Selection saved", color: "teal" });
     } catch (e) {
       notifications.show({
         message: e instanceof ApiError ? e.message : "Failed to save",
@@ -117,20 +154,17 @@ export function ConnectionDetail() {
     setBusy("discover");
     try {
       const res = await api.rediscover(id);
-      setSources(res.sources);
-      setSelection(
-        new Set(res.sources.filter((s) => s.selected).map((s) => s.id)),
-      );
-      // Refresh connection (lastDiscoveredAt)
-      const r = await api.getConnection(id);
-      setConnection(r.connection);
+      setLatestJob(res.job);
       notifications.show({
-        message: `Re-discovery complete (${res.sources.length} sources)`,
+        message: res.deduped
+          ? "Discovery is already running"
+          : "Discovery queued",
         color: "teal",
       });
     } catch (e) {
       notifications.show({
-        message: e instanceof ApiError ? e.message : "Re-discovery failed",
+        message:
+          e instanceof ApiError ? e.message : "Could not queue discovery",
         color: "red",
       });
     } finally {
@@ -177,6 +211,8 @@ export function ConnectionDetail() {
   const dirty =
     sources.length > 0 &&
     sources.some((s) => s.selected !== selection.has(s.id));
+  const jobActive =
+    latestJob !== null && ACTIVE_STATUSES.includes(latestJob.status);
 
   return (
     <Container size="md">
@@ -196,8 +232,9 @@ export function ConnectionDetail() {
             leftSection={<IconRefresh size={16} />}
             onClick={rediscover}
             loading={busy === "discover"}
+            disabled={jobActive}
           >
-            Re-discover
+            {jobActive ? "Discovering…" : "Re-discover"}
           </Button>
           <Button
             color="red"
@@ -211,7 +248,9 @@ export function ConnectionDetail() {
         </Group>
       </Group>
 
-      <Card withBorder p="lg">
+      <DiscoveryJobBanner job={latestJob} />
+
+      <Card withBorder p="lg" mt="md">
         <Group justify="space-between" mb="md">
           <Title order={3} size="h4">
             Discovered log sources ({sources.length})
@@ -227,11 +266,17 @@ export function ConnectionDetail() {
 
         {sources.length === 0 ? (
           <Stack align="center" gap="sm" py="lg">
-            <Text c="dimmed">No sources discovered yet.</Text>
-            <Text size="sm" c="dimmed">
-              Try Re-discover, and check the API token has the right read
-              scopes.
+            <Text c="dimmed">
+              {jobActive
+                ? "Discovery in progress…"
+                : "No sources discovered yet."}
             </Text>
+            {!jobActive && (
+              <Text size="sm" c="dimmed">
+                Try Re-discover, and check the API token has the right read
+                scopes.
+              </Text>
+            )}
           </Stack>
         ) : (
           <Stack gap="lg">
@@ -302,4 +347,73 @@ export function ConnectionDetail() {
       </Card>
     </Container>
   );
+}
+
+function DiscoveryJobBanner({ job }: { job: ApiJob | null }) {
+  if (!job) return null;
+  if (job.status === "queued") {
+    return (
+      <Alert
+        icon={<IconClock size={16} />}
+        color="blue"
+        variant="light"
+        title="Discovery queued"
+      >
+        Waiting for a worker to pick up the job.
+      </Alert>
+    );
+  }
+  if (job.status === "running") {
+    return (
+      <Alert
+        icon={<Loader size={14} />}
+        color="blue"
+        variant="light"
+        title="Discovery running"
+      >
+        Asking the provider for log sources. This page updates automatically.
+      </Alert>
+    );
+  }
+  if (job.status === "failed") {
+    return (
+      <Alert
+        icon={<IconAlertTriangle size={16} />}
+        color="red"
+        variant="light"
+        title="Last discovery failed"
+      >
+        {job.error ?? "Unknown error."} Click Re-discover to try again.
+      </Alert>
+    );
+  }
+  // succeeded
+  if (job.completedAt) {
+    const ago = relativeTime(job.completedAt);
+    const count =
+      typeof job.result?.sourceCount === "number"
+        ? job.result.sourceCount
+        : null;
+    return (
+      <Alert
+        icon={<IconCheck size={16} />}
+        color="teal"
+        variant="light"
+        title="Last discovery succeeded"
+      >
+        {count !== null
+          ? `Found ${count} source${count === 1 ? "" : "s"} ${ago}.`
+          : `Completed ${ago}.`}
+      </Alert>
+    );
+  }
+  return null;
+}
+
+function relativeTime(ms: number): string {
+  const diff = (Date.now() - ms) / 1000;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return new Date(ms).toISOString().slice(0, 10);
 }
