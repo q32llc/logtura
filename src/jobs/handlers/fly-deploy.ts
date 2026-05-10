@@ -8,74 +8,124 @@ import {
   base64Encode,
   createFlyApp,
   createFlyMachine,
+  flyAuthHeader,
   getFlyApp,
   listFlyMachines,
   resolveFlyOrgSlug,
   updateFlyMachine,
   type FlyMachineConfig,
 } from "../../deploy-targets/fly-machines";
+import { dischargeBundle } from "../../deploy-targets/fly-macaroon";
 import type { Env } from "../../env";
+import type { JobHandlerCtx } from "../queue";
 import type {
+  FlyCreateOrUpdateMachinePayload,
   FlyDeployPayload,
-  FlyDeployResult,
-  JobRecord,
+  FlyDischargeCreateAppPayload,
+  FlyWaitRunningPayload,
 } from "../types";
 
 const DEFAULT_REGION = "iad";
 const VECTOR_IMAGE = "timberio/vector:latest-debian";
 const MACHINE_NAME = "forwarder";
+/** How long the wait_running chain may run before giving up. */
+const RUN_TIMEOUT_MS = 5 * 60 * 1000;
+/** Delay between wait_running re-queues. */
+const POLL_DELAY_SECS = 5;
 
-/**
- * Deploy a logtura forwarder to Fly. Idempotent: re-running picks up
- * the existing app + machine and updates the machine config in place,
- * so a config change (new monitor, rotated credential) just redeploys.
- *
- * App name is derived from the deployment id and stays stable across
- * runs. The machine carries the generated vector.yaml as a config.files
- * entry — no per-customer image build.
- */
-export async function runFlyDeploy(
-  env: Env,
-  job: JobRecord,
-): Promise<FlyDeployResult> {
-  const payload = job.payload as unknown as FlyDeployPayload;
+// --- Step 0: parent ---------------------------------------------------
+//
+// The parent does no work. Its only job is to spawn the first step kid;
+// status flows up through aggregateStatus(parent, kids) on read. Having
+// a parent row anyway gives the UI a single id to poll and a clear
+// place to attach lock_key for re-click coalescing.
+
+export async function runFlyDeploy(ctx: JobHandlerCtx): Promise<null> {
+  const payload = ctx.job.payload as unknown as FlyDeployPayload;
   if (!payload.deploymentId || !payload.deployTargetId) {
     throw new Error("fly_deploy payload missing ids");
   }
+  await ctx.events.record({
+    kind: "fly_deploy.started",
+    message: `Starting Fly deploy for ${payload.deploymentId}`,
+    payload: { deployTargetId: payload.deployTargetId },
+  });
+  await ctx.enqueueSibling({
+    kind: "fly_deploy.discharge_create_app",
+    payload: {
+      parentPayload: payload,
+      appName: flyAppNameFor(payload.deploymentId),
+    } as unknown as Record<string, unknown>,
+  });
+  return null;
+}
 
-  const target = await getDeployTargetById(
-    env.DB,
-    job.userId,
-    payload.deployTargetId,
-  );
-  if (!target) throw new Error("deploy_target not found");
-  if (target.kind !== "fly") {
-    throw new Error(`expected fly target, got ${target.kind}`);
+// --- Step 1: discharge + resolve org + create-or-reuse app -----------
+
+export async function runFlyDischargeCreateApp(
+  ctx: JobHandlerCtx,
+): Promise<Record<string, unknown>> {
+  const p = ctx.job.payload as unknown as FlyDischargeCreateAppPayload;
+  const parent = p.parentPayload;
+
+  const flyAuth = await loadDischargedAuth(ctx.env, ctx.job.userId, parent);
+
+  const orgSlug =
+    parent.orgSlug ?? (await resolveOrgSlugWithFallback(ctx, flyAuth));
+  const region = parent.region ?? DEFAULT_REGION;
+
+  const existing = await getFlyApp(flyAuth, p.appName);
+  if (!existing) {
+    await createFlyApp(flyAuth, { appName: p.appName, orgSlug });
+    await ctx.events.record({
+      kind: "fly_app.created",
+      message: `Created Fly app ${p.appName} in ${orgSlug}`,
+    });
+  } else {
+    await ctx.events.record({
+      kind: "fly_app.reused",
+      message: `Reusing existing Fly app ${p.appName}`,
+    });
   }
 
-  const creds = await decryptDeployTargetCredentials<{ apiToken: string }>(
-    env,
-    target,
-  );
-  if (!creds.apiToken) throw new Error("fly token missing from deploy_target");
+  // Spawn next step BEFORE returning, per the spawn-before-markDone
+  // discipline. processOne will call complete(succeeded) after we
+  // return; if we returned before spawning, the rollup view could
+  // briefly see "all-kids-terminal" with no next step queued.
+  await ctx.enqueueSibling({
+    kind: "fly_deploy.create_or_update_machine",
+    payload: {
+      parentPayload: parent,
+      appName: p.appName,
+      orgSlug,
+      region,
+    } as unknown as Record<string, unknown>,
+  });
+  return { appName: p.appName, orgSlug, region };
+}
+
+// --- Step 2: assemble bundle + create-or-update machine --------------
+
+export async function runFlyCreateOrUpdateMachine(
+  ctx: JobHandlerCtx,
+): Promise<Record<string, unknown>> {
+  const p = ctx.job.payload as unknown as FlyCreateOrUpdateMachinePayload;
+  const parent = p.parentPayload;
+
+  const flyAuth = await loadDischargedAuth(ctx.env, ctx.job.userId, parent);
 
   const assembled = await assembleDeploymentBundle(
-    env,
-    job.userId,
-    payload.deploymentId,
+    ctx.env,
+    ctx.job.userId,
+    parent.deploymentId,
   );
-  const { deployment, bundle } = assembled;
-
   if (!assembled.credentialIsFresh) {
     throw new Error(
       `connection credential is unusable: ${assembled.credentialStaleReason ?? "stale"}`,
     );
   }
+  const { deployment, bundle } = assembled;
 
-  // Every env var must have a value at deploy time. The bundle UI
-  // tolerates user-supplied "manual" entries, but for managed deploy
-  // we require everything resolved up front (token freshness check
-  // above covers credentials; destinations are always inlined).
   const env_: Record<string, string> = {};
   for (const v of bundle.envVars) {
     if (v.value === null) {
@@ -84,15 +134,6 @@ export async function runFlyDeploy(
       );
     }
     env_[v.name] = v.value;
-  }
-
-  const orgSlug = payload.orgSlug ?? (await resolveFlyOrgSlug(creds.apiToken));
-  const region = payload.region ?? DEFAULT_REGION;
-  const appName = flyAppNameFor(deployment.id);
-
-  const existingApp = await getFlyApp(creds.apiToken, appName);
-  if (!existingApp) {
-    await createFlyApp(creds.apiToken, { appName, orgSlug });
   }
 
   const machineConfig: FlyMachineConfig = {
@@ -109,49 +150,145 @@ export async function runFlyDeploy(
     restart: { policy: "always" },
   };
 
-  const existingMachines = await listFlyMachines(creds.apiToken, appName);
-  const target_machine = existingMachines.find((m) => m.name === MACHINE_NAME);
-
+  const existing = await listFlyMachines(flyAuth, p.appName);
+  const target = existing.find((m) => m.name === MACHINE_NAME);
   let machineId: string;
-  if (target_machine) {
-    const updated = await updateFlyMachine(creds.apiToken, {
-      appName,
-      machineId: target_machine.id,
+  if (target) {
+    const updated = await updateFlyMachine(flyAuth, {
+      appName: p.appName,
+      machineId: target.id,
       config: machineConfig,
     });
     machineId = updated.id;
+    await ctx.events.record({
+      kind: "fly_machine.updated",
+      message: `Updated machine ${machineId} on ${p.appName}`,
+    });
   } else {
-    const created = await createFlyMachine(creds.apiToken, {
-      appName,
+    const created = await createFlyMachine(flyAuth, {
+      appName: p.appName,
       name: MACHINE_NAME,
-      region,
+      region: p.region,
       config: machineConfig,
     });
     machineId = created.id;
+    await ctx.events.record({
+      kind: "fly_machine.created",
+      message: `Created machine ${machineId} on ${p.appName}`,
+    });
   }
 
-  await updateDeployment(env.DB, job.userId, deployment.id, {
-    status: "running",
-    externalId: `fly:${appName}:${machineId}`,
+  await updateDeployment(ctx.env.DB, ctx.job.userId, deployment.id, {
+    externalId: `fly:${p.appName}:${machineId}`,
   });
 
-  return {
-    appName,
-    machineId,
-    orgSlug,
-    region,
-    appUrl: `https://fly.io/apps/${appName}`,
-  };
+  await ctx.enqueueSibling({
+    kind: "fly_deploy.wait_running",
+    payload: {
+      parentPayload: parent,
+      appName: p.appName,
+      machineId,
+      pollDeadline: Date.now() + RUN_TIMEOUT_MS,
+    } as unknown as Record<string, unknown>,
+    delaySecs: POLL_DELAY_SECS,
+  });
+  return { appName: p.appName, machineId, orgSlug: p.orgSlug, region: p.region };
 }
 
-/** Stable, DNS-safe Fly app name. Globally unique on Fly, so we
- *  prefix with "logtura-" + the deployment id minus its "dep_" prefix
- *  (random base32, already DNS-safe). */
+// --- Step 3: poll machine state, requeue self until running ---------
+
+export async function runFlyWaitRunning(
+  ctx: JobHandlerCtx,
+): Promise<Record<string, unknown>> {
+  const p = ctx.job.payload as unknown as FlyWaitRunningPayload;
+  const parent = p.parentPayload;
+
+  const flyAuth = await loadDischargedAuth(ctx.env, ctx.job.userId, parent);
+
+  const machines = await listFlyMachines(flyAuth, p.appName);
+  const m = machines.find((x) => x.id === p.machineId);
+  if (!m) {
+    throw new Error(`machine ${p.machineId} not found on ${p.appName}`);
+  }
+
+  if (m.state === "started") {
+    await updateDeployment(ctx.env.DB, ctx.job.userId, parent.deploymentId, {
+      status: "running",
+    });
+    await ctx.events.record({
+      kind: "fly_machine.running",
+      message: `Machine ${p.machineId} is running`,
+    });
+    return {
+      appName: p.appName,
+      machineId: p.machineId,
+      machineState: m.state,
+      orgSlug: parent.orgSlug ?? "personal",
+      region: parent.region ?? DEFAULT_REGION,
+      appUrl: `https://fly.io/apps/${p.appName}`,
+    };
+  }
+
+  if (Date.now() >= p.pollDeadline) {
+    throw new Error(
+      `machine ${p.machineId} did not reach 'started' within ${RUN_TIMEOUT_MS / 1000}s (last state: ${m.state})`,
+    );
+  }
+
+  await ctx.enqueueSibling({
+    kind: "fly_deploy.wait_running",
+    payload: { ...p } as unknown as Record<string, unknown>,
+    delaySecs: POLL_DELAY_SECS,
+  });
+  return { machineState: m.state, polling: true };
+}
+
+// --- helpers ---------------------------------------------------------
+
+/** Each step independently decrypts + discharges. The discharge HTTP
+ *  is a single round-trip (~150ms); much cleaner than ferrying a
+ *  discharged token through payloads, and always-fresh sidesteps the
+ *  expiry questions that bit us before. */
+async function loadDischargedAuth(
+  env: Env,
+  userId: string,
+  parent: FlyDeployPayload,
+): Promise<string> {
+  const target = await getDeployTargetById(env.DB, userId, parent.deployTargetId);
+  if (!target) throw new Error("deploy_target not found");
+  if (target.kind !== "fly") {
+    throw new Error(`expected fly target, got ${target.kind}`);
+  }
+  const creds = await decryptDeployTargetCredentials<{ apiToken: string }>(
+    env,
+    target,
+  );
+  if (!creds.apiToken) throw new Error("fly token missing from deploy_target");
+  return dischargeBundle(flyAuthHeader(creds.apiToken));
+}
+
+async function resolveOrgSlugWithFallback(
+  ctx: JobHandlerCtx,
+  authHeader: string,
+): Promise<string> {
+  try {
+    return await resolveFlyOrgSlug(authHeader);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "resolve failed";
+    await ctx.events.record({
+      kind: "fly_org_slug_fallback",
+      severity: "warn",
+      message: "Falling back to 'personal' org for Fly deploy",
+      payload: { reason: message },
+    });
+    return "personal";
+  }
+}
+
+/** Stable, DNS-safe Fly app name. Globally unique on Fly, prefixed
+ *  with "logtura-" + the deployment id minus its "dep_" prefix. */
 export function flyAppNameFor(deploymentId: string): string {
   const suffix = deploymentId.replace(/^dep_/, "").toLowerCase();
-  // Fly app names: ≤30 chars, [a-z0-9-]. Strip non-conforming and
-  // keep enough to stay globally unique while leaving room for the
-  // "logtura-" prefix.
   const safe = suffix.replace(/[^a-z0-9-]/g, "").slice(0, 20);
   return `logtura-${safe}`;
 }

@@ -1,16 +1,69 @@
 import type { Env } from "../env";
+import { recordOpsEvent } from "../ops-events";
 import { JobDriver } from "./driver";
 import { runDiscovery } from "./handlers/discovery";
-import { runFlyDeploy } from "./handlers/fly-deploy";
-import type { QueueEnvelope } from "./types";
+import {
+  runFlyDeploy,
+  runFlyDischargeCreateApp,
+  runFlyCreateOrUpdateMachine,
+  runFlyWaitRunning,
+} from "./handlers/fly-deploy";
+import type { JobKind, JobRecord, QueueEnvelope } from "./types";
+
+/** Cap each handler invocation well below CF Workers' 30s subrequest
+ *  budget. When the timer fires, we abort the in-flight handler and
+ *  write a terminal `failed` state from the same Worker invocation
+ *  before CF kills us. attempt_id gating prevents the runaway-but-
+ *  not-yet-killed handler from clobbering future re-claims. */
+const SELF_KILL_BUDGET_MS = 25_000;
 
 /**
- * Cloudflare Queue consumer. Each message is a `{ jobId }` envelope;
- * we claim the row, dispatch to a handler, and ack/retry based on the
- * outcome. App-level retry (with backoff) is handled here too — the
- * CF Queue retry is reserved for transport-level failures (claim
- * race, tempporary D1 outage).
+ * Handler context. Handlers run inside a budget-bound `processOne`
+ * that injects an AbortSignal into every fetch. They can:
+ *
+ *   - `enqueueSibling(...)` to chain follow-up steps. Spawn-before-
+ *     return so the rollup never sees an "all kids terminal" gap.
+ *   - `events.record(...)` to write to ops_events for the audit trail.
+ *   - read `signal` and pass it to `fetch` so the self-kill works.
  */
+export interface JobHandlerCtx {
+  env: Env;
+  driver: JobDriver;
+  job: JobRecord;
+  signal: AbortSignal;
+  enqueueSibling: <P extends Record<string, unknown>>(input: {
+    kind: JobKind;
+    payload: P;
+    lockKey?: string;
+    delaySecs?: number;
+  }) => Promise<JobRecord>;
+  events: {
+    record: (input: {
+      kind: string;
+      severity?: "info" | "warn" | "error";
+      message: string;
+      payload?: Record<string, unknown> | null;
+    }) => Promise<void>;
+  };
+}
+
+export type JobHandler = (
+  ctx: JobHandlerCtx,
+) => Promise<unknown>;
+
+/**
+ * Dispatch table. Adding a new job kind = add a handler here. There
+ * is no per-kind retry/dedupe metadata — those live at enqueue time
+ * (lockKey, delaySecs) and are decided by the caller.
+ */
+const HANDLERS: Partial<Record<JobKind, JobHandler>> = {
+  discovery: runDiscovery,
+  fly_deploy: runFlyDeploy,
+  "fly_deploy.discharge_create_app": runFlyDischargeCreateApp,
+  "fly_deploy.create_or_update_machine": runFlyCreateOrUpdateMachine,
+  "fly_deploy.wait_running": runFlyWaitRunning,
+};
+
 export async function processQueueBatch(
   batch: MessageBatch<QueueEnvelope>,
   env: Env,
@@ -22,11 +75,13 @@ export async function processQueueBatch(
       await processOne(env, driver, msg.body.jobId);
       msg.ack();
     } catch (err) {
-      // Reach here only on a transport-level failure inside processOne
-      // itself (e.g. couldn't even update the jobs table). Let CF
-      // queue retry transport-level — handler-level errors are caught
-      // inside processOne and resolved via app-level retry/fail.
-      console.error("queue batch transport error", err);
+      // Reach here only if processOne itself threw — i.e., a D1
+      // outage made even the terminal write fail. CF Queue will
+      // redeliver; on redelivery, claim() filters status='queued'
+      // and a row stuck in 'running' will be no-op'd. Self-kill +
+      // attempt_id gating cover the more common "claimed-then-died"
+      // case from inside processOne.
+      console.error("queue_batch_transport_error", { err: errStr(err) });
       msg.retry();
     }
   }
@@ -39,50 +94,121 @@ async function processOne(
 ): Promise<void> {
   const job = await driver.claim(jobId);
   if (!job) {
-    // Already claimed by another worker, or no longer queued. Ignore.
     console.log("job_claim_skipped", { jobId });
     return;
   }
+  if (!job.attemptId) {
+    // claim() always sets attempt_id; this is just a type guard.
+    throw new Error(`job ${jobId} claimed without attempt_id`);
+  }
+  const attemptId = job.attemptId;
 
-  console.log("job_started", {
-    jobId: job.id,
-    kind: job.kind,
-    attempt: job.attemptCount,
-  });
+  console.log("job_started", { jobId: job.id, kind: job.kind });
+
+  const handler = HANDLERS[job.kind];
+  if (!handler) {
+    await driver.complete(job.id, attemptId, "failed", {
+      error: `unknown job kind: ${job.kind}`,
+    });
+    return;
+  }
+
+  const ac = new AbortController();
+  const timer = setTimeout(() => {
+    ac.abort(new Error(`self-killed: ${SELF_KILL_BUDGET_MS}ms budget`));
+  }, SELF_KILL_BUDGET_MS);
+
+  const ctx: JobHandlerCtx = {
+    env,
+    driver,
+    job,
+    signal: ac.signal,
+    enqueueSibling: async (input) => {
+      const r = await driver.enqueueSibling(job, input);
+      return r.job;
+    },
+    events: {
+      record: (input) =>
+        recordOpsEvent(env.DB, {
+          userId: job.userId,
+          jobId: job.id,
+          deploymentId: extractDeploymentId(job),
+          kind: input.kind,
+          severity: input.severity ?? "info",
+          message: input.message,
+          payload: input.payload ?? null,
+        }),
+    },
+  };
 
   try {
-    let result: Record<string, unknown> | null = null;
-    switch (job.kind) {
-      case "discovery":
-        result = (await runDiscovery(env, job)) as unknown as Record<
-          string,
-          unknown
-        >;
-        break;
-      case "fly_deploy":
-        result = (await runFlyDeploy(env, job)) as unknown as Record<
-          string,
-          unknown
-        >;
-        break;
-      default:
-        throw new Error(`unknown job kind: ${job.kind}`);
-    }
-    await driver.markSucceeded(job.id, result);
-    console.log("job_succeeded", { jobId: job.id, result });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Job failed";
-    console.warn("job_failed_attempt", {
-      jobId: job.id,
-      attempt: job.attemptCount,
-      max: job.maxAttempts,
-      error: message,
+    const result = await Promise.race([
+      handler(ctx),
+      abortPromise(ac.signal),
+    ]);
+    const resultObj =
+      result == null
+        ? null
+        : typeof result === "object"
+          ? (result as Record<string, unknown>)
+          : { value: result };
+    const wrote = await driver.complete(job.id, attemptId, "succeeded", {
+      result: resultObj,
     });
-    if (job.attemptCount < job.maxAttempts) {
-      const delay = driver.retryBackoffMs(job.attemptCount);
-      await driver.markRequeued(job.id, delay, message);
+    if (!wrote) {
+      console.warn("job_complete_skipped_attempt_mismatch", {
+        jobId: job.id,
+        kind: job.kind,
+        attemptId,
+      });
     } else {
-      await driver.markFailed(job.id, message);
+      console.log("job_succeeded", { jobId: job.id, kind: job.kind });
     }
+  } catch (err) {
+    const message = errStr(err);
+    console.warn("job_failed", { jobId: job.id, kind: job.kind, error: message });
+    await driver.complete(job.id, attemptId, "failed", { error: message });
+  } finally {
+    clearTimeout(timer);
   }
+}
+
+/** A promise that rejects when the signal aborts. Lets us race a
+ *  handler against the self-kill timer without depending on the
+ *  handler to actively check signal.aborted. */
+function abortPromise(signal: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason ?? new Error("aborted"));
+      return;
+    }
+    signal.addEventListener(
+      "abort",
+      () => reject(signal.reason ?? new Error("aborted")),
+      { once: true },
+    );
+  });
+}
+
+function errStr(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === "string") return err;
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
+/** Best-effort: pull deploymentId out of common payload shapes for
+ *  the ops_events deployment_id column. Lets the audit trail filter
+ *  by deployment without each handler having to remember. */
+function extractDeploymentId(job: JobRecord): string | null {
+  const p = job.payload as Record<string, unknown>;
+  const direct = p.deploymentId;
+  if (typeof direct === "string") return direct;
+  const parent = p.parentPayload as Record<string, unknown> | undefined;
+  if (parent && typeof parent.deploymentId === "string")
+    return parent.deploymentId;
+  return null;
 }

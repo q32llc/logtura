@@ -202,9 +202,10 @@ export interface ApiJob {
   id: string;
   kind: string;
   status: ApiJobStatus;
+  /** null for top-level jobs (the ones the UI polls). When non-null,
+   *  this is a step kid in the chain. */
+  parentJobId: string | null;
   error: string | null;
-  attemptCount: number;
-  maxAttempts: number;
   createdAt: number;
   updatedAt: number;
   startedAt: number | null;

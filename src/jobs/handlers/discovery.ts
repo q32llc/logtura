@@ -4,20 +4,26 @@ import {
   markDiscovered,
   upsertSources,
 } from "../../db";
-import type { Env } from "../../env";
 import { ProviderError, getProvider } from "../../providers";
-import type { DiscoveryPayload, DiscoveryResult, JobRecord } from "../types";
+import type { JobHandlerCtx } from "../queue";
+import type { DiscoveryPayload, DiscoveryResult } from "../types";
 
+/** Single-step job. No kids — the work fits comfortably in one
+ *  handler invocation under the 25s budget. The shape is just the
+ *  new ctx-driven one for consistency with the chained handlers. */
 export async function runDiscovery(
-  env: Env,
-  job: JobRecord,
+  ctx: JobHandlerCtx,
 ): Promise<DiscoveryResult> {
-  const payload = job.payload as unknown as DiscoveryPayload;
+  const payload = ctx.job.payload as unknown as DiscoveryPayload;
   if (!payload.connectionId) {
     throw new Error("discovery payload missing connectionId");
   }
 
-  const connection = await getConnection(env.DB, job.userId, payload.connectionId);
+  const connection = await getConnection(
+    ctx.env.DB,
+    ctx.job.userId,
+    payload.connectionId,
+  );
   if (!connection) {
     throw new Error(`connection ${payload.connectionId} not found`);
   }
@@ -30,7 +36,7 @@ export async function runDiscovery(
     throw new Error(`unknown provider: ${connection.provider}`);
   }
 
-  const credentials = await decryptConnectionCredentials(env, connection);
+  const credentials = await decryptConnectionCredentials(ctx.env, connection);
 
   const startedAt = Date.now();
   let sources;
@@ -48,8 +54,8 @@ export async function runDiscovery(
     throw err;
   }
 
-  await upsertSources(env.DB, connection.id, sources);
-  await markDiscovered(env.DB, connection.id);
+  await upsertSources(ctx.env.DB, connection.id, sources);
+  await markDiscovered(ctx.env.DB, connection.id);
 
   return {
     sourceCount: sources.length,

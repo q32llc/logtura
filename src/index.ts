@@ -67,7 +67,7 @@ import { newToken, signCookie, verifyCookie } from "./crypto";
 import type { AppContext, Env } from "./env";
 import { generateBundle } from "./generator";
 import { assembleDeploymentBundle } from "./bundle-assembly";
-import { JobDriver } from "./jobs/driver";
+import { JobDriver, aggregateStatus } from "./jobs/driver";
 import { processQueueBatch } from "./jobs/queue";
 import {
   deploymentSilenceEmail,
@@ -79,8 +79,8 @@ import {
 } from "./db";
 import {
   type JobRecord,
-  dedupeKeyForDiscovery,
-  dedupeKeyForFlyDeploy,
+  lockKeyForDiscovery,
+  lockKeyForFlyDeploy,
   type QueueEnvelope,
 } from "./jobs/types";
 import { getProvider, listProviders, ProviderError } from "./providers";
@@ -193,7 +193,7 @@ apiAuth.post("/connections", async (c) => {
     userId: user.id,
     kind: "discovery",
     payload: { connectionId: connection.id },
-    dedupeKey: dedupeKeyForDiscovery(connection.id),
+    lockKey: lockKeyForDiscovery(connection.id),
   });
 
   return c.json({ connection: toApiConnection(connection) });
@@ -207,8 +207,8 @@ apiAuth.get("/connections/:id", async (c) => {
   const sources = await listSources(c.env.DB, connection.id);
   const driver = getProvider(connection.provider);
   const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
-  const latestJob = await jobs.latestForDedupeKey(
-    dedupeKeyForDiscovery(connection.id),
+  const latestJob = await jobs.latestForLockKey(
+    lockKeyForDiscovery(connection.id),
   );
   return c.json({
     connection: toApiConnection(connection),
@@ -230,7 +230,7 @@ apiAuth.post("/connections/:id/discover", async (c) => {
     userId: user.id,
     kind: "discovery",
     payload: { connectionId: connection.id },
-    dedupeKey: dedupeKeyForDiscovery(connection.id),
+    lockKey: lockKeyForDiscovery(connection.id),
   });
   return c.json({
     job: toApiJob(result.job),
@@ -427,7 +427,7 @@ apiAuth.post("/deployments/:id/deploy", async (c) => {
       deployTargetId: target.id,
       region: body.region,
     },
-    dedupeKey: dedupeKeyForFlyDeploy(id),
+    lockKey: lockKeyForFlyDeploy(id),
   });
   if (!deduped) {
     await updateDeployment(c.env.DB, user.id, id, { status: "pending" });
@@ -854,7 +854,23 @@ apiAuth.get("/jobs/:id", async (c) => {
   if (!job || job.userId !== user.id) {
     return c.json({ error: "not_found" }, 404);
   }
-  return c.json({ job: toApiJob(job) });
+  // Aggregate a parent's view from its kids without writing to the
+  // parent row. The kid that "really did the work" (the last
+  // succeeded one) is the source of truth for `result`; the first
+  // failed kid's error wins for `lastError`.
+  const kids = await jobs.listChildren(id);
+  const aggregated: JobRecord = kids.length
+    ? { ...job, status: aggregateStatus(job, kids) }
+    : job;
+  if (kids.length) {
+    const failed = kids.find((k) => k.status === "failed");
+    const lastSucceeded = [...kids]
+      .reverse()
+      .find((k) => k.status === "succeeded");
+    aggregated.lastError = failed?.lastError ?? null;
+    aggregated.result = lastSucceeded?.result ?? null;
+  }
+  return c.json({ job: toApiJob(aggregated), kids: kids.map(toApiJob) });
 });
 
 api.route("/", apiAuth);
@@ -1014,9 +1030,8 @@ function toApiJob(j: JobRecord) {
     id: j.id,
     kind: j.kind,
     status: j.status,
-    error: j.error,
-    attemptCount: j.attemptCount,
-    maxAttempts: j.maxAttempts,
+    parentJobId: j.parentJobId,
+    error: j.lastError,
     createdAt: j.createdAt,
     updatedAt: j.updatedAt,
     startedAt: j.startedAt,

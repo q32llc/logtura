@@ -1,4 +1,9 @@
-export type JobKind = "discovery" | "fly_deploy";
+export type JobKind =
+  | "discovery"
+  | "fly_deploy"
+  | "fly_deploy.discharge_create_app"
+  | "fly_deploy.create_or_update_machine"
+  | "fly_deploy.wait_running";
 
 export type JobStatus = "queued" | "running" | "succeeded" | "failed";
 
@@ -7,12 +12,13 @@ export interface JobRow {
   user_id: string;
   kind: string;
   status: string;
+  parent_job_id: string | null;
   payload_json: string;
   result_json: string | null;
-  error: string | null;
-  attempt_count: number;
-  max_attempts: number;
-  dedupe_key: string | null;
+  last_error: string | null;
+  attempt_id: string | null;
+  lock_key: string | null;
+  last_heartbeat_at: number | null;
   created_at: number;
   updated_at: number;
   started_at: number | null;
@@ -25,12 +31,13 @@ export interface JobRecord {
   userId: string;
   kind: JobKind;
   status: JobStatus;
+  parentJobId: string | null;
   payload: Record<string, unknown>;
   result: Record<string, unknown> | null;
-  error: string | null;
-  attemptCount: number;
-  maxAttempts: number;
-  dedupeKey: string | null;
+  lastError: string | null;
+  attemptId: string | null;
+  lockKey: string | null;
+  lastHeartbeatAt: number | null;
   createdAt: number;
   updatedAt: number;
   startedAt: number | null;
@@ -43,42 +50,68 @@ export interface QueueEnvelope {
   jobId: string;
 }
 
-/** Discovery job payload — just the connection to discover for. */
+// ----- Per-kind payload + result types ----------------------------
+
 export interface DiscoveryPayload {
   connectionId: string;
 }
-
-/** Discovery job result. */
 export interface DiscoveryResult {
   sourceCount: number;
   durationMs: number;
 }
 
-/** fly_deploy payload — which deployment to ship, using which target. */
+/** fly_deploy is the parent. Its kids do the real work. The parent
+ *  payload carries the inputs every step needs to look up. */
 export interface FlyDeployPayload {
   deploymentId: string;
   deployTargetId: string;
-  /** Optional override; when omitted, the handler resolves user's
-   *  default org via Fly's GraphQL. */
   orgSlug?: string;
-  /** Optional override; defaults to "iad". */
   region?: string;
+}
+
+/** Step 1: discharge the Fly token, resolve org slug, create app
+ *  (idempotent). Stashes the discharged auth header in the parent's
+ *  result so subsequent kids don't have to re-discharge. */
+export interface FlyDischargeCreateAppPayload {
+  parentPayload: FlyDeployPayload;
+  appName: string;
+}
+
+/** Step 2: create or update the machine with the generated config. */
+export interface FlyCreateOrUpdateMachinePayload {
+  parentPayload: FlyDeployPayload;
+  appName: string;
+  orgSlug: string;
+  region: string;
+}
+
+/** Step 3 (and self-respawning sibling): poll the machine until it
+ *  reports `started`. If not yet, enqueue another wait_running with
+ *  +5s delay; if yes, mark succeeded. Has its own deadline so we
+ *  don't poll forever. */
+export interface FlyWaitRunningPayload {
+  parentPayload: FlyDeployPayload;
+  appName: string;
+  machineId: string;
+  /** ms epoch by which the machine must be running, else fail. */
+  pollDeadline: number;
 }
 
 export interface FlyDeployResult {
   appName: string;
-  machineId: string;
+  machineId?: string;
   orgSlug: string;
   region: string;
   appUrl: string;
+  machineState?: string;
 }
 
-export function dedupeKeyForDiscovery(connectionId: string): string {
-  return `discovery:${connectionId}`;
-}
-
-export function dedupeKeyForFlyDeploy(deploymentId: string): string {
+export function lockKeyForFlyDeploy(deploymentId: string): string {
   return `fly_deploy:${deploymentId}`;
+}
+
+export function lockKeyForDiscovery(connectionId: string): string {
+  return `discovery:${connectionId}`;
 }
 
 export function jobRowToRecord(row: JobRow): JobRecord {
@@ -87,16 +120,17 @@ export function jobRowToRecord(row: JobRow): JobRecord {
     userId: row.user_id,
     kind: row.kind as JobKind,
     status: row.status as JobStatus,
+    parentJobId: row.parent_job_id,
     payload: row.payload_json
       ? (JSON.parse(row.payload_json) as Record<string, unknown>)
       : {},
     result: row.result_json
       ? (JSON.parse(row.result_json) as Record<string, unknown>)
       : null,
-    error: row.error,
-    attemptCount: row.attempt_count,
-    maxAttempts: row.max_attempts,
-    dedupeKey: row.dedupe_key,
+    lastError: row.last_error,
+    attemptId: row.attempt_id,
+    lockKey: row.lock_key,
+    lastHeartbeatAt: row.last_heartbeat_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     startedAt: row.started_at,

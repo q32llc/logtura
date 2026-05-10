@@ -1,0 +1,423 @@
+/**
+ * Minimal port of fly-go's macaroon discharge flow for Cloudflare Workers.
+ *
+ * Fly's cli_session (a.k.a. `fly auth login`) returns a Macaroon (`fm2_…`)
+ * that has third-party caveats. Without discharges, the Macaroon
+ * resolves to "I know who you are" but no app/org/machine capabilities
+ * — every REST + GraphQL call past `viewer` returns UNAUTHORIZED.
+ *
+ * flyctl handles this by walking the Macaroon's caveats, finding any
+ * Caveat3P entries, POSTing the encrypted ticket to the third-party
+ * service's `/.well-known/macfly/3p` endpoint, and concatenating the
+ * returned discharge tokens with the original token in a comma-joined
+ * `FlyV1` Authorization header.
+ *
+ * We only need the **client** half of that — decode + extract tickets
+ * + fetch discharges. We never issue or verify Macaroons ourselves.
+ *
+ * Wire format references:
+ *   - https://github.com/superfly/macaroon (Go reference impl)
+ *   - https://github.com/superfly/macaroon/blob/main/tp/README.md
+ *
+ * Encoding details:
+ *   - `fm2_<base64>` where base64 is std padded base64 of the raw
+ *     msgpack bytes.
+ *   - Macaroon struct = msgpack array `[Nonce, Location, CaveatSet, Tail]`
+ *     because Go's encoder uses `UseArrayEncodedStructs(true)`.
+ *   - Nonce = `[KID, Rnd]` (v0) or `[KID, Rnd, Proof]` (v1).
+ *   - CaveatSet has a custom encoder: flat array of length `2N`
+ *     interleaving `[type_uint, body, type_uint, body, …]`.
+ *   - Caveat3P body = `[Location, VerifierKey, Ticket]`.
+ *   - We only care about the Cav3P type id.
+ */
+
+import { decode as msgpackDecode } from "@msgpack/msgpack";
+
+/** Caveat type id for Caveat3P. Matches the iota in caveat.go. */
+const CAV_3P = 11;
+
+const TOKEN_PREFIX_V2 = "fm2";
+const TOKEN_PREFIX_PERMISSION = "fm1r";
+const TOKEN_PREFIX_DISCHARGE = "fm1a";
+const TOKEN_PREFIX_OAUTH = "fo1";
+
+const INIT_PATH = "/.well-known/macfly/3p";
+
+export class MacaroonError extends Error {}
+
+/** Strip "FlyV1 "/"Bearer " from a header value if present. */
+export function stripScheme(header: string): string {
+  const trimmed = header.trim();
+  const space = trimmed.indexOf(" ");
+  if (space < 0) return trimmed;
+  const scheme = trimmed.slice(0, space).toLowerCase();
+  if (scheme === "flyv1" || scheme === "bearer") {
+    return stripScheme(trimmed.slice(space + 1));
+  }
+  return trimmed;
+}
+
+/** A token segment from a FlyV1 Authorization header. Macaroon
+ *  segments expose their decoded bytes; OAuth segments and any other
+ *  pass-through-only segments keep just their original wire form. */
+export type FlyTokenSegment =
+  | { kind: "macaroon"; prefix: "fm2" | "fm1r" | "fm1a"; raw: Uint8Array }
+  | { kind: "passthrough"; original: string };
+
+/** Parse a comma-joined FlyV1 token header into ordered segments. */
+export function parseFlyTokenSegments(header: string): FlyTokenSegment[] {
+  const stripped = stripScheme(header);
+  const tokens = stripped.split(",").map((t) => t.trim()).filter(Boolean);
+  const out: FlyTokenSegment[] = [];
+  for (const tok of tokens) {
+    const sep = tok.indexOf("_");
+    if (sep < 0) {
+      throw new MacaroonError(`malformed token: missing prefix separator`);
+    }
+    const prefix = tok.slice(0, sep);
+    const b64 = tok.slice(sep + 1);
+    if (prefix === TOKEN_PREFIX_OAUTH) {
+      out.push({ kind: "passthrough", original: tok });
+      continue;
+    }
+    if (
+      prefix === TOKEN_PREFIX_V2 ||
+      prefix === TOKEN_PREFIX_PERMISSION ||
+      prefix === TOKEN_PREFIX_DISCHARGE
+    ) {
+      out.push({
+        kind: "macaroon",
+        prefix: prefix as "fm2" | "fm1r" | "fm1a",
+        raw: b64ToBytes(b64),
+      });
+      continue;
+    }
+    throw new MacaroonError(`unknown token prefix: ${prefix}`);
+  }
+  if (out.length === 0) {
+    throw new MacaroonError("no tokens in header");
+  }
+  return out;
+}
+
+/** Convenience: just the raw macaroon bytes from each segment, in
+ *  order. Useful when you don't care about OAuth pass-throughs. */
+export function parseFlyTokens(header: string): Uint8Array[] {
+  return parseFlyTokenSegments(header)
+    .filter((s): s is Extract<FlyTokenSegment, { kind: "macaroon" }> => s.kind === "macaroon")
+    .map((s) => s.raw);
+}
+
+/** Re-encode segments back to the comma-joined wire form (no scheme
+ *  prefix). Macaroons re-emit with their original prefix; OAuth
+ *  pass-throughs use their stored original string verbatim. */
+export function encodeFlyTokenSegments(segments: FlyTokenSegment[]): string {
+  return segments
+    .map((s) =>
+      s.kind === "macaroon"
+        ? `${s.prefix}_${bytesToB64(s.raw)}`
+        : s.original,
+    )
+    .join(",");
+}
+
+/** Re-encode raw macaroon byte slices as `fm2_…,fm2_…`. Drops any
+ *  prefix-info — only safe for caller-controlled bundles, not for
+ *  preserving an existing one (use {@link encodeFlyTokenSegments}). */
+export function encodeFlyTokens(macaroons: Uint8Array[]): string {
+  return macaroons
+    .map((m) => `${TOKEN_PREFIX_V2}_${bytesToB64(m)}`)
+    .join(",");
+}
+
+export interface ThirdPartyCaveat {
+  location: string;
+  /** Encrypted ticket bytes, opaque to us. We base64 them and POST
+   *  to the 3p service. */
+  ticket: Uint8Array;
+}
+
+export interface DecodedMacaroon {
+  location: string;
+  /** Nonce KID, used by discharges to refer back to their parent
+   *  caveat (a discharge's KID equals the parent caveat's ticket). */
+  nonceKid: Uint8Array;
+  thirdPartyCaveats: ThirdPartyCaveat[];
+}
+
+/** Decode the relevant fields of a raw macaroon. We don't validate
+ *  signatures — that's the issuing server's job. */
+export function decodeMacaroon(raw: Uint8Array): DecodedMacaroon {
+  const decoded = msgpackDecode(raw);
+  if (!Array.isArray(decoded) || decoded.length < 4) {
+    throw new MacaroonError("macaroon: not a 4-element array");
+  }
+  const [nonceArr, location, caveatSetArr /*, tail*/] = decoded;
+  if (!Array.isArray(nonceArr) || nonceArr.length < 2) {
+    throw new MacaroonError("macaroon: nonce is not a 2/3-element array");
+  }
+  const kid = toBytes(nonceArr[0]);
+  if (typeof location !== "string") {
+    throw new MacaroonError("macaroon: location is not a string");
+  }
+  if (!Array.isArray(caveatSetArr) || caveatSetArr.length % 2 !== 0) {
+    throw new MacaroonError("macaroon: caveat set has odd length");
+  }
+  const thirdPartyCaveats: ThirdPartyCaveat[] = [];
+  for (let i = 0; i < caveatSetArr.length; i += 2) {
+    const type = Number(caveatSetArr[i]);
+    const body = caveatSetArr[i + 1];
+    if (type !== CAV_3P) continue;
+    if (!Array.isArray(body) || body.length < 3) {
+      throw new MacaroonError("macaroon: Caveat3P body is not a 3-element array");
+    }
+    const tpLoc = body[0];
+    const ticket = body[2];
+    if (typeof tpLoc !== "string") {
+      throw new MacaroonError("macaroon: 3p location is not a string");
+    }
+    thirdPartyCaveats.push({ location: tpLoc, ticket: toBytes(ticket) });
+  }
+  return { location, nonceKid: kid, thirdPartyCaveats };
+}
+
+interface DischargeInitResponse {
+  discharge?: string;
+  poll_url?: string;
+  user_interactive?: { user_url?: string; poll_url?: string };
+  error?: string;
+}
+
+interface DischargePollResponse {
+  discharge?: string;
+  error?: string;
+}
+
+/**
+ * Take a `FlyV1 fm2_…,fm2_…` header (or comma-joined token list with
+ * scheme stripped), walk every macaroon in the bundle, fetch any
+ * discharge tokens missing for third-party caveats, and return a new
+ * `FlyV1` Authorization header value that includes the originals
+ * plus the new discharges.
+ *
+ * Tickets already covered by an existing discharge in the bundle
+ * (matched by `discharge.Nonce.KID == caveat.ticket`) are skipped —
+ * matching fly-go's `UndischargedThirdPartyTickets` semantics.
+ *
+ * We DON'T do user-interactive flows — for the cli_session token, the
+ * user-interaction was already done at the approval URL.
+ */
+export async function dischargeBundle(
+  authHeader: string,
+  options: {
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+  } = {},
+): Promise<string> {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const deadline = Date.now() + (options.timeoutMs ?? 30_000);
+
+  const segments = parseFlyTokenSegments(authHeader);
+  const macaroonSegments = segments.filter(
+    (s): s is Extract<FlyTokenSegment, { kind: "macaroon" }> => s.kind === "macaroon",
+  );
+  const decoded = macaroonSegments.map((s) => decodeMacaroon(s.raw));
+
+  // Identify which macaroons are existing discharges: a macaroon is a
+  // discharge when its Nonce.KID equals some other macaroon's
+  // Caveat3P.ticket. Strip them — Fly's discharges from cli_session
+  // approval time go stale and the API rejects them silently. We
+  // always fetch fresh ones below. (flyctl handles this via
+  // ValidityWindow-based pruning; we'll add that as an optimization
+  // when we want to avoid the extra round-trip.)
+  const tickets = new Set<string>();
+  for (const m of decoded) {
+    for (const cav of m.thirdPartyCaveats) tickets.add(toHex(cav.ticket));
+  }
+  const keepMacaroon: boolean[] = decoded.map((m) => !tickets.has(toHex(m.nonceKid)));
+
+  const keptMacaroonRaws = macaroonSegments
+    .filter((_, i) => keepMacaroon[i])
+    .map((s) => s.raw);
+  const keptMacaroonDecoded = decoded.filter((_, i) => keepMacaroon[i]);
+
+  const newDischarges: Uint8Array[] = [];
+  for (const m of keptMacaroonDecoded) {
+    for (const cav of m.thirdPartyCaveats) {
+      const raw = await fetchOneDischarge(cav, authHeader, fetchImpl, deadline);
+      newDischarges.push(raw);
+    }
+  }
+
+  // Reassemble: all kept macaroons (in original order, keeping their
+  // original prefixes), then fresh discharges, then any pass-through
+  // segments (OAuth tokens) preserved at the end so the GraphQL
+  // header still has them.
+  const passthroughs = segments.filter(
+    (s): s is Extract<FlyTokenSegment, { kind: "passthrough" }> => s.kind === "passthrough",
+  );
+  const keptMacaroonSegments = macaroonSegments.filter((_, i) => keepMacaroon[i]);
+  const newSegments: FlyTokenSegment[] = [
+    ...keptMacaroonSegments,
+    ...newDischarges.map(
+      (raw): FlyTokenSegment => ({ kind: "macaroon", prefix: "fm2", raw }),
+    ),
+    ...passthroughs,
+  ];
+  return `FlyV1 ${encodeFlyTokenSegments(newSegments)}`;
+}
+
+function toHex(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i++) {
+    s += bytes[i]!.toString(16).padStart(2, "0");
+  }
+  return s;
+}
+
+async function fetchOneDischarge(
+  caveat: ThirdPartyCaveat,
+  authHeader: string | undefined,
+  fetchImpl: typeof fetch,
+  deadline: number,
+): Promise<Uint8Array> {
+  const initUrl = caveat.location.endsWith("/")
+    ? caveat.location + INIT_PATH.slice(1)
+    : caveat.location + INIT_PATH;
+
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    accept: "application/json",
+  };
+  if (authHeader) headers.authorization = authHeader;
+
+  const initRes = await fetchImpl(initUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ ticket: bytesToB64(caveat.ticket) }),
+  });
+  const initText = await initRes.text();
+  let initBody: DischargeInitResponse;
+  try {
+    initBody = JSON.parse(initText);
+  } catch {
+    throw new MacaroonError(
+      `discharge init: non-JSON response (${initRes.status}): ${initText.slice(0, 200)}`,
+    );
+  }
+  if (initBody.error) {
+    throw new MacaroonError(
+      `discharge init error from ${caveat.location}: ${initBody.error}`,
+    );
+  }
+
+  if (initBody.discharge) {
+    return decodeDischargeString(initBody.discharge);
+  }
+
+  // Poll path. The 3p service is doing async approval; flyctl's
+  // user-interactive flow lives here. cli_session approval already
+  // happened at auth_url, so the 3p should respond ready promptly.
+  const pollPath = initBody.poll_url ?? initBody.user_interactive?.poll_url;
+  if (!pollPath) {
+    throw new MacaroonError(
+      `discharge init from ${caveat.location} returned no discharge or poll_url`,
+    );
+  }
+  const pollUrl = absolutizePollUrl(caveat.location, pollPath);
+
+  let backoff = 500;
+  while (Date.now() < deadline) {
+    const pollRes = await fetchImpl(pollUrl, {
+      method: "GET",
+      headers: authHeader
+        ? { accept: "application/json", authorization: authHeader }
+        : { accept: "application/json" },
+    });
+    if (pollRes.status === 202) {
+      await sleep(backoff);
+      backoff = Math.min(backoff * 2, 4_000);
+      continue;
+    }
+    const pollText = await pollRes.text();
+    let pollBody: DischargePollResponse;
+    try {
+      pollBody = JSON.parse(pollText);
+    } catch {
+      throw new MacaroonError(
+        `discharge poll: non-JSON response (${pollRes.status}): ${pollText.slice(0, 200)}`,
+      );
+    }
+    if (pollBody.error) {
+      throw new MacaroonError(
+        `discharge poll error from ${caveat.location}: ${pollBody.error}`,
+      );
+    }
+    if (pollBody.discharge) {
+      return decodeDischargeString(pollBody.discharge);
+    }
+    throw new MacaroonError(
+      `discharge poll from ${caveat.location}: missing discharge`,
+    );
+  }
+  throw new MacaroonError(
+    `discharge for ${caveat.location} timed out after ${(deadline - Date.now()) / 1000}s`,
+  );
+}
+
+function absolutizePollUrl(tpLocation: string, pollPath: string): string {
+  // poll_url may be absolute or path-relative to the 3p location.
+  if (/^https?:\/\//i.test(pollPath)) return pollPath;
+  if (pollPath.startsWith("/")) {
+    const u = new URL(tpLocation);
+    return `${u.origin}${pollPath}`;
+  }
+  // Relative without leading slash — append to location.
+  if (tpLocation.endsWith("/")) return tpLocation + pollPath;
+  return `${tpLocation}/${pollPath}`;
+}
+
+/** Decode a base64-encoded discharge token (which may or may not have
+ *  the `fm2_` prefix — Fly's response sometimes returns just the
+ *  base64 of the raw macaroon, sometimes the full prefixed form). */
+function decodeDischargeString(s: string): Uint8Array {
+  const sep = s.indexOf("_");
+  if (sep > 0) {
+    const prefix = s.slice(0, sep);
+    if (
+      prefix === TOKEN_PREFIX_V2 ||
+      prefix === TOKEN_PREFIX_PERMISSION ||
+      prefix === TOKEN_PREFIX_DISCHARGE
+    ) {
+      return b64ToBytes(s.slice(sep + 1));
+    }
+  }
+  return b64ToBytes(s);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+// --- byte helpers (Workers-compatible) -------------------------------
+
+function b64ToBytes(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function bytesToB64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]!);
+  return btoa(bin);
+}
+
+function toBytes(v: unknown): Uint8Array {
+  if (v instanceof Uint8Array) return v;
+  if (Array.isArray(v) && v.every((n) => typeof n === "number")) {
+    return new Uint8Array(v as number[]);
+  }
+  throw new MacaroonError("expected bytes");
+}

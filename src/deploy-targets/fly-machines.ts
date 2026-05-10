@@ -33,16 +33,42 @@ export function flyAuthHeader(token: string): string {
 
 async function flyFetch(
   url: string,
-  token: string,
+  authHeader: string,
   init: RequestInit = {},
 ): Promise<Response> {
   const headers = new Headers(init.headers ?? {});
-  headers.set("authorization", flyAuthHeader(token));
+  headers.set("authorization", authHeader);
   headers.set("accept", "application/json");
   if (init.body && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
+  console.log("fly_api_request", {
+    url,
+    method: init.method ?? "GET",
+    auth_scheme: authHeader.split(" ")[0] ?? "?",
+    auth_header_len: authHeader.length,
+  });
   return fetch(url, { ...init, headers });
+}
+
+/**
+ * Build a FlyApiError with the response body captured + a structured
+ * log line so worker tail / ops_event downstream can correlate failed
+ * Fly calls with the request that triggered them.
+ */
+async function flyError(
+  op: string,
+  url: string,
+  res: Response,
+): Promise<FlyApiError> {
+  const body = await res.text();
+  console.warn("fly_api_error", {
+    op,
+    url,
+    status: res.status,
+    body: body.slice(0, 800),
+  });
+  return new FlyApiError(`${op} failed: ${res.status}`, res.status, body);
 }
 
 export interface FlyApp {
@@ -52,26 +78,22 @@ export interface FlyApp {
 }
 
 export async function getFlyApp(
-  token: string,
+  authHeader: string,
   appName: string,
 ): Promise<FlyApp | null> {
-  const res = await flyFetch(`${MACHINES_BASE}/v1/apps/${appName}`, token);
+  const url = `${MACHINES_BASE}/v1/apps/${appName}`;
+  const res = await flyFetch(url, authHeader);
   if (res.status === 404) return null;
-  if (!res.ok) {
-    throw new FlyApiError(
-      `getFlyApp failed: ${res.status}`,
-      res.status,
-      await res.text(),
-    );
-  }
+  if (!res.ok) throw await flyError("getFlyApp", url, res);
   return (await res.json()) as FlyApp;
 }
 
 export async function createFlyApp(
-  token: string,
+  authHeader: string,
   input: { appName: string; orgSlug: string },
 ): Promise<void> {
-  const res = await flyFetch(`${MACHINES_BASE}/v1/apps`, token, {
+  const url = `${MACHINES_BASE}/v1/apps`;
+  const res = await flyFetch(url, authHeader, {
     method: "POST",
     body: JSON.stringify({
       app_name: input.appName,
@@ -85,13 +107,15 @@ export async function createFlyApp(
   if (res.status === 422 || res.status === 409) {
     const body = await res.text();
     if (body.toLowerCase().includes("already")) return;
+    console.warn("fly_api_error", {
+      op: "createFlyApp",
+      url,
+      status: res.status,
+      body: body.slice(0, 800),
+    });
     throw new FlyApiError(`createFlyApp 422`, res.status, body);
   }
-  throw new FlyApiError(
-    `createFlyApp failed: ${res.status}`,
-    res.status,
-    await res.text(),
-  );
+  throw await flyError("createFlyApp", url, res);
 }
 
 export interface FlyMachineFile {
@@ -119,25 +143,17 @@ export interface FlyMachine {
 }
 
 export async function listFlyMachines(
-  token: string,
+  authHeader: string,
   appName: string,
 ): Promise<FlyMachine[]> {
-  const res = await flyFetch(
-    `${MACHINES_BASE}/v1/apps/${appName}/machines`,
-    token,
-  );
-  if (!res.ok) {
-    throw new FlyApiError(
-      `listFlyMachines failed: ${res.status}`,
-      res.status,
-      await res.text(),
-    );
-  }
+  const url = `${MACHINES_BASE}/v1/apps/${appName}/machines`;
+  const res = await flyFetch(url, authHeader);
+  if (!res.ok) throw await flyError("listFlyMachines", url, res);
   return (await res.json()) as FlyMachine[];
 }
 
 export async function createFlyMachine(
-  token: string,
+  authHeader: string,
   input: {
     appName: string;
     name: string;
@@ -145,80 +161,106 @@ export async function createFlyMachine(
     config: FlyMachineConfig;
   },
 ): Promise<FlyMachine> {
-  const res = await flyFetch(
-    `${MACHINES_BASE}/v1/apps/${input.appName}/machines`,
-    token,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        name: input.name,
-        region: input.region,
-        config: input.config,
-      }),
-    },
-  );
-  if (!res.ok) {
-    throw new FlyApiError(
-      `createFlyMachine failed: ${res.status}`,
-      res.status,
-      await res.text(),
-    );
-  }
+  const url = `${MACHINES_BASE}/v1/apps/${input.appName}/machines`;
+  const res = await flyFetch(url, authHeader, {
+    method: "POST",
+    body: JSON.stringify({
+      name: input.name,
+      region: input.region,
+      config: input.config,
+    }),
+  });
+  if (!res.ok) throw await flyError("createFlyMachine", url, res);
   return (await res.json()) as FlyMachine;
 }
 
 export async function updateFlyMachine(
-  token: string,
+  authHeader: string,
   input: {
     appName: string;
     machineId: string;
     config: FlyMachineConfig;
   },
 ): Promise<FlyMachine> {
-  const res = await flyFetch(
-    `${MACHINES_BASE}/v1/apps/${input.appName}/machines/${input.machineId}`,
-    token,
-    {
-      method: "POST",
-      body: JSON.stringify({ config: input.config }),
-    },
-  );
-  if (!res.ok) {
-    throw new FlyApiError(
-      `updateFlyMachine failed: ${res.status}`,
-      res.status,
-      await res.text(),
-    );
-  }
+  const url = `${MACHINES_BASE}/v1/apps/${input.appName}/machines/${input.machineId}`;
+  const res = await flyFetch(url, authHeader, {
+    method: "POST",
+    body: JSON.stringify({ config: input.config }),
+  });
+  if (!res.ok) throw await flyError("updateFlyMachine", url, res);
   return (await res.json()) as FlyMachine;
 }
 
 /**
  * Pick a Fly org slug for the connected token. The cli_session flow
- * doesn't return one directly, so we hit the GraphQL viewer endpoint
- * and prefer "personal" when present (every account has one), falling
+ * doesn't return one directly, so we hit the GraphQL endpoint and
+ * prefer "personal" when present (every account has one), falling
  * back to the first slug listed.
+ *
+ * NOTE: flyctl uses the TOP-LEVEL `organizations(admin: $admin)`
+ * query, not `viewer.organizations`. The viewer path enforces a
+ * field-level auth check that returns UNAUTHORIZED for cli_session
+ * Macaroon tokens (the same tokens that work fine for app/machine
+ * operations). Use the same query flyctl uses.
  */
-export async function resolveFlyOrgSlug(token: string): Promise<string> {
-  const query = `query { viewer { organizations { nodes { slug } } } }`;
-  const res = await flyFetch(`${REST_BASE}/graphql`, token, {
+export async function resolveFlyOrgSlug(authHeader: string): Promise<string> {
+  const query = `query($admin: Boolean!) {
+    organizations(admin: $admin) {
+      nodes { slug }
+    }
+  }`;
+  const res = await flyFetch(`${REST_BASE}/graphql`, authHeader, {
     method: "POST",
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, variables: { admin: false } }),
   });
+  const bodyText = await res.text();
   if (!res.ok) {
+    console.warn("fly_resolve_org_slug_http_error", {
+      status: res.status,
+      body: bodyText.slice(0, 500),
+    });
     throw new FlyApiError(
       `resolveFlyOrgSlug failed: ${res.status}`,
       res.status,
-      await res.text(),
+      bodyText,
     );
   }
-  const data = (await res.json()) as {
-    data?: { viewer?: { organizations?: { nodes?: Array<{ slug: string }> } } };
+  let data: {
+    data?: {
+      organizations?: { nodes?: Array<{ slug?: string } | null> };
+    };
+    errors?: Array<{ message?: string }>;
   };
-  const slugs =
-    data.data?.viewer?.organizations?.nodes?.map((n) => n.slug) ?? [];
+  try {
+    data = JSON.parse(bodyText);
+  } catch (err) {
+    console.warn("fly_resolve_org_slug_parse_error", {
+      body: bodyText.slice(0, 500),
+    });
+    throw new Error("Fly GraphQL returned non-JSON");
+  }
+  if (data.errors && data.errors.length > 0) {
+    console.warn("fly_resolve_org_slug_graphql_errors", {
+      errors: data.errors,
+      body: bodyText.slice(0, 500),
+    });
+    throw new Error(
+      `Fly GraphQL errors: ${data.errors.map((e) => e.message).join("; ")}`,
+    );
+  }
+  const nodes = data.data?.organizations?.nodes ?? [];
+  // Defensive: nodes may contain null entries when the viewer has
+  // partial visibility into an org. Filter them out and surface the
+  // raw shape if we end up with nothing usable, so we can see why.
+  const slugs = nodes
+    .filter((n): n is { slug?: string } => n != null)
+    .map((n) => n.slug)
+    .filter((s): s is string => typeof s === "string" && s.length > 0);
   if (slugs.length === 0) {
-    throw new Error("Fly account has no organizations");
+    console.warn("fly_resolve_org_slug_empty", {
+      body: bodyText.slice(0, 500),
+    });
+    throw new Error("Fly account returned no usable org slugs");
   }
   const personal = slugs.find((s) => s === "personal");
   return personal ?? slugs[0]!;
