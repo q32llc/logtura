@@ -15,6 +15,11 @@ export interface Env {
   // `incoming-webhook` scope.
   SLACK_CLIENT_ID?: string;
   SLACK_CLIENT_SECRET?: string;
+  // Optional — silence-alert emails are sent via Postmark when these
+  // are configured. Without them, the cron alerter still flips
+  // status='crashed' but skips email.
+  POSTMARK_API_KEY?: string;
+  FROM_EMAIL?: string;
 }
 
 export type AppContext = {

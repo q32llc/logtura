@@ -25,25 +25,14 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, api } from "../api";
+import { FilterStepsEditor } from "../components/FilterStepsEditor";
 import type {
   ApiConnection,
   ApiDestination,
   ApiMonitor,
   ApiSinkRecord,
+  FilterStep,
 } from "../types";
-
-const FILTER_KIND_OPTIONS = [
-  { value: "errors", label: "Errors (default keyword match)" },
-  { value: "level", label: "Log level (exact match)" },
-  { value: "pattern", label: "Pattern (regex on .message)" },
-  { value: "all", label: "All logs (no filter)" },
-];
-
-function filterKindLabel(kind: string): string {
-  return (
-    FILTER_KIND_OPTIONS.find((o) => o.value === kind)?.label ?? kind
-  );
-}
 
 export function Monitors() {
   const [monitors, setMonitors] = useState<ApiMonitor[] | null>(null);
@@ -134,6 +123,39 @@ export function Monitors() {
     }
   }
 
+  async function setMonitorSteps(monitor: ApiMonitor, steps: FilterStep[]) {
+    try {
+      await api.updateMonitor(monitor.id, { filterSteps: steps });
+      // Optimistically update local state.
+      setMonitors((prev) =>
+        prev
+          ? prev.map((m) =>
+              m.id === monitor.id ? { ...m, filterSteps: steps } : m,
+            )
+          : prev,
+      );
+    } catch (e) {
+      notifications.show({
+        message: e instanceof ApiError ? e.message : "Failed",
+        color: "red",
+      });
+    }
+  }
+
+  async function setSinkSteps(sink: ApiSinkRecord, steps: FilterStep[]) {
+    try {
+      await api.updateSinkSteps(sink.id, steps);
+      setSinks((prev) =>
+        prev.map((s) => (s.id === sink.id ? { ...s, filterSteps: steps } : s)),
+      );
+    } catch (e) {
+      notifications.show({
+        message: e instanceof ApiError ? e.message : "Failed",
+        color: "red",
+      });
+    }
+  }
+
   return (
     <Container size="md">
       <Group justify="space-between" mb="lg">
@@ -160,9 +182,8 @@ export function Monitors() {
             <IconBell size={36} stroke={1.5} />
             <Text c="dimmed">No monitors yet.</Text>
             <Text size="sm" c="dimmed" maw={420} ta="center">
-              A monitor watches your logs for a specific pattern (errors,
-              level=warn, regex match) and routes matches through sinks to
-              destinations.
+              A monitor watches your logs through a pipeline of filter
+              steps and routes matches through sinks to destinations.
             </Text>
             <Button onClick={() => setCreating(true)} mt="sm">
               Create your first monitor
@@ -181,9 +202,6 @@ export function Monitors() {
                   <Stack gap={2}>
                     <Group gap={6}>
                       <Text fw={600}>{m.displayName}</Text>
-                      <Badge size="sm" variant="light">
-                        {filterKindLabel(m.filterKind)}
-                      </Badge>
                       {m.connectionId ? (
                         <Badge size="sm" variant="default" leftSection={<IconLink size={10} />}>
                           {connById.get(m.connectionId)?.displayName ?? m.connectionId}
@@ -194,11 +212,6 @@ export function Monitors() {
                         </Badge>
                       )}
                     </Group>
-                    {m.filterConfig && Object.keys(m.filterConfig).length > 0 ? (
-                      <Text size="xs" c="dimmed" style={{ fontFamily: "ui-monospace, Menlo, monospace" }}>
-                        {JSON.stringify(m.filterConfig)}
-                      </Text>
-                    ) : null}
                   </Stack>
                   <Group gap="xs">
                     <Switch
@@ -219,7 +232,18 @@ export function Monitors() {
                   </Group>
                 </Group>
 
-                <Stack gap={6} mt="sm">
+                <Stack gap={6} mt="xs">
+                  <Text size="xs" c="dimmed" tt="uppercase" lts={1}>
+                    Pipeline
+                  </Text>
+                  <FilterStepsEditor
+                    steps={m.filterSteps}
+                    onChange={(next) => setMonitorSteps(m, next)}
+                    emptyHint="No filters — every event reaches the sinks below."
+                  />
+                </Stack>
+
+                <Stack gap={6} mt="md">
                   <Text size="xs" c="dimmed" tt="uppercase" lts={1}>
                     Sinks
                   </Text>
@@ -228,29 +252,37 @@ export function Monitors() {
                       No sinks. Add one to route matches to a destination.
                     </Text>
                   ) : (
-                    <Stack gap={4}>
+                    <Stack gap="sm">
                       {monitorSinks.map((s) => {
                         const dest = destById.get(s.destinationId);
                         return (
-                          <Group key={s.id} justify="space-between">
-                            <Group gap={6}>
-                              <Text size="sm">
-                                → {dest?.displayName ?? s.destinationId}
-                              </Text>
-                              <Badge size="xs" variant="default">
-                                {dest?.kind ?? "?"}
-                              </Badge>
+                          <Card key={s.id} withBorder p="sm">
+                            <Group justify="space-between" mb={6}>
+                              <Group gap={6}>
+                                <Text size="sm">
+                                  → {dest?.displayName ?? s.destinationId}
+                                </Text>
+                                <Badge size="xs" variant="default">
+                                  {dest?.kind ?? "?"}
+                                </Badge>
+                              </Group>
+                              <Button
+                                variant="subtle"
+                                size="xs"
+                                color="red"
+                                onClick={() => deleteSink(s.id)}
+                                leftSection={<IconX size={10} />}
+                              >
+                                Remove
+                              </Button>
                             </Group>
-                            <Button
-                              variant="subtle"
+                            <FilterStepsEditor
                               size="xs"
-                              color="red"
-                              onClick={() => deleteSink(s.id)}
-                              leftSection={<IconX size={10} />}
-                            >
-                              Remove
-                            </Button>
-                          </Group>
+                              steps={s.filterSteps}
+                              onChange={(next) => setSinkSteps(s, next)}
+                              emptyHint="No per-sink refinement — uses the monitor's pipeline output as-is."
+                            />
+                          </Card>
                         );
                       })}
                     </Stack>
@@ -305,8 +337,7 @@ function CreateMonitorModal({
   connections: ApiConnection[];
 }) {
   const [displayName, setDisplayName] = useState("");
-  const [filterKind, setFilterKind] = useState("errors");
-  const [filterConfig, setFilterConfig] = useState("");
+  const [steps, setSteps] = useState<FilterStep[]>([]);
   const [connectionId, setConnectionId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -314,8 +345,7 @@ function CreateMonitorModal({
   useEffect(() => {
     if (!opened) return;
     setDisplayName("");
-    setFilterKind("errors");
-    setFilterConfig("");
+    setSteps([{ kind: "errors" }]);
     setConnectionId(null);
     setErr(null);
   }, [opened]);
@@ -324,13 +354,9 @@ function CreateMonitorModal({
     setSubmitting(true);
     setErr(null);
     try {
-      let cfg: unknown = null;
-      if (filterKind === "level") cfg = { level: filterConfig.trim() || "error" };
-      else if (filterKind === "pattern") cfg = { pattern: filterConfig.trim() };
       await api.createMonitor({
         displayName: displayName.trim(),
-        filterKind,
-        filterConfig: cfg,
+        filterSteps: steps,
         connectionId,
       });
       notifications.show({ message: "Monitor created", color: "teal" });
@@ -352,28 +378,16 @@ function CreateMonitorModal({
           onChange={(e) => setDisplayName(e.currentTarget.value)}
           required
         />
-        <Select
-          label="Filter"
-          data={FILTER_KIND_OPTIONS}
-          value={filterKind}
-          onChange={(v) => setFilterKind(v ?? "errors")}
-        />
-        {filterKind === "level" && (
-          <TextInput
-            label="Level"
-            placeholder="error"
-            value={filterConfig}
-            onChange={(e) => setFilterConfig(e.currentTarget.value)}
+        <Stack gap={4}>
+          <Text size="sm" fw={500}>
+            Filter pipeline
+          </Text>
+          <FilterStepsEditor
+            steps={steps}
+            onChange={setSteps}
+            emptyHint="No filters — every event reaches the sinks. Add steps below."
           />
-        )}
-        {filterKind === "pattern" && (
-          <TextInput
-            label="Regex pattern (matched against .message)"
-            placeholder="(?i)timeout|panic"
-            value={filterConfig}
-            onChange={(e) => setFilterConfig(e.currentTarget.value)}
-          />
-        )}
+        </Stack>
         <Select
           label="Scope"
           description="Limit this monitor to one connection, or leave blank to apply to all."
@@ -470,8 +484,8 @@ function AddSinkModal({
               required
             />
             <Text size="xs" c="dimmed">
-              Per-sink filter refinement isn't available yet — the
-              monitor's filter applies as-is.
+              New sinks start with a default 5-minute dedup step. You can
+              add more steps after creation.
             </Text>
             {err && <Alert color="red" variant="light">{err}</Alert>}
             <Group justify="flex-end">

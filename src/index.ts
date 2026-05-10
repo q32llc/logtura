@@ -28,6 +28,10 @@ import {
   listSinksForUser,
   listSources,
   updateMonitor,
+  updateSinkSteps,
+  parseFilterSteps,
+  recordHeartbeat,
+  type FilterStep,
   // Deployments — the unit of "what runs"
   createDeployment,
   deleteDeployment,
@@ -58,6 +62,14 @@ import type { AppContext, Env } from "./env";
 import { generateBundle } from "./generator";
 import { JobDriver } from "./jobs/driver";
 import { processQueueBatch } from "./jobs/queue";
+import {
+  deploymentSilenceEmail,
+  sendEmail,
+} from "./email";
+import {
+  listStaleDeployments,
+  markDeploymentSilenceAlerted,
+} from "./db";
 import {
   type JobRecord,
   dedupeKeyForDiscovery,
@@ -290,7 +302,22 @@ apiAuth.get("/deployments/:id/bundle", async (c) => {
     connection,
     selectedSources,
     monitors: generatorMonitors,
+    heartbeat: {
+      kind:
+        (deployment.heartbeat_target ?? "logtura") === "logtura"
+          ? "logtura"
+          : "none",
+      deploymentId: deployment.id,
+      appUrl: c.env.APP_URL,
+    },
   });
+  // Inject the heartbeat token value (we have it on the deployment row)
+  // for the bundle UI to populate the docker run command with.
+  for (const v of sourceBundle.envVars) {
+    if (v.name === "LOGTURA_HEARTBEAT_TOKEN" && deployment.heartbeat_token) {
+      v.value = deployment.heartbeat_token;
+    }
+  }
 
   const targetBundle = targetDriver.generateTargetBundle({
     sourceBundle,
@@ -394,6 +421,31 @@ apiAuth.delete("/deployments/:id", async (c) => {
   const user = c.get("user")!;
   await deleteDeployment(c.env.DB, user.id, c.req.param("id"));
   return c.json({ ok: true });
+});
+
+// ----- Heartbeat ingest (no user auth — bearer token per deployment) ----
+
+api.post("/heartbeat/:id", async (c) => {
+  const id = c.req.param("id");
+  const auth = c.req.header("authorization") ?? "";
+  const presented = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  if (!presented) return c.json({ error: "missing_token" }, 401);
+
+  // Pull the row directly (no user_id constraint — the deployment ID
+  // + bearer token is the auth pair). Constant-time-ish compare.
+  const row = await c.env.DB.prepare(
+    "SELECT id, heartbeat_token FROM deployments WHERE id = ?",
+  )
+    .bind(id)
+    .first<{ id: string; heartbeat_token: string | null }>();
+  if (!row || !row.heartbeat_token) {
+    return c.json({ error: "not_found" }, 404);
+  }
+  if (!constantTimeEqual(row.heartbeat_token, presented)) {
+    return c.json({ error: "invalid_token" }, 401);
+  }
+  await recordHeartbeat(c.env.DB, id);
+  return c.body(null, 204);
 });
 
 apiAuth.get("/deploy-targets/drivers", (c) => {
@@ -604,20 +656,18 @@ apiAuth.post("/monitors", async (c) => {
   const user = c.get("user")!;
   const body = (await c.req.json()) as {
     displayName?: string;
-    filterKind?: string;
-    filterConfig?: unknown;
+    filterSteps?: FilterStep[];
     connectionId?: string | null;
     enabled?: boolean;
   };
-  if (!body.displayName || !body.filterKind) {
+  if (!body.displayName) {
     return c.json({ error: "missing_fields" }, 400);
   }
   const monitor = await createMonitor(c.env.DB, {
     userId: user.id,
     connectionId: body.connectionId ?? null,
     displayName: body.displayName,
-    filterKind: body.filterKind,
-    filterConfig: body.filterConfig ?? null,
+    filterSteps: body.filterSteps ?? [],
     enabled: body.enabled,
   });
   return c.json({ monitor: toApiMonitor(monitor) });
@@ -628,8 +678,7 @@ apiAuth.put("/monitors/:id", async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json()) as {
     displayName?: string;
-    filterKind?: string;
-    filterConfig?: unknown;
+    filterSteps?: FilterStep[];
     connectionId?: string | null;
     enabled?: boolean;
   };
@@ -651,22 +700,27 @@ apiAuth.post("/monitors/:id/sinks", async (c) => {
   if (!monitor) return c.json({ error: "not_found" }, 404);
   const body = (await c.req.json()) as {
     destinationId?: string;
-    filterKind?: string | null;
-    filterConfig?: unknown;
+    filterSteps?: FilterStep[];
   };
   if (!body.destinationId) {
     return c.json({ error: "missing_destination" }, 400);
   }
-  // Verify destination belongs to user.
   const dest = await getDestination(c.env.DB, user.id, body.destinationId);
   if (!dest) return c.json({ error: "destination_not_found" }, 404);
   const sink = await createSink(c.env.DB, {
     monitorId,
     destinationId: body.destinationId,
-    filterKind: body.filterKind ?? null,
-    filterConfig: body.filterConfig ?? null,
+    filterSteps: body.filterSteps,
   });
   return c.json({ sink: toApiSink(sink) });
+});
+
+apiAuth.put("/sinks/:id", async (c) => {
+  const user = c.get("user")!;
+  const id = c.req.param("id");
+  const body = (await c.req.json()) as { filterSteps?: FilterStep[] };
+  await updateSinkSteps(c.env.DB, user.id, id, body.filterSteps ?? []);
+  return c.json({ ok: true });
 });
 
 apiAuth.delete("/sinks/:id", async (c) => {
@@ -705,7 +759,48 @@ export default {
   ): Promise<void> {
     await processQueueBatch(batch, env);
   },
+  async scheduled(
+    _event: ScheduledController,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    ctx.waitUntil(runSilenceAlerter(env));
+  },
 };
+
+/**
+ * Silence-alert cron tick. Finds running deployments whose last
+ * heartbeat is older than 10 minutes and that we haven't alerted on
+ * in the last hour, marks them crashed, and emails the user.
+ */
+async function runSilenceAlerter(env: Env): Promise<void> {
+  const SILENCE_MS = 10 * 60 * 1000;
+  const RECENT_ALERT_MS = 60 * 60 * 1000;
+  const stale = await listStaleDeployments(
+    env.DB,
+    SILENCE_MS,
+    RECENT_ALERT_MS,
+  );
+  if (stale.length === 0) return;
+  console.log("silence_alerter_found", stale.length);
+  for (const d of stale) {
+    const user = await env.DB.prepare(
+      "SELECT email FROM users WHERE id = ?",
+    )
+      .bind(d.user_id)
+      .first<{ email: string | null }>();
+    if (user?.email) {
+      const { subject, textBody } = deploymentSilenceEmail({
+        deploymentId: d.id,
+        displayName: d.display_name,
+        lastSeenAt: d.last_seen_at,
+        appUrl: env.APP_URL,
+      });
+      await sendEmail(env, { to: user.email, subject, textBody });
+    }
+    await markDeploymentSilenceAlerted(env.DB, d.id);
+  }
+}
 
 // --- API response shapers -------------------------------------------------
 
@@ -773,10 +868,7 @@ function toApiMonitor(m: MonitorRow) {
     id: m.id,
     connectionId: m.connection_id,
     displayName: m.display_name,
-    filterKind: m.filter_kind,
-    filterConfig: m.filter_config_json
-      ? JSON.parse(m.filter_config_json)
-      : null,
+    filterSteps: parseFilterSteps(m.filter_steps_json),
     enabled: m.enabled === 1,
     createdAt: m.created_at,
     updatedAt: m.updated_at,
@@ -788,12 +880,16 @@ function toApiSink(s: SinkRow) {
     id: s.id,
     monitorId: s.monitor_id,
     destinationId: s.destination_id,
-    filterKind: s.filter_kind,
-    filterConfig: s.filter_config_json
-      ? JSON.parse(s.filter_config_json)
-      : null,
+    filterSteps: parseFilterSteps(s.filter_steps_json),
     createdAt: s.created_at,
   };
+}
+
+function constantTimeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
 }
 
 function toApiJob(j: JobRecord) {

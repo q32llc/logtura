@@ -316,7 +316,10 @@ export function DeployWizard() {
               items={applicableMonitors.map((m) => ({
                 id: m.id,
                 label: m.displayName,
-                sublabel: m.filterKind,
+                sublabel:
+                  m.filterSteps.length === 0
+                    ? "no filters"
+                    : `${m.filterSteps.length} step${m.filterSteps.length === 1 ? "" : "s"}`,
               }))}
               picked={pickedMonitorIds}
               toggle={toggleMonitor}

@@ -1,10 +1,12 @@
 import type {
   ConnectionRow,
   DestinationRow,
+  FilterStep,
   LogSourceRow,
   MonitorRow,
   SinkRow,
 } from "./db";
+import { parseFilterSteps } from "./db";
 import {
   type DestinationDriver,
   getDestinationDriver,
@@ -55,6 +57,18 @@ interface GenerateInput {
   connection: ConnectionRow;
   selectedSources: LogSourceRow[];
   monitors: GeneratorMonitor[];
+  /**
+   * Liveness signal config. When kind="logtura", we emit an exec
+   * source that pulses every 30s into an http sink that POSTs to
+   * logtura's collector with the deployment's bearer token. When
+   * kind="none", we skip.
+   */
+  heartbeat?: {
+    kind: "logtura" | "none";
+    deploymentId: string;
+    /** Public URL the running container reaches for heartbeats. */
+    appUrl: string;
+  };
 }
 
 export function generateBundle(input: GenerateInput): GeneratedBundle {
@@ -81,6 +95,7 @@ export function generateBundle(input: GenerateInput): GeneratedBundle {
     driver,
     sourceRefs,
     input.monitors,
+    input.heartbeat,
   );
 
   const dockerfile = renderDockerfile([sourceSpec.dockerfileDeps].flat());
@@ -90,9 +105,6 @@ export function generateBundle(input: GenerateInput): GeneratedBundle {
       name: e.name,
       description: e.description,
       source: e.source,
-      // Source-side env vars (CF token, account id) we don't have
-      // here; user supplies at docker-run time. external_account_id
-      // we do have on the connection — fill it.
       value:
         e.source === "external_account_id"
           ? (input.connection.external_account_id ?? null)
@@ -100,6 +112,24 @@ export function generateBundle(input: GenerateInput): GeneratedBundle {
     })),
     ...sinkEnvVars,
   ];
+
+  // Heartbeat env vars — we have the values, populate them inline.
+  if (input.heartbeat?.kind === "logtura") {
+    envVars.push({
+      name: "LOGTURA_HEARTBEAT_URL",
+      description:
+        "logtura's heartbeat endpoint for this deployment. Receives pulses to confirm the forwarder is running.",
+      source: "manual",
+      value: `${input.heartbeat.appUrl}/api/heartbeat/${input.heartbeat.deploymentId}`,
+    });
+    envVars.push({
+      name: "LOGTURA_HEARTBEAT_TOKEN",
+      description:
+        "Bearer token authorizing this deployment to post heartbeats. Per-deployment; revokable from the dashboard.",
+      source: "manual",
+      value: null, // populated by caller from deployment.heartbeat_token
+    });
+  }
 
   const runCommand = renderRunCommand(envVars);
   const sinkCount = input.monitors.reduce(
@@ -125,6 +155,7 @@ function renderVectorYaml(
   driver: ProviderDriver,
   sources: SourceRef[],
   monitors: GeneratorMonitor[],
+  heartbeat: GenerateInput["heartbeat"],
 ): { vectorYaml: string; sinkEnvVars: BundleEnvVar[] } {
   const lines: string[] = [];
   const sinkEnvVars: BundleEnvVar[] = [];
@@ -142,6 +173,11 @@ function renderVectorYaml(
   // ---- sources -----------------------------------------------------
   lines.push("sources:");
   const sourceKeys: string[] = [];
+  // Per-source normalize transforms collected here, emitted into the
+  // transforms section below. Output keys (post-normalize) feed into
+  // tag_source so downstream filters see the uniform shape.
+  const normalizeBlocks: Array<{ key: string; yaml: string }> = [];
+  const downstreamInputKeys: string[] = [];
   if (sources.length === 0) {
     lines.push(
       "  # No sources selected — pipeline runs with heartbeat only.",
@@ -152,20 +188,47 @@ function renderVectorYaml(
       lines.push(`  ${block.key}:`);
       lines.push(block.yaml);
       sourceKeys.push(block.key);
+      if (block.normalize) {
+        normalizeBlocks.push(block.normalize);
+        downstreamInputKeys.push(block.normalize.key);
+      } else {
+        downstreamInputKeys.push(block.key);
+      }
     }
   }
   lines.push("  internal_metrics:");
   lines.push("    type: internal_metrics");
   lines.push("    scrape_interval_secs: 30");
+  // Heartbeat pulse — emitted every 30s. Independent of the log
+  // pipeline so it keeps firing even when no log events are flowing,
+  // which is exactly when we want the dashboard to know the
+  // forwarder is still alive.
+  if (heartbeat?.kind === "logtura") {
+    lines.push("  heartbeat_pulse:");
+    lines.push("    type: exec");
+    lines.push(
+      `    command: ["sh", "-c", "while true; do printf '%s\\\\n' '{\\\"deployment_id\\\":\\\"${heartbeat.deploymentId}\\\"}' ; sleep 30; done"]`,
+    );
+    lines.push("    mode: streaming");
+    lines.push("    decoding:");
+    lines.push("      codec: json");
+  }
   lines.push("");
 
   // ---- transforms --------------------------------------------------
   lines.push("transforms:");
-  if (sourceKeys.length > 0) {
+  // Normalize transforms (per-source) come first so tag_source reads
+  // from the post-normalize keys.
+  for (const n of normalizeBlocks) {
+    lines.push(`  ${n.key}:`);
+    lines.push(n.yaml);
+    lines.push("");
+  }
+  if (downstreamInputKeys.length > 0) {
     lines.push("  tag_source:");
     lines.push("    type: remap");
     lines.push(
-      `    inputs: [${sourceKeys.map((k) => `"${k}"`).join(", ")}]`,
+      `    inputs: [${downstreamInputKeys.map((k) => `"${k}"`).join(", ")}]`,
     );
     lines.push("    source: |-");
     lines.push(`      .logtura_connection_id = "${connection.id}"`);
@@ -175,72 +238,62 @@ function renderVectorYaml(
   }
 
   const upstreamForSinks =
-    sourceKeys.length > 0 ? ["tag_source"] : [];
+    downstreamInputKeys.length > 0 ? ["tag_source"] : [];
 
-  // Per-monitor filter transforms.
-  const monitorFilterKeys = new Map<string, string>();
+  // Per-monitor filter-step transforms. A monitor with no steps acts
+  // as a passthrough (its sinks see everything from tag_source).
+  const monitorOutputKeys = new Map<string, string>();
   for (const m of monitors) {
     if (m.monitor.enabled !== 1) continue;
     if (upstreamForSinks.length === 0) continue;
-    const key = `monitor_${safeKey(m.monitor.id)}_filter`;
-    const condition = vrlConditionFor(
-      m.monitor.filter_kind,
-      m.monitor.filter_config_json,
+    const steps = parseFilterSteps(m.monitor.filter_steps_json);
+    const { transforms, outputKey } = renderStepTransforms(
+      steps,
+      "tag_source",
+      `monitor_${safeKey(m.monitor.id)}`,
     );
-    lines.push(`  ${key}:`);
-    lines.push("    type: filter");
-    lines.push(
-      `    inputs: [${upstreamForSinks.map((i) => `"${i}"`).join(", ")}]`,
-    );
-    lines.push("    condition: |-");
-    for (const cl of condition.split("\n")) lines.push(`      ${cl}`);
-    lines.push("");
-    monitorFilterKeys.set(m.monitor.id, key);
+    for (const t of transforms) {
+      lines.push(`  ${t.key}:`);
+      lines.push(t.yaml);
+      lines.push("");
+    }
+    monitorOutputKeys.set(m.monitor.id, outputKey);
   }
 
-  // Per-sink optional refinement transforms + destination pre-sink
-  // transforms.
+  // Per-sink filter-step transforms + destination pre-sink transforms.
   const sinkSinkKeys: Array<{ sinkKey: string; yaml: string }> = [];
   for (const m of monitors) {
     if (m.monitor.enabled !== 1) continue;
-    const monitorFilterKey = monitorFilterKeys.get(m.monitor.id);
-    if (!monitorFilterKey) continue;
+    const monitorOutputKey = monitorOutputKeys.get(m.monitor.id);
+    if (!monitorOutputKey) continue;
     for (const sinkSpec of m.sinks) {
       const dDriver = getDestinationDriver(sinkSpec.destination.kind);
       if (!dDriver) continue;
-      let upstream = monitorFilterKey;
-      if (sinkSpec.sink.filter_kind) {
-        const refKey = `sink_${safeKey(sinkSpec.sink.id)}_filter`;
-        const refCondition = vrlConditionFor(
-          sinkSpec.sink.filter_kind,
-          sinkSpec.sink.filter_config_json,
-        );
-        lines.push(`  ${refKey}:`);
-        lines.push("    type: filter");
-        lines.push(`    inputs: ["${upstream}"]`);
-        lines.push("    condition: |-");
-        for (const cl of refCondition.split("\n"))
-          lines.push(`      ${cl}`);
+      const sinkSteps = parseFilterSteps(sinkSpec.sink.filter_steps_json);
+      const { transforms, outputKey } = renderStepTransforms(
+        sinkSteps,
+        monitorOutputKey,
+        `sink_${safeKey(sinkSpec.sink.id)}`,
+      );
+      for (const t of transforms) {
+        lines.push(`  ${t.key}:`);
+        lines.push(t.yaml);
         lines.push("");
-        upstream = refKey;
       }
       const sinkKey = `sink_${safeKey(sinkSpec.sink.id)}`;
       const envVarName = sinkEnvVarName(sinkSpec.sink.id);
       const bundle = dDriver.generateSinkBundle({
         config: sinkSpec.destinationConfig,
-        inputs: [upstream],
+        inputs: [outputKey],
         sinkKey,
         envVarName,
       });
-      // Pre-sink transforms (Slack remap, etc.) live in `transforms:`.
       for (const t of bundle.preSinkTransforms ?? []) {
         lines.push(`  ${t.key}:`);
         lines.push(t.yaml);
         lines.push("");
       }
-      // Stash the sink block for the sinks: section below.
       sinkSinkKeys.push({ sinkKey: bundle.sink.key, yaml: bundle.sink.yaml });
-      // Collect runtime env var spec + value.
       const envSpec = dDriver.runtimeEnvVars({
         config: sinkSpec.destinationConfig,
         envVarName,
@@ -281,33 +334,112 @@ function renderVectorYaml(
   lines.push('    address: "0.0.0.0:9598"');
   lines.push("");
 
+  if (heartbeat?.kind === "logtura") {
+    lines.push("  heartbeat_logtura:");
+    lines.push("    type: http");
+    lines.push('    inputs: ["heartbeat_pulse"]');
+    lines.push('    uri: "${LOGTURA_HEARTBEAT_URL}"');
+    lines.push("    method: post");
+    lines.push("    encoding:");
+    lines.push("      codec: json");
+    lines.push("    request:");
+    lines.push("      headers:");
+    lines.push('        authorization: "Bearer ${LOGTURA_HEARTBEAT_TOKEN}"');
+    lines.push("        content-type: application/json");
+    lines.push("    batch:");
+    lines.push("      max_events: 1");
+    lines.push("      timeout_secs: 30");
+    lines.push("    healthcheck:");
+    lines.push("      enabled: false");
+    lines.push("");
+  }
+
   return { vectorYaml: lines.join("\n"), sinkEnvVars };
 }
 
-function vrlConditionFor(
-  filterKind: string,
-  filterConfigJson: string | null,
-): string {
-  const cfg = filterConfigJson
-    ? (JSON.parse(filterConfigJson) as Record<string, unknown>)
-    : {};
-  if (filterKind === "all") return "true";
-  if (filterKind === "level") {
-    const lvl = String(cfg.level ?? "error");
-    return `string(.level) == "${lvl.replace(/"/g, "")}"`;
+/**
+ * Render Vector transforms for a chain of filter steps. Each step
+ * becomes a transform that takes the previous one's output as input;
+ * an empty step list is a pass-through (the inputKey is returned
+ * unchanged with no transforms emitted).
+ */
+function renderStepTransforms(
+  steps: FilterStep[],
+  inputKey: string,
+  prefix: string,
+): { transforms: Array<{ key: string; yaml: string }>; outputKey: string } {
+  const transforms: Array<{ key: string; yaml: string }> = [];
+  let current = inputKey;
+  steps.forEach((step, idx) => {
+    const key = `${prefix}_${idx}_${step.kind}`;
+    const yaml = renderStepYaml(step, current);
+    if (!yaml) return;
+    transforms.push({ key, yaml });
+    current = key;
+  });
+  return { transforms, outputKey: current };
+}
+
+function renderStepYaml(step: FilterStep, input: string): string | null {
+  switch (step.kind) {
+    case "errors":
+      return [
+        "    type: filter",
+        `    inputs: ["${input}"]`,
+        "    condition: |-",
+        `      (bool(.error) ?? false) || (string(.level) ?? "") == "error"`,
+      ].join("\n");
+    case "level": {
+      const op = step.mode === "exclude" ? "!=" : "==";
+      return [
+        "    type: filter",
+        `    inputs: ["${input}"]`,
+        "    condition: |-",
+        `      (string(.level) ?? "") ${op} ${JSON.stringify(step.level)}`,
+      ].join("\n");
+    }
+    case "match": {
+      const field = step.field ?? "message";
+      const safePattern = step.pattern.replace(/'/g, "");
+      const matches = `match(string(.${field}) ?? "", r'${safePattern}') ?? false`;
+      const cond = step.mode === "exclude" ? `!(${matches})` : matches;
+      return [
+        "    type: filter",
+        `    inputs: ["${input}"]`,
+        "    condition: |-",
+        `      ${cond}`,
+      ].join("\n");
+    }
+    case "rate_limit":
+      return [
+        "    type: throttle",
+        `    inputs: ["${input}"]`,
+        `    threshold: ${step.per_minute}`,
+        `    window_secs: 60`,
+      ].join("\n");
+    case "dedup": {
+      const fields = step.fields ?? ["message"];
+      return [
+        "    type: dedupe",
+        `    inputs: ["${input}"]`,
+        "    cache:",
+        "      num_events: 5000",
+        "    fields:",
+        "      match:",
+        ...fields.map((f) => `        - "${f}"`),
+      ].join("\n");
+    }
+    case "sample": {
+      // Vector sample.rate keeps 1 in N. Convert fraction → N.
+      const rate = Math.max(1, Math.round(1 / Math.max(0.0001, step.rate)));
+      return [
+        "    type: sample",
+        `    inputs: ["${input}"]`,
+        `    rate: ${rate}`,
+      ].join("\n");
+    }
   }
-  if (filterKind === "pattern") {
-    const pat = String(cfg.pattern ?? "");
-    return `match(string!(.message ?? ""), r'${pat.replace(/'/g, "")}') ?? false`;
-  }
-  // Default and "errors": cheap, robust substring match on common
-  // error words. Caught case-insensitively.
-  const m =
-    'msg = downcase(string!(.message ?? ""))\n' +
-    'contains(msg, "error") || contains(msg, "exception") || ' +
-    'contains(msg, "panic") || contains(msg, "fatal") || ' +
-    'contains(msg, "critical")';
-  return m;
+  return null;
 }
 
 function renderDockerfile(deps: DockerfileDep[]): string {

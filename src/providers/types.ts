@@ -89,6 +89,13 @@ export interface SourceBlock {
   key: string;
   // The YAML body for `sources.<key>:` (without the key itself).
   yaml: string;
+  // Optional normalize transform applied immediately after the source.
+  // Lets each provider flatten its native event shape into a uniform
+  // one (.message, .level, .error, .script, .timestamp) so downstream
+  // filters can be provider-agnostic. The transform's inputs is
+  // implicit — the source's key. If present, downstream pipeline
+  // reads from normalize.key instead of key.
+  normalize?: { key: string; yaml: string };
 }
 
 // Minimal subset of ConnectionRow that drivers need. Avoids importing the

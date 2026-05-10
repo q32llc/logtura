@@ -28,3 +28,8 @@ queue = "logtura-jobs"
 max_batch_size = 5
 max_batch_timeout = 1
 max_retries = 3
+
+# Silence alerter — every 5 minutes, find running deployments that
+# stopped heartbeating and email the owner.
+[triggers]
+crons = ["*/5 * * * *"]

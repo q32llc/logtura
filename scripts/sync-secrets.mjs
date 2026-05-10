@@ -23,11 +23,20 @@ const ALLOWED = [
   "CREDENTIAL_ENCRYPTION_KEY",
   "SLACK_CLIENT_ID",
   "SLACK_CLIENT_SECRET",
+  "POSTMARK_API_KEY",
+  "FROM_EMAIL",
 ];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(__dirname, "..");
 const envPath = resolve(projectRoot, ".env");
+
+// Map .env name → wrangler-secret name. Lets the shared .env keep
+// using its existing names (POSTMARK_ACCOUNT_API_KEY) while the
+// worker reads the runtime-specific name (POSTMARK_API_KEY).
+const NAME_REMAP = {
+  POSTMARK_ACCOUNT_API_KEY: "POSTMARK_API_KEY",
+};
 
 function parseEnv(text) {
   const out = {};
@@ -43,7 +52,8 @@ function parseEnv(text) {
     ) {
       v = v.slice(1, -1);
     }
-    out[m[1]] = v;
+    const target = NAME_REMAP[m[1]] ?? m[1];
+    out[target] = v;
   }
   return out;
 }

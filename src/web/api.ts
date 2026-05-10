@@ -12,6 +12,7 @@ import type {
   ApiSource,
   ApiTargetBundle,
   ApiUser,
+  FilterStep,
 } from "../web/types";
 
 export class ApiError extends Error {
@@ -102,8 +103,7 @@ export const api = {
     request<{ monitors: ApiMonitor[]; sinks: ApiSinkRecord[] }>("/monitors"),
   createMonitor: (body: {
     displayName: string;
-    filterKind: string;
-    filterConfig?: unknown;
+    filterSteps?: FilterStep[];
     connectionId?: string | null;
     enabled?: boolean;
   }) =>
@@ -115,8 +115,7 @@ export const api = {
     id: string,
     body: {
       displayName?: string;
-      filterKind?: string;
-      filterConfig?: unknown;
+      filterSteps?: FilterStep[];
       connectionId?: string | null;
       enabled?: boolean;
     },
@@ -131,13 +130,17 @@ export const api = {
     monitorId: string,
     body: {
       destinationId: string;
-      filterKind?: string | null;
-      filterConfig?: unknown;
+      filterSteps?: FilterStep[];
     },
   ) =>
     request<{ sink: ApiSinkRecord }>(`/monitors/${monitorId}/sinks`, {
       method: "POST",
       body: JSON.stringify(body),
+    }),
+  updateSinkSteps: (id: string, filterSteps: FilterStep[]) =>
+    request<{ ok: true }>(`/sinks/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ filterSteps }),
     }),
   deleteSink: (id: string) =>
     request<{ ok: true }>(`/sinks/${id}`, { method: "DELETE" }),

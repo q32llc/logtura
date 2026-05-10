@@ -115,12 +115,19 @@ export interface ApiDestination {
   updatedAt: number;
 }
 
+export type FilterStep =
+  | { kind: "errors" }
+  | { kind: "level"; level: string; mode?: "include" | "exclude" }
+  | { kind: "match"; pattern: string; mode: "include" | "exclude"; field?: string }
+  | { kind: "rate_limit"; per_minute: number }
+  | { kind: "dedup"; window_secs: number; fields?: string[] }
+  | { kind: "sample"; rate: number };
+
 export interface ApiMonitor {
   id: string;
   connectionId: string | null;
   displayName: string;
-  filterKind: string;
-  filterConfig: Record<string, unknown> | null;
+  filterSteps: FilterStep[];
   enabled: boolean;
   createdAt: number;
   updatedAt: number;
@@ -130,8 +137,7 @@ export interface ApiSinkRecord {
   id: string;
   monitorId: string;
   destinationId: string;
-  filterKind: string | null;
-  filterConfig: Record<string, unknown> | null;
+  filterSteps: FilterStep[];
   createdAt: number;
 }
 

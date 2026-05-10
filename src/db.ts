@@ -1,5 +1,5 @@
 import type { Env } from "./env";
-import { decryptSecret, encryptSecret, newId } from "./crypto";
+import { decryptSecret, encryptSecret, newId, newToken } from "./crypto";
 import type { DiscoveredSource } from "./providers";
 
 export interface UserRow {
@@ -379,11 +379,40 @@ export interface MonitorRow {
   user_id: string;
   connection_id: string | null;
   display_name: string;
-  filter_kind: string;
-  filter_config_json: string | null;
+  /** JSON array of FilterStep objects; null/empty = pass-through. */
+  filter_steps_json: string | null;
   enabled: number;
   created_at: number;
   updated_at: number;
+}
+
+/**
+ * Pipeline step shapes. Stored as JSON in monitors.filter_steps_json
+ * and sinks.filter_steps_json. The generator emits one Vector transform
+ * per step.
+ */
+export type FilterStep =
+  | { kind: "errors" }
+  | { kind: "level"; level: string; mode?: "include" | "exclude" }
+  | {
+      kind: "match";
+      pattern: string;
+      mode: "include" | "exclude";
+      field?: string;
+    }
+  | { kind: "rate_limit"; per_minute: number }
+  | { kind: "dedup"; window_secs: number; fields?: string[] }
+  | { kind: "sample"; rate: number };
+
+export function parseFilterSteps(json: string | null): FilterStep[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json);
+    if (Array.isArray(parsed)) return parsed as FilterStep[];
+  } catch {
+    /* fall through */
+  }
+  return [];
 }
 
 export async function listMonitors(
@@ -436,29 +465,26 @@ export async function createMonitor(
     userId: string;
     connectionId: string | null;
     displayName: string;
-    filterKind: string;
-    filterConfig: unknown;
+    filterSteps: FilterStep[];
     enabled?: boolean;
   },
 ): Promise<MonitorRow> {
   const id = newId("mon");
   const ts = now();
-  const cfg = input.filterConfig
-    ? JSON.stringify(input.filterConfig)
-    : null;
+  const stepsJson =
+    input.filterSteps.length > 0 ? JSON.stringify(input.filterSteps) : null;
   await db
     .prepare(
       `INSERT INTO monitors
-       (id, user_id, connection_id, display_name, filter_kind, filter_config_json, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, user_id, connection_id, display_name, filter_steps_json, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
       input.userId,
       input.connectionId,
       input.displayName,
-      input.filterKind,
-      cfg,
+      stepsJson,
       input.enabled === false ? 0 : 1,
       ts,
       ts,
@@ -469,8 +495,7 @@ export async function createMonitor(
     user_id: input.userId,
     connection_id: input.connectionId,
     display_name: input.displayName,
-    filter_kind: input.filterKind,
-    filter_config_json: cfg,
+    filter_steps_json: stepsJson,
     enabled: input.enabled === false ? 0 : 1,
     created_at: ts,
     updated_at: ts,
@@ -483,8 +508,7 @@ export async function updateMonitor(
   id: string,
   patch: Partial<{
     displayName: string;
-    filterKind: string;
-    filterConfig: unknown;
+    filterSteps: FilterStep[];
     connectionId: string | null;
     enabled: boolean;
   }>,
@@ -492,23 +516,22 @@ export async function updateMonitor(
   const existing = await getMonitor(db, userId, id);
   if (!existing) return null;
   const ts = now();
-  const cfg =
-    patch.filterConfig === undefined
-      ? existing.filter_config_json
-      : patch.filterConfig === null
+  const steps =
+    patch.filterSteps === undefined
+      ? existing.filter_steps_json
+      : patch.filterSteps.length === 0
         ? null
-        : JSON.stringify(patch.filterConfig);
+        : JSON.stringify(patch.filterSteps);
   await db
     .prepare(
       `UPDATE monitors
-       SET display_name = ?, filter_kind = ?, filter_config_json = ?,
+       SET display_name = ?, filter_steps_json = ?,
            connection_id = ?, enabled = ?, updated_at = ?
        WHERE id = ? AND user_id = ?`,
     )
     .bind(
       patch.displayName ?? existing.display_name,
-      patch.filterKind ?? existing.filter_kind,
-      cfg,
+      steps,
       patch.connectionId === undefined
         ? existing.connection_id
         : patch.connectionId,
@@ -542,8 +565,8 @@ export interface SinkRow {
   id: string;
   monitor_id: string;
   destination_id: string;
-  filter_kind: string | null;
-  filter_config_json: string | null;
+  /** JSON array of FilterStep objects; null/empty = pass-through. */
+  filter_steps_json: string | null;
   created_at: number;
 }
 
@@ -577,43 +600,57 @@ export async function listSinksForUser(
   return r.results ?? [];
 }
 
+/** Default pipeline steps inserted when a new sink is created with no
+ *  explicit steps — see "dedup by default" feedback. Customers can
+ *  remove it explicitly. */
+export const DEFAULT_SINK_STEPS: FilterStep[] = [
+  { kind: "dedup", window_secs: 300, fields: ["message"] },
+];
+
 export async function createSink(
   db: D1Database,
   input: {
     monitorId: string;
     destinationId: string;
-    filterKind?: string | null;
-    filterConfig?: unknown;
+    filterSteps?: FilterStep[];
   },
 ): Promise<SinkRow> {
   const id = newId("snk");
   const ts = now();
-  const cfg = input.filterConfig
-    ? JSON.stringify(input.filterConfig)
-    : null;
+  const steps = input.filterSteps ?? DEFAULT_SINK_STEPS;
+  const stepsJson = steps.length > 0 ? JSON.stringify(steps) : null;
   await db
     .prepare(
       `INSERT INTO sinks
-       (id, monitor_id, destination_id, filter_kind, filter_config_json, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+       (id, monitor_id, destination_id, filter_steps_json, created_at)
+       VALUES (?, ?, ?, ?, ?)`,
     )
-    .bind(
-      id,
-      input.monitorId,
-      input.destinationId,
-      input.filterKind ?? null,
-      cfg,
-      ts,
-    )
+    .bind(id, input.monitorId, input.destinationId, stepsJson, ts)
     .run();
   return {
     id,
     monitor_id: input.monitorId,
     destination_id: input.destinationId,
-    filter_kind: input.filterKind ?? null,
-    filter_config_json: cfg,
+    filter_steps_json: stepsJson,
     created_at: ts,
   };
+}
+
+export async function updateSinkSteps(
+  db: D1Database,
+  userId: string,
+  sinkId: string,
+  steps: FilterStep[],
+): Promise<void> {
+  const stepsJson = steps.length > 0 ? JSON.stringify(steps) : null;
+  await db
+    .prepare(
+      `UPDATE sinks SET filter_steps_json = ?
+       WHERE id = ? AND monitor_id IN
+         (SELECT id FROM monitors WHERE user_id = ?)`,
+    )
+    .bind(stepsJson, sinkId, userId)
+    .run();
 }
 
 export async function deleteSink(
@@ -648,8 +685,7 @@ export async function ensureDefaultErrorsMonitor(
     userId,
     connectionId: null,
     displayName: "Errors",
-    filterKind: "errors",
-    filterConfig: null,
+    filterSteps: [{ kind: "errors" }],
   });
 }
 
@@ -683,6 +719,8 @@ export interface DeploymentRow {
   source_selection_json: string | null;
   monitor_selection_json: string | null;
   heartbeat_target: string | null;
+  heartbeat_token: string | null;
+  last_alert_sent_at: number | null;
 }
 
 export interface DeploymentSelection {
@@ -764,13 +802,18 @@ export async function createDeployment(
 ): Promise<DeploymentRow> {
   const id = newId("dep");
   const ts = now();
+  // Per-deployment heartbeat token. The running container uses this to
+  // authenticate to POST /api/heartbeat/:id; receiving the request
+  // bumps last_seen_at. Random 32 bytes encoded as URL-safe base64.
+  const heartbeatToken = newToken();
   await db
     .prepare(
       `INSERT INTO deployments
        (id, user_id, connection_id, deploy_target_id, target_kind, display_name,
         managed, status, metadata_json, source_selection_json,
-        monitor_selection_json, heartbeat_target, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
+        monitor_selection_json, heartbeat_target, heartbeat_token,
+        created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -783,7 +826,8 @@ export async function createDeployment(
       input.metadata ? JSON.stringify(input.metadata) : null,
       input.sourceIds ? JSON.stringify(input.sourceIds) : null,
       input.monitorIds ? JSON.stringify(input.monitorIds) : null,
-      input.heartbeatTarget ?? null,
+      input.heartbeatTarget ?? "logtura",
+      heartbeatToken,
       ts,
       ts,
     )
@@ -791,6 +835,68 @@ export async function createDeployment(
   const r = await getDeployment(db, input.userId, id);
   if (!r) throw new Error("deployment vanished after insert");
   return r;
+}
+
+/** Bump last_seen_at for a deployment receiving a heartbeat. */
+export async function recordHeartbeat(
+  db: D1Database,
+  deploymentId: string,
+): Promise<void> {
+  const ts = now();
+  await db
+    .prepare(
+      `UPDATE deployments
+       SET last_seen_at = ?, status = CASE
+         WHEN status IN ('pending', 'crashed') THEN 'running'
+         ELSE status
+       END,
+       updated_at = ?
+       WHERE id = ?`,
+    )
+    .bind(ts, ts, deploymentId)
+    .run();
+}
+
+/**
+ * Find deployments that should be considered silent: status='running'
+ * and last_seen_at older than the threshold AND we haven't alerted in
+ * the last `recentAlertWindow`. Used by the cron alerter.
+ */
+export async function listStaleDeployments(
+  db: D1Database,
+  silenceThresholdMs: number,
+  recentAlertWindowMs: number,
+): Promise<DeploymentRow[]> {
+  const nowTs = now();
+  const lastSeenCutoff = nowTs - silenceThresholdMs;
+  const alertCutoff = nowTs - recentAlertWindowMs;
+  const r = await db
+    .prepare(
+      `SELECT * FROM deployments
+       WHERE status = 'running'
+         AND last_seen_at IS NOT NULL
+         AND last_seen_at < ?
+         AND (last_alert_sent_at IS NULL OR last_alert_sent_at < ?)`,
+    )
+    .bind(lastSeenCutoff, alertCutoff)
+    .all<DeploymentRow>();
+  return r.results ?? [];
+}
+
+/** Mark a deployment crashed and stamp last_alert_sent_at. */
+export async function markDeploymentSilenceAlerted(
+  db: D1Database,
+  deploymentId: string,
+): Promise<void> {
+  const ts = now();
+  await db
+    .prepare(
+      `UPDATE deployments
+       SET status = 'crashed', last_alert_sent_at = ?, updated_at = ?
+       WHERE id = ?`,
+    )
+    .bind(ts, ts, deploymentId)
+    .run();
 }
 
 export async function updateDeployment(

@@ -217,7 +217,11 @@ export const cloudflareDriver: ProviderDriver<CloudflareCredentials> = {
         `    decoding:`,
         `      codec: json`,
       ].join("\n");
-      return { key, yaml };
+      return {
+        key,
+        yaml,
+        normalize: { key: `${key}_norm`, yaml: workerNormalizeYaml(key) },
+      };
     }
     if (source.sourceKind === "cf_ai_gateway") {
       const yaml = [
@@ -230,7 +234,11 @@ export const cloudflareDriver: ProviderDriver<CloudflareCredentials> = {
         `    decoding:`,
         `      codec: json`,
       ].join("\n");
-      return { key, yaml };
+      return {
+        key,
+        yaml,
+        normalize: { key: `${key}_norm`, yaml: aiGatewayNormalizeYaml(key) },
+      };
     }
     throw new Error(`Unknown cloudflare source kind: ${source.sourceKind}`);
   },
@@ -280,6 +288,76 @@ function shellQuote(s: string): string {
     throw new Error(`Refusing to shell-interpolate suspicious worker name: ${s}`);
   }
   return s;
+}
+
+/**
+ * VRL that flattens a `wrangler tail --format json` event into the
+ * uniform shape the rest of the pipeline expects:
+ *   .message  — joined string of console.log + exception messages
+ *   .level    — "error" | "info"
+ *   .error    — bool
+ *   .script   — Worker name
+ *   .timestamp — original eventTimestamp (ms epoch)
+ *
+ * CF tail event shape (top-level): outcome, scriptName, exceptions[],
+ * logs[{message[], level}], event, eventTimestamp.
+ */
+function workerNormalizeYaml(sourceKey: string): string {
+  const vrl = [
+    `.script = string(.scriptName) ?? "worker"`,
+    `.timestamp = .eventTimestamp`,
+    `exc_count = length(array(.exceptions) ?? []) ?? 0`,
+    `outcome = string(.outcome) ?? "ok"`,
+    `.error = exc_count > 0 || outcome != "ok"`,
+    `.level = if .error { "error" } else { "info" }`,
+    `parts = []`,
+    `for_each(array(.logs) ?? []) -> |_, log| {`,
+    `  for_each(array(log.message) ?? []) -> |_, m| {`,
+    `    s = if is_string(m) { string!(m) } else { encode_json(m) }`,
+    `    parts = push(parts, s)`,
+    `  }`,
+    `}`,
+    `for_each(array(.exceptions) ?? []) -> |_, ex| {`,
+    `  name = string(ex.name) ?? "Error"`,
+    `  msg = string(ex.message) ?? ""`,
+    `  parts = push(parts, name + ": " + msg)`,
+    `}`,
+    `.message = if length(parts) > 0 { join!(parts, " | ") } else { "" }`,
+  ];
+  return [
+    "    type: remap",
+    `    inputs: ["${sourceKey}"]`,
+    "    source: |-",
+    ...vrl.map((line) => `      ${line}`),
+  ].join("\n");
+}
+
+/**
+ * AI Gateway log entries (from /accounts/.../ai-gateway/gateways/.../logs)
+ * have a richer schema; normalize the parts that map cleanly. The
+ * endpoint returns {result: [...]} so this VRL also handles array
+ * unwrapping by keeping events as-is when they're already records.
+ *
+ * AI Gateway log shape: {id, success, status_code, request_*, model,
+ * provider, response_status_code, ...}
+ */
+function aiGatewayNormalizeYaml(sourceKey: string): string {
+  const vrl = [
+    `.script = string(.provider) ?? "ai-gateway"`,
+    `.timestamp = .created_at`,
+    `success = bool(.success) ?? true`,
+    `status = int(.status_code) ?? 200`,
+    `.error = !success || status >= 500`,
+    `.level = if .error { "error" } else { "info" }`,
+    `model = string(.model) ?? "?"`,
+    `.message = "ai_gateway " + model + " status=" + to_string(status)`,
+  ];
+  return [
+    "    type: remap",
+    `    inputs: ["${sourceKey}"]`,
+    "    source: |-",
+    ...vrl.map((line) => `      ${line}`),
+  ].join("\n");
 }
 
 // Re-export the source ref type so call sites can import from one place.
