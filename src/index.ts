@@ -857,7 +857,9 @@ apiAuth.get("/jobs/:id", async (c) => {
   // Aggregate a parent's view from its kids without writing to the
   // parent row. The kid that "really did the work" (the last
   // succeeded one) is the source of truth for `result`; the first
-  // failed kid's error wins for `lastError`.
+  // failed kid's error wins for `lastError`. Progress comes from
+  // whichever kid is currently in-flight, falling back to the latest
+  // kid that set progress at all so the UI never goes blank.
   const kids = await jobs.listChildren(id);
   const aggregated: JobRecord = kids.length
     ? { ...job, status: aggregateStatus(job, kids) }
@@ -869,6 +871,13 @@ apiAuth.get("/jobs/:id", async (c) => {
       .find((k) => k.status === "succeeded");
     aggregated.lastError = failed?.lastError ?? null;
     aggregated.result = lastSucceeded?.result ?? null;
+
+    const running = kids.find((k) => k.status === "running");
+    const latestWithProgress = [...kids]
+      .reverse()
+      .find((k) => k.uxProgress !== null);
+    aggregated.uxProgress =
+      running?.uxProgress ?? latestWithProgress?.uxProgress ?? null;
   }
   return c.json({ job: toApiJob(aggregated), kids: kids.map(toApiJob) });
 });
@@ -1037,5 +1046,6 @@ function toApiJob(j: JobRecord) {
     startedAt: j.startedAt,
     completedAt: j.completedAt,
     result: j.result,
+    progress: j.uxProgress,
   };
 }

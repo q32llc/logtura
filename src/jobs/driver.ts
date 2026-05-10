@@ -5,6 +5,7 @@ import {
   type JobRow,
   type JobStatus,
   type QueueEnvelope,
+  type UxProgress,
   jobRowToRecord,
 } from "./types";
 
@@ -178,6 +179,25 @@ export class JobDriver {
       .run();
     if ((result.meta.changes ?? 0) === 0) return null;
     return this.getById(id);
+  }
+
+  /** Set the optional UX progress hint for this job. attempt_id-gated
+   *  so a stale handler can't overwrite a re-claimed row. Best-effort
+   *  — the rollup endpoint reads progress; nothing else acts on it. */
+  async setProgress(
+    id: string,
+    attemptId: string,
+    progress: UxProgress | null,
+  ): Promise<boolean> {
+    const now = Date.now();
+    const r = await this.db
+      .prepare(
+        `UPDATE jobs SET ux_progress_json = ?, updated_at = ?
+         WHERE id = ? AND attempt_id = ? AND status = 'running'`,
+      )
+      .bind(progress ? JSON.stringify(progress) : null, now, id, attemptId)
+      .run();
+    return (r.meta.changes ?? 0) > 0;
   }
 
   /** Bump last_heartbeat_at if the caller is still the active claimer.

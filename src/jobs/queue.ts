@@ -8,7 +8,7 @@ import {
   runFlyCreateOrUpdateMachine,
   runFlyWaitRunning,
 } from "./handlers/fly-deploy";
-import type { JobKind, JobRecord, QueueEnvelope } from "./types";
+import type { JobKind, JobRecord, QueueEnvelope, UxProgress } from "./types";
 
 /** Cap each handler invocation well below CF Workers' 30s subrequest
  *  budget. When the timer fires, we abort the in-flight handler and
@@ -45,6 +45,11 @@ export interface JobHandlerCtx {
       payload?: Record<string, unknown> | null;
     }) => Promise<void>;
   };
+  /** UX-only status hint surfaced by the aggregate /api/jobs/:id
+   *  endpoint. Use for "what's the user looking at right now"
+   *  ("Building image", "Pushing layer 3 of 7"). Not load-bearing —
+   *  pass null to clear. */
+  progress: (input: UxProgress | null) => Promise<void>;
 }
 
 export type JobHandler = (
@@ -138,6 +143,9 @@ async function processOne(
           message: input.message,
           payload: input.payload ?? null,
         }),
+    },
+    progress: async (input) => {
+      await driver.setProgress(job.id, attemptId, input);
     },
   };
 

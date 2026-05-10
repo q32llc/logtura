@@ -27,7 +27,13 @@ import type {
 } from "../types";
 
 const DEFAULT_REGION = "iad";
-const VECTOR_IMAGE = "timberio/vector:latest-debian";
+/** Our maintained "kitchen-sink" Vector image (Vector + node +
+ *  wrangler + flyctl + gcloud + awscli + python). Built by
+ *  .github/workflows/build-forwarder.yml from
+ *  containers/forwarder/Dockerfile. The bare timberio/vector image
+ *  doesn't have the CLIs our generated configs `exec` (wrangler tail
+ *  etc.), so a Vector started from it crash-loops. */
+const VECTOR_IMAGE = "ghcr.io/q32llc/logtura-forwarder:latest";
 const MACHINE_NAME = "forwarder";
 /** How long the wait_running chain may run before giving up. */
 const RUN_TIMEOUT_MS = 5 * 60 * 1000;
@@ -46,6 +52,7 @@ export async function runFlyDeploy(ctx: JobHandlerCtx): Promise<null> {
   if (!payload.deploymentId || !payload.deployTargetId) {
     throw new Error("fly_deploy payload missing ids");
   }
+  await ctx.progress({ label: "Queued — starting deploy" });
   await ctx.events.record({
     kind: "fly_deploy.started",
     message: `Starting Fly deploy for ${payload.deploymentId}`,
@@ -69,12 +76,15 @@ export async function runFlyDischargeCreateApp(
   const p = ctx.job.payload as unknown as FlyDischargeCreateAppPayload;
   const parent = p.parentPayload;
 
+  await ctx.progress({ label: "Authenticating with Fly" });
   const flyAuth = await loadDischargedAuth(ctx.env, ctx.job.userId, parent);
 
+  await ctx.progress({ label: "Resolving Fly organization" });
   const orgSlug =
     parent.orgSlug ?? (await resolveOrgSlugWithFallback(ctx, flyAuth));
   const region = parent.region ?? DEFAULT_REGION;
 
+  await ctx.progress({ label: `Ensuring Fly app ${p.appName}` });
   const existing = await getFlyApp(flyAuth, p.appName);
   if (!existing) {
     await createFlyApp(flyAuth, { appName: p.appName, orgSlug });
@@ -113,6 +123,7 @@ export async function runFlyCreateOrUpdateMachine(
   const p = ctx.job.payload as unknown as FlyCreateOrUpdateMachinePayload;
   const parent = p.parentPayload;
 
+  await ctx.progress({ label: "Assembling Vector config" });
   const flyAuth = await loadDischargedAuth(ctx.env, ctx.job.userId, parent);
 
   const assembled = await assembleDeploymentBundle(
@@ -151,6 +162,7 @@ export async function runFlyCreateOrUpdateMachine(
     restart: { policy: "always" },
   };
 
+  await ctx.progress({ label: "Updating Fly machine" });
   const existing = await listFlyMachines(flyAuth, p.appName);
   const target = existing.find((m) => m.name === MACHINE_NAME);
   let machineId: string;
@@ -216,6 +228,11 @@ export async function runFlyWaitRunning(
   if (!m) {
     throw new Error(`machine ${p.machineId} not found on ${p.appName}`);
   }
+
+  await ctx.progress({
+    label: "Waiting for machine to start",
+    detail: `state=${m.state}`,
+  });
 
   if (m.state === "started") {
     await updateDeployment(ctx.env.DB, ctx.job.userId, parent.deploymentId, {

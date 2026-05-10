@@ -198,6 +198,12 @@ export interface ApiDeployment {
 
 export type ApiJobStatus = "queued" | "running" | "succeeded" | "failed";
 
+export interface ApiJobProgress {
+  label: string;
+  detail?: string;
+  fraction?: number;
+}
+
 export interface ApiJob {
   id: string;
   kind: string;
@@ -211,4 +217,7 @@ export interface ApiJob {
   startedAt: number | null;
   completedAt: number | null;
   result: Record<string, unknown> | null;
+  /** UX progress hint from the in-flight kid (parents) or this row
+   *  itself (kids). null when no handler has set it. */
+  progress: ApiJobProgress | null;
 }

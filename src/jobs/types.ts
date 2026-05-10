@@ -19,11 +19,23 @@ export interface JobRow {
   attempt_id: string | null;
   lock_key: string | null;
   last_heartbeat_at: number | null;
+  ux_progress_json: string | null;
   created_at: number;
   updated_at: number;
   started_at: number | null;
   completed_at: number | null;
   available_at: number | null;
+}
+
+/** UX-only progress hint set by ctx.progress() and surfaced by the
+ *  aggregate /api/jobs/:id endpoint. Not load-bearing — null is fine. */
+export interface UxProgress {
+  /** Short human label, e.g. "Building image". */
+  label: string;
+  /** Optional secondary detail, e.g. "layer 3 of 7". */
+  detail?: string;
+  /** Optional 0–1 progress for a determinate operation. */
+  fraction?: number;
 }
 
 export interface JobRecord {
@@ -38,6 +50,7 @@ export interface JobRecord {
   attemptId: string | null;
   lockKey: string | null;
   lastHeartbeatAt: number | null;
+  uxProgress: UxProgress | null;
   createdAt: number;
   updatedAt: number;
   startedAt: number | null;
@@ -131,6 +144,9 @@ export function jobRowToRecord(row: JobRow): JobRecord {
     attemptId: row.attempt_id,
     lockKey: row.lock_key,
     lastHeartbeatAt: row.last_heartbeat_at,
+    uxProgress: row.ux_progress_json
+      ? (JSON.parse(row.ux_progress_json) as UxProgress)
+      : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     startedAt: row.started_at,
