@@ -837,6 +837,26 @@ export async function createDeployment(
   return r;
 }
 
+/**
+ * Ensure a deployment row has a heartbeat_token; generate + persist
+ * one if missing (e.g. rows that predate migration 0007). Returns the
+ * token, persistent across calls.
+ */
+export async function ensureHeartbeatToken(
+  db: D1Database,
+  deployment: DeploymentRow,
+): Promise<string> {
+  if (deployment.heartbeat_token) return deployment.heartbeat_token;
+  const token = newToken();
+  await db
+    .prepare(
+      "UPDATE deployments SET heartbeat_token = ?, updated_at = ? WHERE id = ?",
+    )
+    .bind(token, now(), deployment.id)
+    .run();
+  return token;
+}
+
 /** Bump last_seen_at for a deployment receiving a heartbeat. */
 export async function recordHeartbeat(
   db: D1Database,

@@ -31,6 +31,7 @@ import {
   updateSinkSteps,
   parseFilterSteps,
   recordHeartbeat,
+  ensureHeartbeatToken,
   type FilterStep,
   // Deployments — the unit of "what runs"
   createDeployment,
@@ -311,11 +312,12 @@ apiAuth.get("/deployments/:id/bundle", async (c) => {
       appUrl: c.env.APP_URL,
     },
   });
-  // Inject the heartbeat token value (we have it on the deployment row)
-  // for the bundle UI to populate the docker run command with.
+  // Inject the heartbeat token value into the bundle UI. Lazy-init the
+  // token if the deployment row predates migration 0007.
+  const heartbeatToken = await ensureHeartbeatToken(c.env.DB, deployment);
   for (const v of sourceBundle.envVars) {
-    if (v.name === "LOGTURA_HEARTBEAT_TOKEN" && deployment.heartbeat_token) {
-      v.value = deployment.heartbeat_token;
+    if (v.name === "LOGTURA_HEARTBEAT_TOKEN") {
+      v.value = heartbeatToken;
     }
   }
 
