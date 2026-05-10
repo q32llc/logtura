@@ -33,6 +33,7 @@ import type {
   ApiConnection,
   ApiDeployTarget,
   ApiDeployment,
+  ApiJob,
   ApiMonitor,
   ApiSource,
   ApiTargetBundle,
@@ -140,8 +141,7 @@ export function DeploymentDetail() {
         <Tabs.List>
           <Tabs.Tab value="overview">Overview</Tabs.Tab>
           <Tabs.Tab value="configure">Configure</Tabs.Tab>
-          <Tabs.Tab value="deploy">Deploy</Tabs.Tab>
-          <Tabs.Tab value="bundle">Bundle</Tabs.Tab>
+          <Tabs.Tab value="run">Run</Tabs.Tab>
         </Tabs.List>
 
         <Tabs.Panel value="overview" pt="md">
@@ -152,18 +152,8 @@ export function DeploymentDetail() {
           <ConfigurePanel deployment={deployment} onSaved={refetch} />
         </Tabs.Panel>
 
-        <Tabs.Panel value="deploy" pt="md">
-          <DeployPanel deployment={deployment} />
-        </Tabs.Panel>
-
-        <Tabs.Panel value="bundle" pt="md">
-          {bundle ? (
-            <BundleView bundle={bundle} />
-          ) : (
-            <Group justify="center" mt="xl">
-              <Loader />
-            </Group>
-          )}
+        <Tabs.Panel value="run" pt="md">
+          <RunPanel deployment={deployment} bundle={bundle} />
         </Tabs.Panel>
       </Tabs>
     </Container>
@@ -440,9 +430,48 @@ function relativeTime(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-// ---------- Deploy (managed) -------------------------------------------
+// ---------- Run (managed deploy + self-deploy bundle, equal weight) ----
 
-function DeployPanel({ deployment }: { deployment: ApiDeployment }) {
+function RunPanel({
+  deployment,
+  bundle,
+}: {
+  deployment: ApiDeployment;
+  bundle: ApiTargetBundle | null;
+}) {
+  return (
+    <Stack gap="lg">
+      <ManagedDeployCard deployment={deployment} />
+
+      <Card withBorder p="lg" radius="md">
+        <Stack gap="sm">
+          <Group gap={6}>
+            <Text fw={600}>Self-deploy</Text>
+            <Badge size="xs" variant="light">
+              you own the runtime
+            </Badge>
+          </Group>
+          <Text size="sm" c="dimmed">
+            Grab the generated Dockerfile + Vector config and run the
+            forwarder anywhere — your laptop, your own Fly app, a Nomad
+            cluster, a Raspberry Pi. logtura keeps generating the
+            config; you decide where it lives.
+          </Text>
+        </Stack>
+      </Card>
+
+      {bundle ? (
+        <BundleView bundle={bundle} />
+      ) : (
+        <Group justify="center" mt="xl">
+          <Loader />
+        </Group>
+      )}
+    </Stack>
+  );
+}
+
+function ManagedDeployCard({ deployment }: { deployment: ApiDeployment }) {
   const [targets, setTargets] = useState<ApiDeployTarget[] | null>(null);
   const [connecting, setConnecting] = useState<{
     sessionId: string;
@@ -450,6 +479,8 @@ function DeployPanel({ deployment }: { deployment: ApiDeployment }) {
   } | null>(null);
   const [pollMessage, setPollMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deployJob, setDeployJob] = useState<ApiJob | null>(null);
+  const [deploying, setDeploying] = useState(false);
 
   async function refetch() {
     try {
@@ -491,6 +522,30 @@ function DeployPanel({ deployment }: { deployment: ApiDeployment }) {
     };
   }, [connecting]);
 
+  // Poll the deploy job until it terminates.
+  useEffect(() => {
+    if (!deployJob) return;
+    if (deployJob.status === "succeeded" || deployJob.status === "failed") return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const r = await api.getJob(deployJob.id);
+        if (cancelled) return;
+        setDeployJob(r.job);
+        if (r.job.status === "queued" || r.job.status === "running") {
+          setTimeout(tick, 2000);
+        }
+      } catch (e) {
+        if (cancelled) return;
+        setError(e instanceof ApiError ? e.message : "Job poll failed");
+      }
+    };
+    setTimeout(tick, 2000);
+    return () => {
+      cancelled = true;
+    };
+  }, [deployJob]);
+
   async function startConnect() {
     setError(null);
     setPollMessage(null);
@@ -503,16 +558,32 @@ function DeployPanel({ deployment }: { deployment: ApiDeployment }) {
     }
   }
 
+  async function startDeploy(targetId: string) {
+    setError(null);
+    setDeploying(true);
+    try {
+      const r = await api.deployNow(deployment.id, { deployTargetId: targetId });
+      setDeployJob(r.job);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to start deploy");
+    } finally {
+      setDeploying(false);
+    }
+  }
+
   if (deployment.targetKind === "other") {
     return (
-      <Card withBorder p="lg">
+      <Card withBorder p="lg" radius="md">
         <Stack gap="sm">
-          <Text fw={600}>Managed deploy isn't available for "Other"</Text>
+          <Group gap={6}>
+            <IconRocket size={18} />
+            <Text fw={600}>Managed deploy</Text>
+          </Group>
           <Text size="sm" c="dimmed">
-            You picked Other as the target, which means we don't know
-            where you're deploying. Use the Bundle tab to grab the
-            generic Dockerfile and run it yourself, or change the
-            target on the Configure tab.
+            You picked Other as the target, so logtura doesn't know
+            where to push the forwarder. Self-deploy below works
+            anywhere; switch the target on the Configure tab if you
+            want a one-click deploy.
           </Text>
         </Stack>
       </Card>
@@ -521,144 +592,219 @@ function DeployPanel({ deployment }: { deployment: ApiDeployment }) {
 
   if (deployment.targetKind !== "fly") {
     return (
-      <Card withBorder p="lg">
+      <Card withBorder p="lg" radius="md">
         <Stack gap="sm">
-          <Text fw={600}>Managed deploy for {deployment.targetKind}: coming next</Text>
+          <Group gap={6}>
+            <IconRocket size={18} />
+            <Text fw={600}>
+              Managed deploy for {deployment.targetKind}: coming next
+            </Text>
+          </Group>
           <Text size="sm" c="dimmed">
-            We're rolling out managed deploys one provider at a time.
-            Fly is up; this target's click-flow lands soon.
+            Fly is up; the click-flow for this target lands soon.
+            Self-deploy below works today.
           </Text>
         </Stack>
       </Card>
     );
   }
 
-  // Fly path.
   const flyTarget =
     targets?.find(
       (t) => t.kind === "fly" && t.externalAccountId === "personal",
     ) ?? null;
 
   return (
-    <Stack gap="md">
-      {error && <Alert color="red">{error}</Alert>}
-      {pollMessage && !error && (
-        <Alert color="teal" variant="light">
-          {pollMessage}
+    <Card withBorder p="lg" radius="md">
+      <Stack gap="md">
+        <Group gap={6}>
+          <IconRocket size={18} />
+          <Text fw={600}>Managed deploy on Fly</Text>
+          <Badge size="xs" variant="light" color="teal">
+            we run it for you
+          </Badge>
+        </Group>
+
+        {error && <Alert color="red">{error}</Alert>}
+        {pollMessage && !error && (
+          <Alert color="teal" variant="light">
+            {pollMessage}
+          </Alert>
+        )}
+
+        {targets === null ? (
+          <Loader size="xs" />
+        ) : flyTarget ? (
+          <FlyDeployRunner
+            target={flyTarget}
+            deployJob={deployJob}
+            deploying={deploying}
+            onDeploy={() => startDeploy(flyTarget.id)}
+            onReconnect={startConnect}
+            connecting={connecting !== null}
+          />
+        ) : connecting ? (
+          <ConnectingState
+            authUrl={connecting.authUrl}
+            onCancel={() => setConnecting(null)}
+          />
+        ) : (
+          <Stack gap="sm">
+            <Text size="sm" c="dimmed">
+              Click below to authorize logtura to deploy on your Fly
+              account. Same flow flyctl uses for{" "}
+              <code>fly auth login</code>: we open Fly's auth page, you
+              approve, the token comes back here.
+            </Text>
+            <Group>
+              <Button
+                onClick={startConnect}
+                leftSection={<IconExternalLink size={14} />}
+              >
+                Connect Fly
+              </Button>
+            </Group>
+          </Stack>
+        )}
+      </Stack>
+    </Card>
+  );
+}
+
+function ConnectingState({
+  authUrl,
+  onCancel,
+}: {
+  authUrl: string;
+  onCancel: () => void;
+}) {
+  return (
+    <Stack gap={6}>
+      <Group gap="xs">
+        <Loader size="xs" />
+        <Text size="sm">
+          Waiting for Fly approval — open the auth tab if it didn't pop
+          up.
+        </Text>
+      </Group>
+      <Group>
+        <Button
+          component="a"
+          href={authUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          size="xs"
+          variant="default"
+          leftSection={<IconExternalLink size={12} />}
+        >
+          Open Fly auth
+        </Button>
+        <Button size="xs" variant="subtle" onClick={onCancel}>
+          Cancel
+        </Button>
+      </Group>
+    </Stack>
+  );
+}
+
+function FlyDeployRunner({
+  target,
+  deployJob,
+  deploying,
+  onDeploy,
+  onReconnect,
+  connecting,
+}: {
+  target: ApiDeployTarget;
+  deployJob: ApiJob | null;
+  deploying: boolean;
+  onDeploy: () => void;
+  onReconnect: () => void;
+  connecting: boolean;
+}) {
+  const result = (deployJob?.result ?? null) as {
+    appName?: string;
+    appUrl?: string;
+    machineId?: string;
+    region?: string;
+  } | null;
+
+  return (
+    <Stack gap="sm">
+      <Stack gap={2}>
+        <Text size="sm">
+          Connected as <strong>{target.displayName}</strong>
+        </Text>
+        <Text size="xs" c="dimmed">
+          Token saved{" "}
+          {new Date(target.updatedAt).toISOString().slice(0, 10)}. Re-running
+          connect rotates the token in place.
+        </Text>
+      </Stack>
+
+      {deployJob && deployJob.status !== "succeeded" && (
+        <Alert
+          color={deployJob.status === "failed" ? "red" : "blue"}
+          variant="light"
+        >
+          {deployJob.status === "failed"
+            ? `Deploy failed: ${deployJob.error ?? "unknown"}`
+            : `Deploying… (${deployJob.status})`}
         </Alert>
       )}
 
-      <Card withBorder p="lg">
-        <Stack gap="sm">
-          <Text fw={600}>Fly account</Text>
-          {targets === null ? (
-            <Loader size="xs" />
-          ) : flyTarget ? (
-            <Stack gap={2}>
-              <Text size="sm">
-                Connected as <strong>{flyTarget.displayName}</strong>
-              </Text>
-              <Text size="xs" c="dimmed">
-                Token saved {new Date(flyTarget.updatedAt).toISOString().slice(0, 10)}.
-                We can deploy and manage this forwarder on your Fly
-                account. Re-running the connect rotates the token in
-                place.
-              </Text>
-              <Group mt="sm">
-                <Button
-                  size="xs"
-                  variant="default"
-                  onClick={startConnect}
-                  loading={connecting !== null}
-                >
-                  Reconnect Fly
-                </Button>
-              </Group>
-            </Stack>
-          ) : connecting ? (
-            <Stack gap={6}>
-              <Group gap="xs">
-                <Loader size="xs" />
-                <Text size="sm">
-                  Waiting for Fly approval — open the auth tab if it
-                  didn't pop up.
-                </Text>
-              </Group>
-              <Group>
-                <Button
-                  component="a"
-                  href={connecting.authUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  size="xs"
-                  variant="default"
-                  leftSection={<IconExternalLink size={12} />}
-                >
-                  Open Fly auth
-                </Button>
-                <Button
-                  size="xs"
-                  variant="subtle"
-                  onClick={() => setConnecting(null)}
-                >
-                  Cancel
-                </Button>
-              </Group>
-            </Stack>
-          ) : (
-            <Stack gap="sm">
-              <Text size="sm" c="dimmed">
-                Click below to authorize logtura to deploy on your Fly
-                account. Same flow flyctl uses for{" "}
-                <code>fly auth login</code> — we open Fly's auth page,
-                you approve, the token comes back here.
-              </Text>
-              <Group>
-                <Button
-                  onClick={startConnect}
-                  leftSection={<IconExternalLink size={14} />}
-                >
-                  Connect Fly
-                </Button>
-              </Group>
-            </Stack>
-          )}
-        </Stack>
-      </Card>
-
-      <Card withBorder p="lg">
-        <Stack gap="sm">
-          <Group gap={6}>
-            <IconRocket size={18} />
-            <Text fw={600}>Deploy this forwarder</Text>
-          </Group>
-          {flyTarget ? (
-            <>
-              <Text size="sm" c="dimmed">
-                The Fly Machines API integration (create app → set
-                secrets → boot machine → poll status) lands in the
-                next iteration. The connect flow you just walked
-                through stores the token; the click-deploy on top of
-                it is the next commit.
-              </Text>
-              <Group>
-                <Button disabled leftSection={<IconRocket size={14} />}>
-                  Deploy now (coming next)
-                </Button>
-              </Group>
-            </>
-          ) : (
-            <Text size="sm" c="dimmed">
-              Connect Fly above first.
+      {deployJob?.status === "succeeded" && result?.appUrl && (
+        <Alert color="teal" variant="light">
+          <Stack gap={2}>
+            <Text size="sm" fw={600}>
+              Deployed to Fly: {result.appName}
             </Text>
-          )}
-        </Stack>
-      </Card>
+            <Text size="xs">
+              Machine {result.machineId} in {result.region}.
+            </Text>
+            <Group gap="xs" mt={4}>
+              <Button
+                component="a"
+                href={result.appUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                size="xs"
+                variant="default"
+                leftSection={<IconExternalLink size={12} />}
+              >
+                Open on fly.io
+              </Button>
+            </Group>
+          </Stack>
+        </Alert>
+      )}
+
+      <Group>
+        <Button
+          onClick={onDeploy}
+          loading={
+            deploying ||
+            deployJob?.status === "queued" ||
+            deployJob?.status === "running"
+          }
+          leftSection={<IconRocket size={14} />}
+        >
+          {deployJob?.status === "succeeded" ? "Redeploy" : "Deploy now"}
+        </Button>
+        <Button
+          size="xs"
+          variant="default"
+          onClick={onReconnect}
+          loading={connecting}
+        >
+          Reconnect Fly
+        </Button>
+      </Group>
 
       <Text size="xs" c="dimmed">
-        Detach is one click on this page once managed deploys land.
-        Container keeps running on your Fly account; we just stop
-        touching it.
+        Logtura keeps the deployed forwarder running. Container logic
+        lives in your Fly account, so disconnecting from logtura leaves
+        it running until you tear it down on Fly.
       </Text>
     </Stack>
   );

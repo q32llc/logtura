@@ -221,4 +221,12 @@ export const api = {
       `/deployments/${deploymentId}/bundle${qs ? `?${qs}` : ""}`,
     );
   },
+  deployNow: (
+    deploymentId: string,
+    body: { deployTargetId: string; region?: string },
+  ) =>
+    request<{ job: ApiJob; deduped: boolean }>(
+      `/deployments/${deploymentId}/deploy`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
 };

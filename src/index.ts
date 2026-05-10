@@ -40,6 +40,7 @@ import {
   getDeployment,
   listDeployments,
   listDeploymentsForConnection,
+  getDeployTargetById,
   listDeployTargets,
   upsertDeployTarget,
   type DeployTargetRow,
@@ -65,6 +66,7 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { newToken, signCookie, verifyCookie } from "./crypto";
 import type { AppContext, Env } from "./env";
 import { generateBundle } from "./generator";
+import { assembleDeploymentBundle } from "./bundle-assembly";
 import { JobDriver } from "./jobs/driver";
 import { processQueueBatch } from "./jobs/queue";
 import {
@@ -78,6 +80,7 @@ import {
 import {
   type JobRecord,
   dedupeKeyForDiscovery,
+  dedupeKeyForFlyDeploy,
   type QueueEnvelope,
 } from "./jobs/types";
 import { getProvider, listProviders, ProviderError } from "./providers";
@@ -245,8 +248,19 @@ apiAuth.delete("/connections/:id", async (c) => {
 apiAuth.get("/deployments/:id/bundle", async (c) => {
   const user = c.get("user")!;
   const id = c.req.param("id");
-  const deployment = await getDeployment(c.env.DB, user.id, id);
-  if (!deployment) return c.json({ error: "not_found" }, 404);
+
+  let assembled;
+  try {
+    assembled = await assembleDeploymentBundle(c.env, user.id, id);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "bundle failed";
+    if (message.includes("deployment not found"))
+      return c.json({ error: "not_found" }, 404);
+    if (message.includes("connection not found"))
+      return c.json({ error: "connection_not_found" }, 404);
+    throw err;
+  }
+  const { deployment, bundle: sourceBundle } = assembled;
 
   const targetId = (c.req.query("target") ?? deployment.target_kind).trim();
   const targetDriver = getDeployTargetDriver(targetId);
@@ -255,130 +269,11 @@ apiAuth.get("/deployments/:id/bundle", async (c) => {
   }
   const region = c.req.query("region") ?? undefined;
 
-  const connection = await getConnection(
-    c.env.DB,
-    user.id,
-    deployment.connection_id,
-  );
-  if (!connection) return c.json({ error: "connection_not_found" }, 404);
-
-  // Resolve sources and monitors using the deployment's selection JSON
-  // (null = wildcard).
-  const selection = parseDeploymentSelection(deployment);
-  const allSources = await listSources(c.env.DB, connection.id);
-  const selectedSources =
-    selection.sourceIds === null
-      ? allSources
-      : allSources.filter((s) => selection.sourceIds!.includes(s.id));
-
-  const candidateMonitors = await listMonitorsForConnection(
-    c.env.DB,
-    user.id,
-    connection.id,
-  );
-  const applicableMonitors =
-    selection.monitorIds === null
-      ? candidateMonitors
-      : candidateMonitors.filter((m) =>
-          selection.monitorIds!.includes(m.id),
-        );
-
-  const generatorMonitors = [];
-  for (const monitor of applicableMonitors) {
-    const sinks = await listSinksForMonitor(c.env.DB, monitor.id);
-    const generatorSinks = [];
-    for (const sink of sinks) {
-      const destination = await getDestination(
-        c.env.DB,
-        user.id,
-        sink.destination_id,
-      );
-      if (!destination) continue;
-      const destinationConfig = await decryptDestinationConfig(
-        c.env,
-        destination,
-      );
-      generatorSinks.push({ sink, destination, destinationConfig });
-    }
-    generatorMonitors.push({ monitor, sinks: generatorSinks });
-  }
-
-  // Decrypt the connection's credentials so the bundle UI can inline
-  // the API-token value as "Copy value" rather than "set this yourself".
-  // Same trust posture as destination webhook URLs (which we already
-  // inline) — the user supplied this token themselves through our UI;
-  // showing it back to them in their own dashboard adds no leak.
-  const decryptedCredentials =
-    await decryptConnectionCredentials<Record<string, unknown>>(
-      c.env,
-      connection,
-    );
-
-  // Don't mislead the user with a stored token that's actually expired.
-  // Ask the provider driver if it's still fresh; when it isn't, we
-  // skip inlining and let the UI surface the help URL prominently.
-  // Also capture expiresAt regardless of freshness — we want the user
-  // to know "this token expires in 27 days" before they deploy, not
-  // only at the moment it dies.
-  let credentialIsFresh = true;
-  let credentialStaleReason: string | undefined;
-  let credentialExpiresAt: number | null | undefined;
-  const provider = getProvider(connection.provider);
-  if (provider?.checkCredentialFreshness) {
-    try {
-      const r = await provider.checkCredentialFreshness(decryptedCredentials);
-      credentialIsFresh = r.fresh;
-      credentialStaleReason = r.reason;
-      credentialExpiresAt = r.expiresAt ?? null;
-    } catch (err) {
-      console.warn("credential freshness check threw", err);
-      credentialIsFresh = false;
-      credentialStaleReason = "freshness check failed";
-    }
-  }
-  const connectionCredentials = credentialIsFresh
-    ? decryptedCredentials
-    : undefined;
-
-  const sourceBundle = generateBundle({
-    connection,
-    selectedSources,
-    monitors: generatorMonitors,
-    connectionCredentials,
-    heartbeat: {
-      kind:
-        (deployment.heartbeat_target ?? "logtura") === "logtura"
-          ? "logtura"
-          : "none",
-      deploymentId: deployment.id,
-      appUrl: c.env.APP_URL,
-    },
-  });
-  // Inject the heartbeat token value into the bundle UI. Lazy-init the
-  // token if the deployment row predates migration 0007.
-  const heartbeatToken = await ensureHeartbeatToken(c.env.DB, deployment);
-  for (const v of sourceBundle.envVars) {
-    if (v.name === "LOGTURA_HEARTBEAT_TOKEN") {
-      v.value = heartbeatToken;
-    }
-    // Annotate stale credential env vars with a reason so the UI can
-    // explain "why is the value missing?" — value is already null
-    // because we passed connectionCredentials = undefined above.
-    if (v.source === "credential") {
-      if (!credentialIsFresh) {
-        v.staleReason = credentialStaleReason ?? "stored credential is unusable";
-      }
-      if (credentialExpiresAt !== undefined) {
-        v.credentialExpiresAt = credentialExpiresAt;
-      }
-    }
-  }
-
   const targetBundle = targetDriver.generateTargetBundle({
     sourceBundle,
     deploymentName: deployment.display_name,
     region,
-    connectionId: connection.id,
+    connectionId: deployment.connection_id,
   });
 
   return c.json({
@@ -491,6 +386,53 @@ apiAuth.delete("/deployments/:id", async (c) => {
   const user = c.get("user")!;
   await deleteDeployment(c.env.DB, user.id, c.req.param("id"));
   return c.json({ ok: true });
+});
+
+apiAuth.post("/deployments/:id/deploy", async (c) => {
+  const user = c.get("user")!;
+  const id = c.req.param("id");
+  const deployment = await getDeployment(c.env.DB, user.id, id);
+  if (!deployment) return c.json({ error: "not_found" }, 404);
+
+  const body = (await c.req.json().catch(() => ({}))) as {
+    deployTargetId?: string;
+    region?: string;
+  };
+  if (!body.deployTargetId) {
+    return c.json({ error: "missing_deploy_target" }, 400);
+  }
+  const target = await getDeployTargetById(
+    c.env.DB,
+    user.id,
+    body.deployTargetId,
+  );
+  if (!target) return c.json({ error: "deploy_target_not_found" }, 404);
+  if (target.kind !== deployment.target_kind) {
+    return c.json(
+      {
+        error: "target_kind_mismatch",
+        expected: deployment.target_kind,
+        got: target.kind,
+      },
+      400,
+    );
+  }
+
+  const driver = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
+  const { job, deduped } = await driver.enqueue({
+    userId: user.id,
+    kind: "fly_deploy",
+    payload: {
+      deploymentId: id,
+      deployTargetId: target.id,
+      region: body.region,
+    },
+    dedupeKey: dedupeKeyForFlyDeploy(id),
+  });
+  if (!deduped) {
+    await updateDeployment(c.env.DB, user.id, id, { status: "pending" });
+  }
+  return c.json({ job: toApiJob(job), deduped });
 });
 
 // ----- Heartbeat ingest (no user auth — bearer token per deployment) ----

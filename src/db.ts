@@ -965,6 +965,29 @@ export async function upsertDeployTarget(
   return r;
 }
 
+export async function decryptDeployTargetCredentials<T = unknown>(
+  env: Env,
+  target: DeployTargetRow,
+): Promise<T> {
+  if (!target.credentials_encrypted) {
+    throw new Error("deploy_target has no stored credentials");
+  }
+  const buf = new Uint8Array(target.credentials_encrypted);
+  const json = await decryptSecret(buf, env.CREDENTIAL_ENCRYPTION_KEY);
+  return JSON.parse(json) as T;
+}
+
+export async function getDeployTargetById(
+  db: D1Database,
+  userId: string,
+  id: string,
+): Promise<DeployTargetRow | null> {
+  return db
+    .prepare("SELECT * FROM deploy_targets WHERE id = ? AND user_id = ?")
+    .bind(id, userId)
+    .first<DeployTargetRow>();
+}
+
 /** Bump last_seen_at for a deployment receiving a heartbeat. */
 export async function recordHeartbeat(
   db: D1Database,

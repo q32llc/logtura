@@ -1,6 +1,7 @@
 import type { Env } from "../env";
 import { JobDriver } from "./driver";
 import { runDiscovery } from "./handlers/discovery";
+import { runFlyDeploy } from "./handlers/fly-deploy";
 import type { QueueEnvelope } from "./types";
 
 /**
@@ -54,6 +55,12 @@ async function processOne(
     switch (job.kind) {
       case "discovery":
         result = (await runDiscovery(env, job)) as unknown as Record<
+          string,
+          unknown
+        >;
+        break;
+      case "fly_deploy":
+        result = (await runFlyDeploy(env, job)) as unknown as Record<
           string,
           unknown
         >;

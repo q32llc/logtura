@@ -1,4 +1,4 @@
-export type JobKind = "discovery";
+export type JobKind = "discovery" | "fly_deploy";
 
 export type JobStatus = "queued" | "running" | "succeeded" | "failed";
 
@@ -54,8 +54,31 @@ export interface DiscoveryResult {
   durationMs: number;
 }
 
+/** fly_deploy payload — which deployment to ship, using which target. */
+export interface FlyDeployPayload {
+  deploymentId: string;
+  deployTargetId: string;
+  /** Optional override; when omitted, the handler resolves user's
+   *  default org via Fly's GraphQL. */
+  orgSlug?: string;
+  /** Optional override; defaults to "iad". */
+  region?: string;
+}
+
+export interface FlyDeployResult {
+  appName: string;
+  machineId: string;
+  orgSlug: string;
+  region: string;
+  appUrl: string;
+}
+
 export function dedupeKeyForDiscovery(connectionId: string): string {
   return `discovery:${connectionId}`;
+}
+
+export function dedupeKeyForFlyDeploy(deploymentId: string): string {
+  return `fly_deploy:${deploymentId}`;
 }
 
 export function jobRowToRecord(row: JobRow): JobRecord {
