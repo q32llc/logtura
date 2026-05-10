@@ -143,6 +143,52 @@ export const cloudflareDriver: ProviderDriver<CloudflareCredentials> = {
     return accounts.map((a) => ({ id: a.id, name: a.name }));
   },
 
+  async checkCredentialFreshness(creds) {
+    // Cloudflare's /user/tokens/verify returns status + optional
+    // expires_on. We treat the token as stale when it's not active or
+    // is within 24h of expiring — short enough that the user would
+    // hit a runtime failure soon, long enough that we don't pester
+    // them on every bundle fetch for a token good for another year.
+    interface VerifyInfo {
+      id: string;
+      status: string;
+      expires_on?: string | null;
+    }
+    let info: VerifyInfo;
+    try {
+      info = await cfFetch<VerifyInfo>("/user/tokens/verify", creds.apiToken);
+    } catch (err) {
+      return {
+        fresh: false,
+        reason:
+          err instanceof Error
+            ? `verify failed: ${err.message}`
+            : "verify failed",
+        expiresAt: null,
+      };
+    }
+    if (info.status !== "active") {
+      return { fresh: false, reason: `status: ${info.status}`, expiresAt: null };
+    }
+    const expiresAt = info.expires_on
+      ? Date.parse(info.expires_on) || null
+      : null;
+    if (expiresAt !== null) {
+      const oneDay = 24 * 60 * 60 * 1000;
+      if (expiresAt - Date.now() < oneDay) {
+        return {
+          fresh: false,
+          reason:
+            expiresAt < Date.now()
+              ? "expired"
+              : "expiring within 24 hours",
+          expiresAt,
+        };
+      }
+    }
+    return { fresh: true, expiresAt };
+  },
+
   async discoverSources({ credentials, accountId }): Promise<DiscoveredSource[]> {
     // Soft-fail per resource so a Workers-only token still produces
     // workers, and an AI-Gateway-only token still produces gateways.

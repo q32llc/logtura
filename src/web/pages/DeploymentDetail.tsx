@@ -212,6 +212,12 @@ function BundleView({ bundle }: { bundle: ApiTargetBundle }) {
                 <Text size="xs" c="dimmed">
                   {v.description}
                 </Text>
+                {v.staleReason && (
+                  <Text size="xs" c="red.4" mt={2}>
+                    Stored credential is unusable ({v.staleReason}). Get a new
+                    one and re-add the connection.
+                  </Text>
+                )}
                 {v.helpUrl && (
                   <Button
                     component="a"
@@ -257,7 +263,8 @@ function BundleView({ bundle }: { bundle: ApiTargetBundle }) {
                   target="_blank"
                   rel="noopener noreferrer"
                   size="xs"
-                  variant="default"
+                  variant={v.staleReason ? "filled" : "default"}
+                  color={v.staleReason ? "red" : undefined}
                   leftSection={<IconExternalLink size={12} />}
                 >
                   Create one

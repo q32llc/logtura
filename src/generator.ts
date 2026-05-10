@@ -31,6 +31,10 @@ export interface BundleEnvVar {
   /** Optional URL the bundle UI surfaces as "create a new one →" so
    *  credential rotation is one click. */
   helpUrl?: string;
+  /** When the stored credential exists but is expired/disabled, value
+   *  is null and this carries the reason so the UI can explain why
+   *  it's not auto-filled. */
+  staleReason?: string;
 }
 
 export interface GeneratedBundle {

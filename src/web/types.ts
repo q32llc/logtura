@@ -83,6 +83,8 @@ export interface ApiBundleEnvVar {
   source: "credential" | "external_account_id" | "destination" | "manual";
   value: string | null;
   helpUrl?: string;
+  /** Set when stored credential exists but is unusable (expired, disabled). */
+  staleReason?: string;
 }
 
 export interface ApiBundleFile {

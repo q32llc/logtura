@@ -145,6 +145,22 @@ export interface ProviderDriver<TCreds = unknown> {
   /** Verify credentials and return accessible accounts. */
   verifyCredentials(credentials: TCreds): Promise<ProviderAccount[]>;
 
+  /**
+   * Optional freshness check for stored credentials. Called at bundle
+   * generation time so we don't inline a value that's actually
+   * expired (which would be worse than no value — the user copies
+   * something that fails when their container starts). When this
+   * returns `fresh: false`, the bundle UI surfaces the help URL
+   * prominently and treats the stored value as unusable. Drivers that
+   * don't implement this are assumed to always be fresh.
+   */
+  checkCredentialFreshness?(credentials: TCreds): Promise<{
+    fresh: boolean;
+    reason?: string;
+    /** ms epoch when the credential expires, if known. */
+    expiresAt?: number | null;
+  }>;
+
   /** Enumerate log sources for an authenticated account. */
   discoverSources(input: {
     credentials: TCreds;

@@ -305,11 +305,32 @@ apiAuth.get("/deployments/:id/bundle", async (c) => {
   // Same trust posture as destination webhook URLs (which we already
   // inline) — the user supplied this token themselves through our UI;
   // showing it back to them in their own dashboard adds no leak.
-  const connectionCredentials =
+  const decryptedCredentials =
     await decryptConnectionCredentials<Record<string, unknown>>(
       c.env,
       connection,
     );
+
+  // Don't mislead the user with a stored token that's actually expired.
+  // Ask the provider driver if it's still fresh; when it isn't, we
+  // skip inlining and let the UI surface the help URL prominently.
+  let credentialIsFresh = true;
+  let credentialStaleReason: string | undefined;
+  const provider = getProvider(connection.provider);
+  if (provider?.checkCredentialFreshness) {
+    try {
+      const r = await provider.checkCredentialFreshness(decryptedCredentials);
+      credentialIsFresh = r.fresh;
+      credentialStaleReason = r.reason;
+    } catch (err) {
+      console.warn("credential freshness check threw", err);
+      credentialIsFresh = false;
+      credentialStaleReason = "freshness check failed";
+    }
+  }
+  const connectionCredentials = credentialIsFresh
+    ? decryptedCredentials
+    : undefined;
 
   const sourceBundle = generateBundle({
     connection,
@@ -331,6 +352,12 @@ apiAuth.get("/deployments/:id/bundle", async (c) => {
   for (const v of sourceBundle.envVars) {
     if (v.name === "LOGTURA_HEARTBEAT_TOKEN") {
       v.value = heartbeatToken;
+    }
+    // Annotate stale credential env vars with a reason so the UI can
+    // explain "why is the value missing?" — value is already null
+    // because we passed connectionCredentials = undefined above.
+    if (v.source === "credential" && !credentialIsFresh) {
+      v.staleReason = credentialStaleReason ?? "stored credential is unusable";
     }
   }
 
