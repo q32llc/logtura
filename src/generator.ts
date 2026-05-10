@@ -236,10 +236,20 @@ function renderVectorYaml(
   if (heartbeat?.kind === "logtura") {
     lines.push("  heartbeat_pulse:");
     lines.push("    type: exec");
+    // mode: scheduled — Vector spawns the command on an interval,
+    // reads its full stdout, then waits for the next tick. No
+    // long-running shell loop, no stdout buffering to fight: the
+    // process terminates between heartbeats, so all output is
+    // flushed by definition. (mode: streaming with a `while true`
+    // loop hits glibc's fully-buffered-when-piped default — only the
+    // first \n flushes opportunistically; everything after sits in
+    // a 4 KB buffer that never fills.)
     lines.push(
-      `    command: ["sh", "-c", "while true; do printf '%s\\\\n' '{\\\"deployment_id\\\":\\\"${heartbeat.deploymentId}\\\"}' ; sleep 30; done"]`,
+      `    command: ["printf", "%s\\\\n", "{\\\"deployment_id\\\":\\\"${heartbeat.deploymentId}\\\"}"]`,
     );
-    lines.push("    mode: streaming");
+    lines.push("    mode: scheduled");
+    lines.push("    scheduled:");
+    lines.push("      exec_interval_secs: 30");
     lines.push("    decoding:");
     lines.push("      codec: json");
   }

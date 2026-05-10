@@ -24,6 +24,10 @@
 - [ ] AWS / Fargate — driver exists; no managed deploy yet.
 - [ ] GCP Cloud Run — driver exists; no managed deploy yet.
 
+### Memory / sources
+- [ ] **Drop `wrangler tail` for direct Cloudflare WebSocket Tail API** (C-style optimization). Each `wrangler tail` invocation spawns a full node process (~40 MB resident); a 24-worker deploy needs ~1 GB just for the tails. A single Vector source consuming the WebSocket directly is ~30× cheaper and removes the entire node dependency from the forwarder image's hot path. Currently we paper over this with `memory_mb: 4096` on the Fly machine — see `containers/forwarder/Dockerfile` + `src/providers/cloudflare.ts` source block.
+- [ ] Per-source memory budgeting and source-count cap on managed deploys, so a wildcard-selecting user can't OOM regardless of memory size.
+
 ### Providers
 - [ ] Render — Vercel-style log streaming. Driver + discovery + tailing source.
 - [ ] Vercel — log drains.

@@ -314,11 +314,69 @@ async function probeDumpYaml() {
   console.log("wrote /tmp/vector-from-fly.env");
 }
 
+async function probeExec() {
+  const cmdIdx = args.indexOf("--cmd");
+  const cmd = cmdIdx > 0 ? args[cmdIdx + 1] : "ps auxf; echo '---curl test---'; curl -sS -o /dev/null -w 'http_code=%{http_code}\\n' -X POST \"$LOGTURA_HEARTBEAT_URL\" -H \"authorization: Bearer $LOGTURA_HEARTBEAT_TOKEN\" -H \"content-type: application/json\" -d '{\"deployment_id\":\"dep_Zs5ETbGsU1hiKHGoKczrJw\"}'";
+  const { dischargeBundle } = await import("../src/deploy-targets/fly-macaroon.ts");
+  const auth = await dischargeBundle(authHeader);
+  const APP = "logtura-zs5etbgsu1hikhgokczr";
+  const lr = await fetch(`https://api.machines.dev/v1/apps/${APP}/machines`, { headers: { authorization: auth, accept: "application/json" } });
+  const ms = await lr.json();
+  const m = ms[0];
+  console.log(`exec on ${m.id} (${m.state})`);
+  console.log(`cmd: ${cmd.slice(0, 200)}`);
+  const url = `https://api.machines.dev/v1/apps/${APP}/machines/${m.id}/exec`;
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { authorization: auth, accept: "application/json", "content-type": "application/json" },
+    body: JSON.stringify({ cmd: `sh -c ${JSON.stringify(cmd)}`, timeout: 30 }),
+  });
+  console.log(`HTTP ${r.status}`);
+  const t = await r.text();
+  try {
+    const j = JSON.parse(t);
+    console.log(`exit_code: ${j.exit_code}`);
+    console.log(`stdout:\n${(j.stdout ?? "").slice(0, 2000)}`);
+    console.log(`stderr:\n${(j.stderr ?? "").slice(0, 500)}`);
+  } catch {
+    console.log(`raw: ${t.slice(0, 600)}`);
+  }
+}
+
+async function probeLogs() {
+  const { dischargeBundle } = await import("../src/deploy-targets/fly-macaroon.ts");
+  const auth = await dischargeBundle(authHeader);
+  const APP = "logtura-zs5etbgsu1hikhgokczr";
+  // Get most recent instance id
+  const lr = await fetch(`https://api.machines.dev/v1/apps/${APP}/machines`, { headers: { authorization: auth, accept: "application/json" } });
+  const ms = await lr.json();
+  const m = ms[0];
+  console.log(`machine ${m.id} state=${m.state} instance_id=${m.instance_id}`);
+  const url = `https://api.fly.io/api/v1/apps/${APP}/logs?instance=${m.instance_id}&region=${m.region}`;
+  console.log(`GET ${url}`);
+  const r = await fetch(url, { headers: { authorization: auth, accept: "application/json" } });
+  console.log(`HTTP ${r.status}`);
+  const text = await r.text();
+  if (r.status !== 200) {
+    console.log(`body: ${text.slice(0, 600)}`);
+    return;
+  }
+  const data = JSON.parse(text);
+  const entries = data.data ?? [];
+  console.log(`${entries.length} log entries:`);
+  for (const e of entries.slice(-30)) {
+    const a = e.attributes ?? {};
+    console.log(`  ${a.timestamp} ${a.level ?? ''} ${a.instance ?? ''} ${(a.message ?? '').slice(0, 200)}`);
+  }
+}
+
 const probes = {
   decode: decodeAndProbe,
   start: probeStart,
   full: probeMachineFull,
   dump: probeDumpYaml,
+  logs: probeLogs,
+  exec: probeExec,
   graphql_viewer: () =>
     call("GraphQL: viewer (User|Macaroon union)", "POST", "https://api.fly.io/graphql", {
       query: `query { viewer { __typename ... on User { id email } ... on Macaroon { email } } }`,

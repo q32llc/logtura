@@ -162,7 +162,12 @@ export async function runFlyCreateOrUpdateMachine(
     // the final exec `vector vector --config …` and crash-loops with
     // "unrecognized subcommand 'vector'".
     init: { cmd: ["--config", "/etc/vector/vector.yaml"] },
-    guest: { cpu_kind: "shared", cpus: 1, memory_mb: 256 },
+    // 2 cpus / 4096 MB. Each `wrangler tail` spawns a full node
+    // process (~30–40 MB resident) and users typically tail 10–30
+    // workers, so 1 GB OOMs hard. Fly's shared-cpu-1x caps at 2 GB,
+    // so we need shared-cpu-2x for 4 GB. Real fix is the WebSocket
+    // Tail API direct (TODO) — until then, this is a cheap seatbelt.
+    guest: { cpu_kind: "shared", cpus: 2, memory_mb: 4096 },
     restart: { policy: "always" },
   };
 
