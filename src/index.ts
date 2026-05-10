@@ -314,14 +314,19 @@ apiAuth.get("/deployments/:id/bundle", async (c) => {
   // Don't mislead the user with a stored token that's actually expired.
   // Ask the provider driver if it's still fresh; when it isn't, we
   // skip inlining and let the UI surface the help URL prominently.
+  // Also capture expiresAt regardless of freshness — we want the user
+  // to know "this token expires in 27 days" before they deploy, not
+  // only at the moment it dies.
   let credentialIsFresh = true;
   let credentialStaleReason: string | undefined;
+  let credentialExpiresAt: number | null | undefined;
   const provider = getProvider(connection.provider);
   if (provider?.checkCredentialFreshness) {
     try {
       const r = await provider.checkCredentialFreshness(decryptedCredentials);
       credentialIsFresh = r.fresh;
       credentialStaleReason = r.reason;
+      credentialExpiresAt = r.expiresAt ?? null;
     } catch (err) {
       console.warn("credential freshness check threw", err);
       credentialIsFresh = false;
@@ -356,8 +361,13 @@ apiAuth.get("/deployments/:id/bundle", async (c) => {
     // Annotate stale credential env vars with a reason so the UI can
     // explain "why is the value missing?" — value is already null
     // because we passed connectionCredentials = undefined above.
-    if (v.source === "credential" && !credentialIsFresh) {
-      v.staleReason = credentialStaleReason ?? "stored credential is unusable";
+    if (v.source === "credential") {
+      if (!credentialIsFresh) {
+        v.staleReason = credentialStaleReason ?? "stored credential is unusable";
+      }
+      if (credentialExpiresAt !== undefined) {
+        v.credentialExpiresAt = credentialExpiresAt;
+      }
     }
   }
 

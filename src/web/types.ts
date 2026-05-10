@@ -85,6 +85,8 @@ export interface ApiBundleEnvVar {
   helpUrl?: string;
   /** Set when stored credential exists but is unusable (expired, disabled). */
   staleReason?: string;
+  /** ms epoch the credential expires, when known. null = no expiry. */
+  credentialExpiresAt?: number | null;
 }
 
 export interface ApiBundleFile {

@@ -218,6 +218,17 @@ function BundleView({ bundle }: { bundle: ApiTargetBundle }) {
                     one and re-add the connection.
                   </Text>
                 )}
+                {v.credentialExpiresAt !== undefined &&
+                  v.credentialExpiresAt !== null &&
+                  !v.staleReason && (
+                    <Text
+                      size="xs"
+                      c={expiryColor(v.credentialExpiresAt)}
+                      mt={2}
+                    >
+                      {formatExpiry(v.credentialExpiresAt)}
+                    </Text>
+                  )}
                 {v.helpUrl && (
                   <Button
                     component="a"
@@ -280,6 +291,26 @@ function BundleView({ bundle }: { bundle: ApiTargetBundle }) {
       </Card>
     </Stack>
   );
+}
+
+function formatExpiry(ms: number): string {
+  const diffMs = ms - Date.now();
+  if (diffMs <= 0) return "Expired";
+  const days = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+  if (days < 1) {
+    const hours = Math.max(1, Math.floor(diffMs / (60 * 60 * 1000)));
+    return `Expires in ${hours} hour${hours === 1 ? "" : "s"}`;
+  }
+  if (days < 60) return `Expires in ${days} day${days === 1 ? "" : "s"}`;
+  const months = Math.round(days / 30);
+  return `Expires in ~${months} month${months === 1 ? "" : "s"} (${new Date(ms).toISOString().slice(0, 10)})`;
+}
+
+function expiryColor(ms: number): string {
+  const days = (ms - Date.now()) / (24 * 60 * 60 * 1000);
+  if (days <= 7) return "red.4";
+  if (days <= 30) return "yellow.6";
+  return "dimmed";
 }
 
 function FileBlock({

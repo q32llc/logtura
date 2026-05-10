@@ -35,6 +35,10 @@ export interface BundleEnvVar {
    *  is null and this carries the reason so the UI can explain why
    *  it's not auto-filled. */
   staleReason?: string;
+  /** ms epoch when the stored credential expires, if the provider
+   *  knows. Surfaced even for fresh credentials so the user can plan
+   *  rotation. null = no expiry / unknown. */
+  credentialExpiresAt?: number | null;
 }
 
 export interface GeneratedBundle {
