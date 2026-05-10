@@ -157,7 +157,11 @@ export async function runFlyCreateOrUpdateMachine(
         raw_value: base64Encode(bundle.vectorYaml),
       },
     ],
-    init: { cmd: ["vector", "--config", "/etc/vector/vector.yaml"] },
+    // NOTE: the timberio/vector base image has ENTRYPOINT ["vector"],
+    // so we pass only the args here. Including "vector" again makes
+    // the final exec `vector vector --config …` and crash-loops with
+    // "unrecognized subcommand 'vector'".
+    init: { cmd: ["--config", "/etc/vector/vector.yaml"] },
     guest: { cpu_kind: "shared", cpus: 1, memory_mb: 256 },
     restart: { policy: "always" },
   };

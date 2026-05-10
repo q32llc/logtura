@@ -291,10 +291,34 @@ async function probeMachineFull() {
   }
 }
 
+async function probeDumpYaml() {
+  const { dischargeBundle } = await import("../src/deploy-targets/fly-macaroon.ts");
+  const auth = await dischargeBundle(authHeader);
+  const APP = "logtura-zs5etbgsu1hikhgokczr";
+  const lr = await fetch(`https://api.machines.dev/v1/apps/${APP}/machines`, { headers: { authorization: auth, accept: "application/json" } });
+  const ms = await lr.json();
+  const m = ms[0];
+  if (!m) { console.log("no machine"); return; }
+  const f = (m.config?.files || []).find(f => f.guest_path === "/etc/vector/vector.yaml");
+  if (!f) { console.log("no vector.yaml file in machine config"); return; }
+  const yaml = Buffer.from(f.raw_value, "base64").toString("utf8");
+  await import("node:fs").then(fs => fs.writeFileSync("/tmp/vector-from-fly.yaml", yaml));
+  console.log("wrote /tmp/vector-from-fly.yaml");
+  console.log("env vars:");
+  for (const [k, v] of Object.entries(m.config?.env || {})) {
+    console.log(`  ${k}=${k.includes("TOKEN") || k.includes("SECRET") ? v.slice(0,8)+"..." : v}`);
+  }
+  // Also write env file
+  const envLines = Object.entries(m.config?.env || {}).map(([k,v]) => `${k}=${v}`).join("\n");
+  await import("node:fs").then(fs => fs.writeFileSync("/tmp/vector-from-fly.env", envLines));
+  console.log("wrote /tmp/vector-from-fly.env");
+}
+
 const probes = {
   decode: decodeAndProbe,
   start: probeStart,
   full: probeMachineFull,
+  dump: probeDumpYaml,
   graphql_viewer: () =>
     call("GraphQL: viewer (User|Macaroon union)", "POST", "https://api.fly.io/graphql", {
       query: `query { viewer { __typename ... on User { id email } ... on Macaroon { email } } }`,

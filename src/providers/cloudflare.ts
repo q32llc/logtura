@@ -356,7 +356,9 @@ function workerNormalizeYaml(sourceKey: string): string {
   const vrl = [
     `.script = string(.scriptName) ?? "worker"`,
     `.timestamp = .eventTimestamp`,
-    `exc_count = length(array(.exceptions) ?? []) ?? 0`,
+    // length() on an array can't fail in VRL, so no trailing `?? 0`.
+    // Vector rejects the unnecessary coalescing as a config error.
+    `exc_count = length(array(.exceptions) ?? [])`,
     `outcome = string(.outcome) ?? "ok"`,
     `.error = exc_count > 0 || outcome != "ok"`,
     `.level = if .error { "error" } else { "info" }`,
