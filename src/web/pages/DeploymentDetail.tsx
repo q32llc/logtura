@@ -12,6 +12,7 @@ import {
   Stack,
   Tabs,
   Text,
+  TextInput,
   Title,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
@@ -19,13 +20,21 @@ import {
   IconArrowLeft,
   IconCheck,
   IconCopy,
+  IconDeviceFloppy,
   IconExternalLink,
   IconTrash,
 } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api } from "../api";
-import type { ApiDeployment, ApiTargetBundle } from "../types";
+import { SelectionEditor } from "../components/SelectionEditor";
+import type {
+  ApiConnection,
+  ApiDeployment,
+  ApiMonitor,
+  ApiSource,
+  ApiTargetBundle,
+} from "../types";
 
 export function DeploymentDetail() {
   const { id } = useParams<{ id: string }>();
@@ -35,18 +44,23 @@ export function DeploymentDetail() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"delete" | null>(null);
 
-  useEffect(() => {
+  async function refetch() {
     if (!id) return;
-    api
-      .getDeployment(id)
-      .then((r) => setDeployment(r.deployment))
-      .catch((e) =>
-        setError(e instanceof ApiError ? e.message : "Failed to load"),
-      );
-    api
-      .getDeploymentBundle(id)
-      .then(setBundle)
-      .catch(() => {});
+    try {
+      const [dep, bun] = await Promise.all([
+        api.getDeployment(id),
+        api.getDeploymentBundle(id),
+      ]);
+      setDeployment(dep.deployment);
+      setBundle(bun);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to load");
+    }
+  }
+
+  useEffect(() => {
+    refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   async function destroy() {
@@ -120,7 +134,69 @@ export function DeploymentDetail() {
         </Group>
       </Group>
 
-      <Card withBorder p="lg" mb="md">
+      <Tabs defaultValue="overview">
+        <Tabs.List>
+          <Tabs.Tab value="overview">Overview</Tabs.Tab>
+          <Tabs.Tab value="configure">Configure</Tabs.Tab>
+          <Tabs.Tab value="bundle">Bundle</Tabs.Tab>
+        </Tabs.List>
+
+        <Tabs.Panel value="overview" pt="md">
+          <OverviewPanel deployment={deployment} bundle={bundle} />
+        </Tabs.Panel>
+
+        <Tabs.Panel value="configure" pt="md">
+          <ConfigurePanel deployment={deployment} onSaved={refetch} />
+        </Tabs.Panel>
+
+        <Tabs.Panel value="bundle" pt="md">
+          {bundle ? (
+            <BundleView bundle={bundle} />
+          ) : (
+            <Group justify="center" mt="xl">
+              <Loader />
+            </Group>
+          )}
+        </Tabs.Panel>
+      </Tabs>
+    </Container>
+  );
+}
+
+// ---------- Overview ----------------------------------------------------
+
+function OverviewPanel({
+  deployment,
+  bundle,
+}: {
+  deployment: ApiDeployment;
+  bundle: ApiTargetBundle | null;
+}) {
+  const lastSeen = deployment.lastSeenAt
+    ? new Date(deployment.lastSeenAt).toISOString()
+    : null;
+  return (
+    <Stack gap="md">
+      <Card withBorder p="lg">
+        <Stack gap={6}>
+          <Text fw={600}>Status</Text>
+          <Text size="sm" c="dimmed">
+            {bundle
+              ? `Forwarding ${bundle.selectedCount} source${
+                  bundle.selectedCount === 1 ? "" : "s"
+                } · ${bundle.monitorSummary}`
+              : "—"}
+          </Text>
+          <Text size="sm" c="dimmed">
+            Last heartbeat:{" "}
+            {lastSeen
+              ? `${lastSeen} (${relativeTime(deployment.lastSeenAt!)})`
+              : "never"}
+          </Text>
+        </Stack>
+      </Card>
+
+      <Card withBorder p="lg">
         <Stack gap={6}>
           <Text fw={600}>Selection</Text>
           <Text size="sm" c="dimmed">
@@ -135,19 +211,229 @@ export function DeploymentDetail() {
               ? "wildcard (all applicable, including future ones)"
               : `${deployment.monitorIds.length} explicit`}
           </Text>
+          <Text size="xs" c="dimmed" mt="xs">
+            Use the Configure tab to change any of this. Changes apply to
+            the next bundle fetch — you'll need to redeploy the running
+            container to pick them up.
+          </Text>
+        </Stack>
+      </Card>
+    </Stack>
+  );
+}
+
+// ---------- Configure ---------------------------------------------------
+
+function ConfigurePanel({
+  deployment,
+  onSaved,
+}: {
+  deployment: ApiDeployment;
+  onSaved: () => void;
+}) {
+  const [connection, setConnection] = useState<ApiConnection | null>(null);
+  const [sources, setSources] = useState<ApiSource[]>([]);
+  const [monitors, setMonitors] = useState<ApiMonitor[]>([]);
+
+  const [name, setName] = useState(deployment.displayName);
+  const [allSources, setAllSources] = useState(deployment.sourceIds === null);
+  const [pickedSources, setPickedSources] = useState<Set<string>>(
+    new Set(deployment.sourceIds ?? []),
+  );
+  const [allMonitors, setAllMonitors] = useState(
+    deployment.monitorIds === null,
+  );
+  const [pickedMonitors, setPickedMonitors] = useState<Set<string>>(
+    new Set(deployment.monitorIds ?? []),
+  );
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .getConnection(deployment.connectionId)
+      .then((r) => {
+        setConnection(r.connection);
+        setSources(r.sources);
+      })
+      .catch(() => {});
+    api
+      .listMonitors()
+      .then((r) => setMonitors(r.monitors))
+      .catch(() => {});
+  }, [deployment.connectionId]);
+
+  // When the deployment row reloads (e.g. after Save), rehydrate local
+  // state to match.
+  useEffect(() => {
+    setName(deployment.displayName);
+    setAllSources(deployment.sourceIds === null);
+    setPickedSources(new Set(deployment.sourceIds ?? []));
+    setAllMonitors(deployment.monitorIds === null);
+    setPickedMonitors(new Set(deployment.monitorIds ?? []));
+  }, [deployment]);
+
+  const applicableMonitors = useMemo(
+    () =>
+      monitors.filter(
+        (m) =>
+          m.connectionId === null || m.connectionId === deployment.connectionId,
+      ),
+    [monitors, deployment.connectionId],
+  );
+
+  const dirty =
+    name.trim() !== deployment.displayName ||
+    allSources !== (deployment.sourceIds === null) ||
+    !setsEqual(pickedSources, new Set(deployment.sourceIds ?? [])) ||
+    allMonitors !== (deployment.monitorIds === null) ||
+    !setsEqual(pickedMonitors, new Set(deployment.monitorIds ?? []));
+
+  async function save() {
+    setSaving(true);
+    setErr(null);
+    try {
+      await api.updateDeployment(deployment.id, {
+        displayName: name.trim(),
+        sourceIds: allSources ? null : [...pickedSources],
+        monitorIds: allMonitors ? null : [...pickedMonitors],
+      });
+      notifications.show({ message: "Deployment updated", color: "teal" });
+      onSaved();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function toggleSource(id: string, on: boolean) {
+    setAllSources(false);
+    setPickedSources((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  function toggleMonitor(id: string, on: boolean) {
+    setAllMonitors(false);
+    setPickedMonitors((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  return (
+    <Stack gap="md">
+      <Card withBorder p="lg">
+        <Stack gap="md">
+          <TextInput
+            label="Deployment name"
+            value={name}
+            onChange={(e) => setName(e.currentTarget.value)}
+          />
+          {connection && (
+            <Text size="xs" c="dimmed">
+              Connected to <strong>{connection.displayName}</strong> ·{" "}
+              {connection.provider}
+            </Text>
+          )}
         </Stack>
       </Card>
 
-      {bundle ? (
-        <BundleView bundle={bundle} />
-      ) : (
-        <Group justify="center" mt="xl">
-          <Loader />
-        </Group>
+      <Card withBorder p="lg">
+        <SelectionEditor
+          label={`Sources (${sources.length} discovered)`}
+          hint="All sources are forwarded by default."
+          all={allSources}
+          onAll={(on) => {
+            setAllSources(on);
+            if (on) setPickedSources(new Set());
+          }}
+          items={sources.map((s) => ({
+            id: s.id,
+            label: s.displayName,
+            sublabel: s.sourceKindLabel,
+          }))}
+          picked={pickedSources}
+          toggle={toggleSource}
+        />
+      </Card>
+
+      <Card withBorder p="lg">
+        <SelectionEditor
+          label={`Monitors (${applicableMonitors.length} applicable)`}
+          hint="All applicable monitors apply by default. New monitors auto-apply unless you customize."
+          all={allMonitors}
+          onAll={(on) => {
+            setAllMonitors(on);
+            if (on) setPickedMonitors(new Set());
+          }}
+          items={applicableMonitors.map((m) => ({
+            id: m.id,
+            label: m.displayName,
+            sublabel:
+              m.filterSteps.length === 0
+                ? "no filters"
+                : `${m.filterSteps.length} step${m.filterSteps.length === 1 ? "" : "s"}`,
+          }))}
+          picked={pickedMonitors}
+          toggle={toggleMonitor}
+          empty={
+            <Text size="sm" c="dimmed">
+              No applicable monitors. Add one from the Monitors page.
+            </Text>
+          }
+        />
+      </Card>
+
+      {err && (
+        <Alert color="red" variant="light">
+          {err}
+        </Alert>
       )}
-    </Container>
+
+      <Group justify="flex-end">
+        <Button
+          onClick={save}
+          loading={saving}
+          disabled={!dirty || !name.trim()}
+          leftSection={<IconDeviceFloppy size={16} />}
+        >
+          Save changes
+        </Button>
+      </Group>
+
+      {dirty && (
+        <Text size="xs" c="dimmed">
+          Heads up: changes only apply when the running container picks
+          up a new bundle. After saving, fetch the bundle again and
+          redeploy.
+        </Text>
+      )}
+    </Stack>
   );
 }
+
+function setsEqual(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const x of a) if (!b.has(x)) return false;
+  return true;
+}
+
+function relativeTime(ms: number): string {
+  const diff = (Date.now() - ms) / 1000;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+// ---------- Bundle (existing) ------------------------------------------
 
 function BundleView({ bundle }: { bundle: ApiTargetBundle }) {
   const tabs = bundle.files.map((f) => ({
