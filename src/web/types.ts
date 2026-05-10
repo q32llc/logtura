@@ -82,6 +82,7 @@ export interface ApiBundleEnvVar {
   description: string;
   source: "credential" | "external_account_id" | "destination" | "manual";
   value: string | null;
+  helpUrl?: string;
 }
 
 export interface ApiBundleFile {

@@ -28,6 +28,9 @@ export interface BundleEnvVar {
    *  already provided it via destinations / connections). When null,
    *  the user has to fill the value themselves at docker-run time. */
   value: string | null;
+  /** Optional URL the bundle UI surfaces as "create a new one →" so
+   *  credential rotation is one click. */
+  helpUrl?: string;
 }
 
 export interface GeneratedBundle {
@@ -57,6 +60,14 @@ interface GenerateInput {
   connection: ConnectionRow;
   selectedSources: LogSourceRow[];
   monitors: GeneratorMonitor[];
+  /**
+   * Decrypted credentials JSON for the connection. Lets the generator
+   * inline credential env-var values (e.g. CLOUDFLARE_API_TOKEN) into
+   * the bundle UI so the user gets a "Copy value" button instead of
+   * a placeholder. Trust posture matches destination URLs and the
+   * heartbeat token, both of which are already inlined.
+   */
+  connectionCredentials?: Record<string, unknown>;
   /**
    * Liveness signal config. When kind="logtura", we emit an exec
    * source that pulses every 30s into an http sink that POSTs to
@@ -101,15 +112,26 @@ export function generateBundle(input: GenerateInput): GeneratedBundle {
   const dockerfile = renderDockerfile([sourceSpec.dockerfileDeps].flat());
 
   const envVars: BundleEnvVar[] = [
-    ...sourceSpec.envVars.map((e) => ({
-      name: e.name,
-      description: e.description,
-      source: e.source,
-      value:
-        e.source === "external_account_id"
-          ? (input.connection.external_account_id ?? null)
-          : null,
-    })),
+    ...sourceSpec.envVars.map((e) => {
+      let value: string | null = null;
+      if (e.source === "external_account_id") {
+        value = input.connection.external_account_id ?? null;
+      } else if (
+        e.source === "credential" &&
+        e.credentialPath &&
+        input.connectionCredentials
+      ) {
+        const v = input.connectionCredentials[e.credentialPath];
+        if (typeof v === "string") value = v;
+      }
+      return {
+        name: e.name,
+        description: e.description,
+        source: e.source,
+        value,
+        helpUrl: e.helpUrl,
+      };
+    }),
     ...sinkEnvVars,
   ];
 

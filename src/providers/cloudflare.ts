@@ -254,6 +254,10 @@ export const cloudflareDriver: ProviderDriver<CloudflareCredentials> = {
           description: "API token used for wrangler tail and AI Gateway logs",
           source: "credential",
           credentialPath: "apiToken",
+          // Same template URL the connect-flow uses; lets the bundle
+          // UI offer "create a new one →" for rotation without
+          // forcing the user to remember which scopes to set.
+          helpUrl: TOKEN_TEMPLATE_URL,
         },
         {
           name: "CLOUDFLARE_ACCOUNT_ID",

@@ -19,6 +19,7 @@ import {
   IconArrowLeft,
   IconCheck,
   IconCopy,
+  IconExternalLink,
   IconTrash,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
@@ -211,6 +212,24 @@ function BundleView({ bundle }: { bundle: ApiTargetBundle }) {
                 <Text size="xs" c="dimmed">
                   {v.description}
                 </Text>
+                {v.helpUrl && (
+                  <Button
+                    component="a"
+                    href={v.helpUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    size="compact-xs"
+                    variant="subtle"
+                    leftSection={<IconExternalLink size={10} />}
+                    style={{
+                      alignSelf: "flex-start",
+                      paddingLeft: 0,
+                      marginTop: 2,
+                    }}
+                  >
+                    create a new one
+                  </Button>
+                )}
               </Stack>
               {v.value !== null ? (
                 <CopyButton value={v.value}>
@@ -231,6 +250,18 @@ function BundleView({ bundle }: { bundle: ApiTargetBundle }) {
                     </Button>
                   )}
                 </CopyButton>
+              ) : v.helpUrl ? (
+                <Button
+                  component="a"
+                  href={v.helpUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  size="xs"
+                  variant="default"
+                  leftSection={<IconExternalLink size={12} />}
+                >
+                  Create one
+                </Button>
               ) : (
                 <Text size="xs" c="dimmed">
                   set this yourself

@@ -11,6 +11,7 @@ import {
   createDestination,
   createMonitor,
   createSink,
+  decryptConnectionCredentials,
   decryptDestinationConfig,
   deleteConnection,
   deleteDestination,
@@ -299,10 +300,22 @@ apiAuth.get("/deployments/:id/bundle", async (c) => {
     generatorMonitors.push({ monitor, sinks: generatorSinks });
   }
 
+  // Decrypt the connection's credentials so the bundle UI can inline
+  // the API-token value as "Copy value" rather than "set this yourself".
+  // Same trust posture as destination webhook URLs (which we already
+  // inline) — the user supplied this token themselves through our UI;
+  // showing it back to them in their own dashboard adds no leak.
+  const connectionCredentials =
+    await decryptConnectionCredentials<Record<string, unknown>>(
+      c.env,
+      connection,
+    );
+
   const sourceBundle = generateBundle({
     connection,
     selectedSources,
     monitors: generatorMonitors,
+    connectionCredentials,
     heartbeat: {
       kind:
         (deployment.heartbeat_target ?? "logtura") === "logtura"

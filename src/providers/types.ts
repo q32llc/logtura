@@ -73,6 +73,10 @@ export interface EnvVarSpec {
   // Optional path within the credentials JSON, e.g. "apiToken". Only
   // meaningful when source === "credential".
   credentialPath?: string;
+  // Optional URL the user can visit to create a fresh value (e.g. a
+  // Cloudflare token-template URL). Surfaced in the bundle UI as
+  // "create a new one →" so credential rotation is one click.
+  helpUrl?: string;
 }
 
 export interface DockerfileDep {
