@@ -297,3 +297,378 @@ export async function setSourceSelections(
     }
   }
 }
+
+// --- Destinations ---------------------------------------------------------
+
+export interface DestinationRow {
+  id: string;
+  user_id: string;
+  kind: string;
+  display_name: string;
+  config_encrypted: ArrayBuffer;
+  created_at: number;
+  updated_at: number;
+}
+
+export async function listDestinations(
+  db: D1Database,
+  userId: string,
+): Promise<DestinationRow[]> {
+  const r = await db
+    .prepare(
+      "SELECT * FROM destinations WHERE user_id = ? ORDER BY created_at DESC",
+    )
+    .bind(userId)
+    .all<DestinationRow>();
+  return r.results ?? [];
+}
+
+export async function getDestination(
+  db: D1Database,
+  userId: string,
+  id: string,
+): Promise<DestinationRow | null> {
+  return db
+    .prepare("SELECT * FROM destinations WHERE id = ? AND user_id = ?")
+    .bind(id, userId)
+    .first<DestinationRow>();
+}
+
+export async function createDestination(
+  db: D1Database,
+  env: Env,
+  input: {
+    userId: string;
+    kind: string;
+    displayName: string;
+    config: unknown;
+  },
+): Promise<DestinationRow> {
+  const id = newId("dst");
+  const ts = now();
+  const ct = await encryptSecret(
+    JSON.stringify(input.config),
+    env.CREDENTIAL_ENCRYPTION_KEY,
+  );
+  await db
+    .prepare(
+      `INSERT INTO destinations
+       (id, user_id, kind, display_name, config_encrypted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(id, input.userId, input.kind, input.displayName, ct, ts, ts)
+    .run();
+  return {
+    id,
+    user_id: input.userId,
+    kind: input.kind,
+    display_name: input.displayName,
+    config_encrypted: ct.buffer.slice(
+      ct.byteOffset,
+      ct.byteOffset + ct.byteLength,
+    ) as ArrayBuffer,
+    created_at: ts,
+    updated_at: ts,
+  };
+}
+
+export async function decryptDestinationConfig<T = unknown>(
+  env: Env,
+  d: DestinationRow,
+): Promise<T> {
+  const buf = new Uint8Array(d.config_encrypted);
+  const json = await decryptSecret(buf, env.CREDENTIAL_ENCRYPTION_KEY);
+  return JSON.parse(json) as T;
+}
+
+export async function deleteDestination(
+  db: D1Database,
+  userId: string,
+  id: string,
+): Promise<void> {
+  await db
+    .prepare("DELETE FROM destinations WHERE id = ? AND user_id = ?")
+    .bind(id, userId)
+    .run();
+}
+
+// --- Monitors -------------------------------------------------------------
+
+export interface MonitorRow {
+  id: string;
+  user_id: string;
+  connection_id: string | null;
+  display_name: string;
+  filter_kind: string;
+  filter_config_json: string | null;
+  enabled: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export async function listMonitors(
+  db: D1Database,
+  userId: string,
+): Promise<MonitorRow[]> {
+  const r = await db
+    .prepare(
+      "SELECT * FROM monitors WHERE user_id = ? ORDER BY created_at DESC",
+    )
+    .bind(userId)
+    .all<MonitorRow>();
+  return r.results ?? [];
+}
+
+export async function listMonitorsForConnection(
+  db: D1Database,
+  userId: string,
+  connectionId: string,
+): Promise<MonitorRow[]> {
+  // Applicable monitors = scoped to this connection OR scoped to all
+  // connections (connection_id is null). Both apply at config-gen time.
+  const r = await db
+    .prepare(
+      `SELECT * FROM monitors
+       WHERE user_id = ?
+         AND enabled = 1
+         AND (connection_id = ? OR connection_id IS NULL)
+       ORDER BY created_at ASC`,
+    )
+    .bind(userId, connectionId)
+    .all<MonitorRow>();
+  return r.results ?? [];
+}
+
+export async function getMonitor(
+  db: D1Database,
+  userId: string,
+  id: string,
+): Promise<MonitorRow | null> {
+  return db
+    .prepare("SELECT * FROM monitors WHERE id = ? AND user_id = ?")
+    .bind(id, userId)
+    .first<MonitorRow>();
+}
+
+export async function createMonitor(
+  db: D1Database,
+  input: {
+    userId: string;
+    connectionId: string | null;
+    displayName: string;
+    filterKind: string;
+    filterConfig: unknown;
+    enabled?: boolean;
+  },
+): Promise<MonitorRow> {
+  const id = newId("mon");
+  const ts = now();
+  const cfg = input.filterConfig
+    ? JSON.stringify(input.filterConfig)
+    : null;
+  await db
+    .prepare(
+      `INSERT INTO monitors
+       (id, user_id, connection_id, display_name, filter_kind, filter_config_json, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      id,
+      input.userId,
+      input.connectionId,
+      input.displayName,
+      input.filterKind,
+      cfg,
+      input.enabled === false ? 0 : 1,
+      ts,
+      ts,
+    )
+    .run();
+  return {
+    id,
+    user_id: input.userId,
+    connection_id: input.connectionId,
+    display_name: input.displayName,
+    filter_kind: input.filterKind,
+    filter_config_json: cfg,
+    enabled: input.enabled === false ? 0 : 1,
+    created_at: ts,
+    updated_at: ts,
+  };
+}
+
+export async function updateMonitor(
+  db: D1Database,
+  userId: string,
+  id: string,
+  patch: Partial<{
+    displayName: string;
+    filterKind: string;
+    filterConfig: unknown;
+    connectionId: string | null;
+    enabled: boolean;
+  }>,
+): Promise<MonitorRow | null> {
+  const existing = await getMonitor(db, userId, id);
+  if (!existing) return null;
+  const ts = now();
+  const cfg =
+    patch.filterConfig === undefined
+      ? existing.filter_config_json
+      : patch.filterConfig === null
+        ? null
+        : JSON.stringify(patch.filterConfig);
+  await db
+    .prepare(
+      `UPDATE monitors
+       SET display_name = ?, filter_kind = ?, filter_config_json = ?,
+           connection_id = ?, enabled = ?, updated_at = ?
+       WHERE id = ? AND user_id = ?`,
+    )
+    .bind(
+      patch.displayName ?? existing.display_name,
+      patch.filterKind ?? existing.filter_kind,
+      cfg,
+      patch.connectionId === undefined
+        ? existing.connection_id
+        : patch.connectionId,
+      patch.enabled === undefined
+        ? existing.enabled
+        : patch.enabled
+          ? 1
+          : 0,
+      ts,
+      id,
+      userId,
+    )
+    .run();
+  return getMonitor(db, userId, id);
+}
+
+export async function deleteMonitor(
+  db: D1Database,
+  userId: string,
+  id: string,
+): Promise<void> {
+  await db
+    .prepare("DELETE FROM monitors WHERE id = ? AND user_id = ?")
+    .bind(id, userId)
+    .run();
+}
+
+// --- Sinks ----------------------------------------------------------------
+
+export interface SinkRow {
+  id: string;
+  monitor_id: string;
+  destination_id: string;
+  filter_kind: string | null;
+  filter_config_json: string | null;
+  created_at: number;
+}
+
+export async function listSinksForMonitor(
+  db: D1Database,
+  monitorId: string,
+): Promise<SinkRow[]> {
+  const r = await db
+    .prepare(
+      "SELECT * FROM sinks WHERE monitor_id = ? ORDER BY created_at ASC",
+    )
+    .bind(monitorId)
+    .all<SinkRow>();
+  return r.results ?? [];
+}
+
+export async function listSinksForUser(
+  db: D1Database,
+  userId: string,
+): Promise<SinkRow[]> {
+  // Sinks aren't directly user-scoped; we join via monitors.
+  const r = await db
+    .prepare(
+      `SELECT sinks.* FROM sinks
+       JOIN monitors ON monitors.id = sinks.monitor_id
+       WHERE monitors.user_id = ?
+       ORDER BY sinks.created_at ASC`,
+    )
+    .bind(userId)
+    .all<SinkRow>();
+  return r.results ?? [];
+}
+
+export async function createSink(
+  db: D1Database,
+  input: {
+    monitorId: string;
+    destinationId: string;
+    filterKind?: string | null;
+    filterConfig?: unknown;
+  },
+): Promise<SinkRow> {
+  const id = newId("snk");
+  const ts = now();
+  const cfg = input.filterConfig
+    ? JSON.stringify(input.filterConfig)
+    : null;
+  await db
+    .prepare(
+      `INSERT INTO sinks
+       (id, monitor_id, destination_id, filter_kind, filter_config_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      id,
+      input.monitorId,
+      input.destinationId,
+      input.filterKind ?? null,
+      cfg,
+      ts,
+    )
+    .run();
+  return {
+    id,
+    monitor_id: input.monitorId,
+    destination_id: input.destinationId,
+    filter_kind: input.filterKind ?? null,
+    filter_config_json: cfg,
+    created_at: ts,
+  };
+}
+
+export async function deleteSink(
+  db: D1Database,
+  userId: string,
+  id: string,
+): Promise<void> {
+  // Verify ownership via monitor join.
+  await db
+    .prepare(
+      `DELETE FROM sinks WHERE id = ? AND monitor_id IN
+       (SELECT id FROM monitors WHERE user_id = ?)`,
+    )
+    .bind(id, userId)
+    .run();
+}
+
+// --- Default monitors -----------------------------------------------------
+
+/**
+ * Idempotently create the default "Errors" monitor for a user if they
+ * don't have any monitors yet. Called after first signup or first
+ * connection.
+ */
+export async function ensureDefaultErrorsMonitor(
+  db: D1Database,
+  userId: string,
+): Promise<MonitorRow | null> {
+  const existing = await listMonitors(db, userId);
+  if (existing.length > 0) return null;
+  return createMonitor(db, {
+    userId,
+    connectionId: null,
+    displayName: "Errors",
+    filterKind: "errors",
+    filterConfig: null,
+  });
+}

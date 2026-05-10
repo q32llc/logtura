@@ -21,6 +21,8 @@ const ALLOWED = [
   "GITHUB_CLIENT_SECRET",
   "SESSION_SECRET",
   "CREDENTIAL_ENCRYPTION_KEY",
+  "SLACK_CLIENT_ID",
+  "SLACK_CLIENT_SECRET",
 ];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

@@ -77,6 +77,73 @@ export interface ApiBundle {
   selectedCount: number;
 }
 
+export interface ApiBundleEnvVar {
+  name: string;
+  description: string;
+  source: "credential" | "external_account_id" | "destination" | "manual";
+  value: string | null;
+}
+
+export interface ApiBundleFile {
+  name: string;
+  content: string;
+  language?: string;
+}
+
+export interface ApiTargetBundle {
+  target: { id: string; displayName: string; supportsManaged: boolean };
+  files: ApiBundleFile[];
+  selfDeployInstructions: string;
+  envVars: ApiBundleEnvVar[];
+  selectedCount: number;
+  monitorSummary: string;
+}
+
+export interface ApiDestinationDriver {
+  id: string;
+  displayName: string;
+  description: string;
+  connectFlow: ApiConnectFlow | null;
+  formFields: ApiFormField[];
+}
+
+export interface ApiDestination {
+  id: string;
+  kind: string;
+  displayName: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ApiMonitor {
+  id: string;
+  connectionId: string | null;
+  displayName: string;
+  filterKind: string;
+  filterConfig: Record<string, unknown> | null;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ApiSinkRecord {
+  id: string;
+  monitorId: string;
+  destinationId: string;
+  filterKind: string | null;
+  filterConfig: Record<string, unknown> | null;
+  createdAt: number;
+}
+
+export interface ApiDeployTargetDriver {
+  id: string;
+  displayName: string;
+  description: string;
+  supportsManaged: boolean;
+  connectFlow: ApiConnectFlow | null;
+  formFields: ApiFormField[];
+}
+
 export type ApiJobStatus = "queued" | "running" | "succeeded" | "failed";
 
 export interface ApiJob {

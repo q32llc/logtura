@@ -22,6 +22,7 @@ import {
   IconClock,
   IconDownload,
   IconRefresh,
+  IconRoute,
   IconSearch,
   IconTrash,
 } from "@tabler/icons-react";
@@ -30,6 +31,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api } from "../api";
 import type {
   ApiConnection,
+  ApiDestination,
   ApiJob,
   ApiJobStatus,
   ApiSource,
@@ -49,6 +51,7 @@ export function ConnectionDetail() {
   const [search, setSearch] = useState("");
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [destinations, setDestinations] = useState<ApiDestination[]>([]);
   const pollRef = useRef<number | null>(null);
   // Track which source IDs we've seen across polls. When discovery is
   // streaming sources in, each refetch surfaces a few new rows; we want
@@ -86,6 +89,10 @@ export function ConnectionDetail() {
   useEffect(() => {
     setLoading(true);
     refetch().finally(() => setLoading(false));
+    api
+      .listDestinations()
+      .then((r) => setDestinations(r.destinations))
+      .catch(() => {});
   }, [refetch]);
 
   // Poll while there's an active discovery job. Stops as soon as the
@@ -276,6 +283,31 @@ export function ConnectionDetail() {
 
       <DiscoveryJobBanner job={latestJob} />
 
+      {sources.length > 0 && destinations.length === 0 && (
+        <Alert
+          icon={<IconRoute size={18} />}
+          color="teal"
+          variant="light"
+          mt="md"
+          title="Where should errors land?"
+        >
+          <Text size="sm" mb="xs">
+            We found {sources.length} source
+            {sources.length === 1 ? "" : "s"}, but you haven't set up any
+            destinations yet. Pick a place for matched logs to land —
+            Slack, a webhook, anywhere.
+          </Text>
+          <Button
+            component={Link}
+            to="/app/destinations"
+            size="xs"
+            color="teal"
+          >
+            Set up a destination
+          </Button>
+        </Alert>
+      )}
+
       <Card withBorder p="lg" mt="md">
         <Group justify="space-between" mb="sm">
           <Title order={3} size="h4">
@@ -432,11 +464,11 @@ export function ConnectionDetail() {
               </Button>
               <Button
                 component={Link}
-                to={`/app/connections/${connection.id}/bundle`}
+                to={`/app/connections/${connection.id}/deploy`}
                 leftSection={<IconDownload size={16} />}
                 variant="default"
               >
-                Generate Dockerfile
+                Deploy forwarder
               </Button>
             </Group>
           </Stack>

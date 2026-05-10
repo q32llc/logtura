@@ -9,6 +9,12 @@ export interface Env {
   GITHUB_CLIENT_SECRET: string;
   SESSION_SECRET: string;
   CREDENTIAL_ENCRYPTION_KEY: string;
+  // Optional — only set if the Slack destination driver should work.
+  // The corresponding Slack app must register the redirect URI
+  // <APP_URL>/api/destinations/slack/callback and request the
+  // `incoming-webhook` scope.
+  SLACK_CLIENT_ID?: string;
+  SLACK_CLIENT_SECRET?: string;
 }
 
 export type AppContext = {

@@ -5,17 +5,33 @@ import {
   Group,
   Loader,
   MantineProvider,
+  NavLink as MantineNavLink,
+  Stack,
   Text,
   createTheme,
 } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
+import {
+  IconBell,
+  IconCloudUpload,
+  IconLink,
+  IconSend,
+} from "@tabler/icons-react";
 import { useEffect, useState } from "react";
-import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import {
+  Link,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+} from "react-router-dom";
 import { ApiError, api } from "./api";
-import { BundleView } from "./pages/BundleView";
 import { ConnectionDetail } from "./pages/ConnectionDetail";
 import { Dashboard } from "./pages/Dashboard";
+import { DeployWizard } from "./pages/DeployWizard";
+import { Destinations } from "./pages/Destinations";
 import { Home } from "./pages/Home";
+import { Monitors } from "./pages/Monitors";
 import { NewConnection } from "./pages/NewConnection";
 import type { ApiUser } from "./types";
 
@@ -72,10 +88,26 @@ export function App() {
             }
           />
           <Route
-            path="/app/connections/:id/bundle"
+            path="/app/connections/:id/deploy"
             element={
               <Authed loading={auth.loading} user={auth.user}>
-                <BundleView />
+                <DeployWizard />
+              </Authed>
+            }
+          />
+          <Route
+            path="/app/destinations"
+            element={
+              <Authed loading={auth.loading} user={auth.user}>
+                <Destinations />
+              </Authed>
+            }
+          />
+          <Route
+            path="/app/monitors"
+            element={
+              <Authed loading={auth.loading} user={auth.user}>
+                <Monitors />
               </Authed>
             }
           />
@@ -97,13 +129,20 @@ function AppShellLayout({
 }) {
   const location = useLocation();
   const isAppRoute = location.pathname.startsWith("/app");
+  const showNavbar = isAppRoute && !!user;
   return (
     <AppShell
       header={{ height: 56 }}
+      navbar={
+        showNavbar
+          ? { width: 220, breakpoint: "sm" }
+          : { width: 0, breakpoint: "sm" }
+      }
       padding={isAppRoute ? "lg" : 0}
       styles={(t) => ({
         main: { backgroundColor: t.colors.dark[8] },
       })}
+      disabled={!showNavbar}
     >
       <AppShell.Header>
         <Group h="100%" px="lg" justify="space-between">
@@ -117,16 +156,6 @@ function AppShellLayout({
             >
               logtura
             </Text>
-            {user && (
-              <Button
-                component={Link}
-                to="/app"
-                variant="subtle"
-                size="sm"
-              >
-                Dashboard
-              </Button>
-            )}
           </Group>
           <Group gap="md">
             {loading ? (
@@ -158,8 +187,69 @@ function AppShellLayout({
           </Group>
         </Group>
       </AppShell.Header>
+
+      {showNavbar && (
+        <AppShell.Navbar p="md">
+          <Stack gap={4}>
+            <NavItem
+              to="/app"
+              label="Connections"
+              icon={<IconLink size={16} />}
+              activeWhen={(p) =>
+                p === "/app" || p.startsWith("/app/connections")
+              }
+            />
+            <NavItem
+              to="/app/destinations"
+              label="Destinations"
+              icon={<IconSend size={16} />}
+            />
+            <NavItem
+              to="/app/monitors"
+              label="Monitors"
+              icon={<IconBell size={16} />}
+            />
+            <Text size="xs" c="dimmed" mt="xl" mb={4}>
+              Coming next
+            </Text>
+            <MantineNavLink
+              label="Deployments"
+              leftSection={<IconCloudUpload size={16} />}
+              disabled
+            />
+          </Stack>
+        </AppShell.Navbar>
+      )}
+
       <AppShell.Main>{children}</AppShell.Main>
     </AppShell>
+  );
+}
+
+function NavItem({
+  to,
+  label,
+  icon,
+  activeWhen,
+}: {
+  to: string;
+  label: string;
+  icon: React.ReactNode;
+  activeWhen?: (path: string) => boolean;
+}) {
+  const location = useLocation();
+  const active = activeWhen
+    ? activeWhen(location.pathname)
+    : location.pathname === to;
+  return (
+    <MantineNavLink
+      component={Link}
+      to={to}
+      label={label}
+      leftSection={icon}
+      active={active}
+      variant="filled"
+    />
   );
 }
 

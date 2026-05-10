@@ -8,14 +8,44 @@ import {
 } from "./auth";
 import {
   createConnection,
+  createDestination,
+  createMonitor,
+  createSink,
+  decryptDestinationConfig,
   deleteConnection,
+  deleteDestination,
+  deleteMonitor,
+  deleteSink,
+  ensureDefaultErrorsMonitor,
   getConnection,
+  getDestination,
+  getMonitor,
   listConnections,
+  listDestinations,
+  listMonitors,
+  listMonitorsForConnection,
+  listSinksForMonitor,
+  listSinksForUser,
   listSources,
   setSourceSelections,
+  updateMonitor,
   type ConnectionRow,
+  type DestinationRow,
   type LogSourceRow,
+  type MonitorRow,
+  type SinkRow,
 } from "./db";
+import {
+  DestinationError,
+  getDestinationDriver,
+  listDestinationDrivers,
+} from "./destinations";
+import {
+  getDeployTargetDriver,
+  listDeployTargetDrivers,
+} from "./deploy-targets";
+import { deleteCookie, getCookie, setCookie } from "hono/cookie";
+import { newToken, signCookie, verifyCookie } from "./crypto";
 import type { AppContext, Env } from "./env";
 import { generateBundle } from "./generator";
 import { JobDriver } from "./jobs/driver";
@@ -125,6 +155,10 @@ apiAuth.post("/connections", async (c) => {
     credentials,
   });
 
+  // First-connection nicety: make sure the user has a default
+  // "Errors" monitor before discovery returns. Idempotent.
+  await ensureDefaultErrorsMonitor(c.env.DB, user.id);
+
   // Queue an initial discovery instead of running it inline.
   const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
   await jobs.enqueue({
@@ -199,21 +233,353 @@ apiAuth.delete("/connections/:id", async (c) => {
 apiAuth.get("/connections/:id/bundle", async (c) => {
   const user = c.get("user")!;
   const id = c.req.param("id");
+  const targetId = (c.req.query("target") ?? "other").trim();
+  const targetDriver = getDeployTargetDriver(targetId);
+  if (!targetDriver) {
+    return c.json({ error: "unknown_target" }, 400);
+  }
+  const deploymentName = (
+    c.req.query("name") ??
+    `connection-${id}`
+  ).trim();
+  const region = c.req.query("region") ?? undefined;
+
   const connection = await getConnection(c.env.DB, user.id, id);
   if (!connection) return c.json({ error: "not_found" }, 404);
   const all = await listSources(c.env.DB, connection.id);
   const selected = all.filter((s) => s.selected === 1);
-  const bundle = generateBundle({
+
+  // Walk this connection's applicable monitors → their sinks →
+  // destinations, decrypting destination configs as we go.
+  const monitors = await listMonitorsForConnection(
+    c.env.DB,
+    user.id,
+    connection.id,
+  );
+  const generatorMonitors = [];
+  for (const monitor of monitors) {
+    const sinks = await listSinksForMonitor(c.env.DB, monitor.id);
+    const generatorSinks = [];
+    for (const sink of sinks) {
+      const destination = await getDestination(
+        c.env.DB,
+        user.id,
+        sink.destination_id,
+      );
+      if (!destination) continue;
+      const destinationConfig = await decryptDestinationConfig(
+        c.env,
+        destination,
+      );
+      generatorSinks.push({ sink, destination, destinationConfig });
+    }
+    generatorMonitors.push({ monitor, sinks: generatorSinks });
+  }
+
+  const sourceBundle = generateBundle({
     connection,
     selectedSources: selected,
+    monitors: generatorMonitors,
   });
+
+  const targetBundle = targetDriver.generateTargetBundle({
+    sourceBundle,
+    deploymentName,
+    region,
+    connectionId: connection.id,
+  });
+
   return c.json({
-    vectorYaml: bundle.vectorYaml,
-    dockerfile: bundle.dockerfile,
-    runCommand: bundle.runCommand,
-    envVars: bundle.envVars,
-    selectedCount: bundle.selectedCount,
+    target: {
+      id: targetDriver.id,
+      displayName: targetDriver.displayName,
+      supportsManaged: targetDriver.supportsManaged,
+    },
+    files: targetBundle.files,
+    selfDeployInstructions: targetBundle.selfDeployInstructions,
+    envVars: sourceBundle.envVars,
+    selectedCount: sourceBundle.selectedCount,
+    monitorSummary: sourceBundle.monitorSummary,
   });
+});
+
+apiAuth.get("/deploy-targets/drivers", (c) => {
+  const drivers = listDeployTargetDrivers().map((d) => ({
+    id: d.id,
+    displayName: d.displayName,
+    description: d.description,
+    supportsManaged: d.supportsManaged,
+    connectFlow: d.connectFlow ?? null,
+    formFields: d.formFields,
+  }));
+  return c.json({ drivers });
+});
+
+// ---------- Destinations -------------------------------------------------
+
+apiAuth.get("/destinations", async (c) => {
+  const user = c.get("user")!;
+  const rows = await listDestinations(c.env.DB, user.id);
+  return c.json({ destinations: rows.map(toApiDestination) });
+});
+
+apiAuth.get("/destinations/drivers", (c) => {
+  const drivers = listDestinationDrivers().map((d) => ({
+    id: d.id,
+    displayName: d.displayName,
+    description: d.description,
+    connectFlow: d.connectFlow ?? null,
+    formFields: d.formFields,
+  }));
+  return c.json({ drivers });
+});
+
+apiAuth.post("/destinations", async (c) => {
+  const user = c.get("user")!;
+  const form = await c.req.formData();
+  const kind = String(form.get("kind") ?? "").trim();
+  const displayName = String(form.get("display_name") ?? "").trim();
+  if (!kind || !displayName) {
+    return c.json({ error: "missing_fields" }, 400);
+  }
+  const driver = getDestinationDriver(kind);
+  if (!driver) return c.json({ error: "unknown_driver" }, 400);
+  let parsed;
+  try {
+    parsed = driver.parseFormData(form);
+  } catch (err) {
+    if (err instanceof DestinationError) {
+      return c.json({ error: "invalid_form", message: err.message }, 400);
+    }
+    throw err;
+  }
+  if (driver.verifyConfig) {
+    try {
+      await driver.verifyConfig(parsed.config);
+    } catch (err) {
+      if (err instanceof DestinationError) {
+        return c.json(
+          { error: "verify_failed", message: err.message },
+          400,
+        );
+      }
+      throw err;
+    }
+  }
+  const destination = await createDestination(c.env.DB, c.env, {
+    userId: user.id,
+    kind,
+    displayName,
+    config: parsed.config,
+  });
+  return c.json({ destination: toApiDestination(destination) });
+});
+
+apiAuth.delete("/destinations/:id", async (c) => {
+  const user = c.get("user")!;
+  await deleteDestination(c.env.DB, user.id, c.req.param("id"));
+  return c.json({ ok: true });
+});
+
+// ---------- Slack OAuth (destination kind = "slack") ---------------------
+
+const SLACK_STATE_COOKIE = "logtura_slack_state";
+
+api.get("/destinations/slack/start", async (c) => {
+  // Auth required; we set the user-id into the state so the callback
+  // (which arrives without our session intentionally — Slack redirects
+  // independently of the user's browser session) can reattach to the
+  // right user.
+  const userCookie = getCookie(c, "logtura_session");
+  const userId = userCookie
+    ? await verifyCookie(userCookie, c.env.SESSION_SECRET)
+    : null;
+  if (!userId) return c.redirect("/?error=auth_required", 303);
+
+  if (!c.env.SLACK_CLIENT_ID) {
+    return c.redirect(
+      "/app/destinations?error=slack_not_configured",
+      303,
+    );
+  }
+  const state = newToken();
+  const signed = await signCookie(
+    JSON.stringify({ state, userId }),
+    c.env.SESSION_SECRET,
+  );
+  setCookie(c, SLACK_STATE_COOKIE, signed, {
+    httpOnly: true,
+    secure: c.env.APP_URL.startsWith("https://"),
+    sameSite: "Lax",
+    path: "/",
+    maxAge: 600,
+  });
+  const url = new URL("https://slack.com/oauth/v2/authorize");
+  url.searchParams.set("client_id", c.env.SLACK_CLIENT_ID);
+  url.searchParams.set("scope", "incoming-webhook");
+  url.searchParams.set("user_scope", "");
+  url.searchParams.set(
+    "redirect_uri",
+    `${c.env.APP_URL}/api/destinations/slack/callback`,
+  );
+  url.searchParams.set("state", state);
+  return c.redirect(url.toString(), 303);
+});
+
+api.get("/destinations/slack/callback", async (c) => {
+  const code = c.req.query("code");
+  const state = c.req.query("state");
+  const stateCookie = getCookie(c, SLACK_STATE_COOKIE);
+  const stateJson = await verifyCookie(stateCookie, c.env.SESSION_SECRET);
+  deleteCookie(c, SLACK_STATE_COOKIE, { path: "/" });
+  if (!code || !state || !stateJson) {
+    return c.redirect("/app/destinations?error=oauth_state", 303);
+  }
+  const parsed = (() => {
+    try {
+      return JSON.parse(stateJson) as { state?: string; userId?: string };
+    } catch {
+      return null;
+    }
+  })();
+  if (!parsed || parsed.state !== state || !parsed.userId) {
+    return c.redirect("/app/destinations?error=oauth_state", 303);
+  }
+  if (!c.env.SLACK_CLIENT_ID || !c.env.SLACK_CLIENT_SECRET) {
+    return c.redirect(
+      "/app/destinations?error=slack_not_configured",
+      303,
+    );
+  }
+  // Exchange code for incoming webhook URL.
+  const tokenRes = await fetch("https://slack.com/api/oauth.v2.access", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      accept: "application/json",
+    },
+    body: new URLSearchParams({
+      client_id: c.env.SLACK_CLIENT_ID,
+      client_secret: c.env.SLACK_CLIENT_SECRET,
+      code,
+      redirect_uri: `${c.env.APP_URL}/api/destinations/slack/callback`,
+    }).toString(),
+  });
+  const payload = (await tokenRes.json()) as {
+    ok?: boolean;
+    error?: string;
+    incoming_webhook?: { url?: string; channel?: string };
+    team?: { name?: string };
+  };
+  if (!payload.ok || !payload.incoming_webhook?.url) {
+    console.error("slack oauth exchange failed", payload);
+    return c.redirect("/app/destinations?error=slack_exchange", 303);
+  }
+  const teamName = payload.team?.name ?? null;
+  const channel = payload.incoming_webhook.channel ?? null;
+  const displayName = teamName
+    ? channel
+      ? `${teamName} #${channel.replace(/^#/, "")}`
+      : teamName
+    : "Slack";
+  await createDestination(c.env.DB, c.env, {
+    userId: parsed.userId,
+    kind: "slack",
+    displayName,
+    config: {
+      webhookUrl: payload.incoming_webhook.url,
+      teamName,
+      channel,
+    },
+  });
+  return c.redirect("/app/destinations?notice=slack_connected", 303);
+});
+
+// ---------- Monitors -----------------------------------------------------
+
+apiAuth.get("/monitors", async (c) => {
+  const user = c.get("user")!;
+  const monitors = await listMonitors(c.env.DB, user.id);
+  const sinks = await listSinksForUser(c.env.DB, user.id);
+  return c.json({
+    monitors: monitors.map((m) => toApiMonitor(m)),
+    sinks: sinks.map((s) => toApiSink(s)),
+  });
+});
+
+apiAuth.post("/monitors", async (c) => {
+  const user = c.get("user")!;
+  const body = (await c.req.json()) as {
+    displayName?: string;
+    filterKind?: string;
+    filterConfig?: unknown;
+    connectionId?: string | null;
+    enabled?: boolean;
+  };
+  if (!body.displayName || !body.filterKind) {
+    return c.json({ error: "missing_fields" }, 400);
+  }
+  const monitor = await createMonitor(c.env.DB, {
+    userId: user.id,
+    connectionId: body.connectionId ?? null,
+    displayName: body.displayName,
+    filterKind: body.filterKind,
+    filterConfig: body.filterConfig ?? null,
+    enabled: body.enabled,
+  });
+  return c.json({ monitor: toApiMonitor(monitor) });
+});
+
+apiAuth.put("/monitors/:id", async (c) => {
+  const user = c.get("user")!;
+  const id = c.req.param("id");
+  const body = (await c.req.json()) as {
+    displayName?: string;
+    filterKind?: string;
+    filterConfig?: unknown;
+    connectionId?: string | null;
+    enabled?: boolean;
+  };
+  const updated = await updateMonitor(c.env.DB, user.id, id, body);
+  if (!updated) return c.json({ error: "not_found" }, 404);
+  return c.json({ monitor: toApiMonitor(updated) });
+});
+
+apiAuth.delete("/monitors/:id", async (c) => {
+  const user = c.get("user")!;
+  await deleteMonitor(c.env.DB, user.id, c.req.param("id"));
+  return c.json({ ok: true });
+});
+
+apiAuth.post("/monitors/:id/sinks", async (c) => {
+  const user = c.get("user")!;
+  const monitorId = c.req.param("id");
+  const monitor = await getMonitor(c.env.DB, user.id, monitorId);
+  if (!monitor) return c.json({ error: "not_found" }, 404);
+  const body = (await c.req.json()) as {
+    destinationId?: string;
+    filterKind?: string | null;
+    filterConfig?: unknown;
+  };
+  if (!body.destinationId) {
+    return c.json({ error: "missing_destination" }, 400);
+  }
+  // Verify destination belongs to user.
+  const dest = await getDestination(c.env.DB, user.id, body.destinationId);
+  if (!dest) return c.json({ error: "destination_not_found" }, 404);
+  const sink = await createSink(c.env.DB, {
+    monitorId,
+    destinationId: body.destinationId,
+    filterKind: body.filterKind ?? null,
+    filterConfig: body.filterConfig ?? null,
+  });
+  return c.json({ sink: toApiSink(sink) });
+});
+
+apiAuth.delete("/sinks/:id", async (c) => {
+  const user = c.get("user")!;
+  await deleteSink(c.env.DB, user.id, c.req.param("id"));
+  return c.json({ ok: true });
 });
 
 apiAuth.get("/jobs/:id", async (c) => {
@@ -275,6 +641,44 @@ function toApiSource(
     metadata: s.metadata_json ? JSON.parse(s.metadata_json) : null,
     selected: s.selected === 1,
     discoveredAt: s.discovered_at,
+  };
+}
+
+function toApiDestination(d: DestinationRow) {
+  return {
+    id: d.id,
+    kind: d.kind,
+    displayName: d.display_name,
+    createdAt: d.created_at,
+    updatedAt: d.updated_at,
+  };
+}
+
+function toApiMonitor(m: MonitorRow) {
+  return {
+    id: m.id,
+    connectionId: m.connection_id,
+    displayName: m.display_name,
+    filterKind: m.filter_kind,
+    filterConfig: m.filter_config_json
+      ? JSON.parse(m.filter_config_json)
+      : null,
+    enabled: m.enabled === 1,
+    createdAt: m.created_at,
+    updatedAt: m.updated_at,
+  };
+}
+
+function toApiSink(s: SinkRow) {
+  return {
+    id: s.id,
+    monitorId: s.monitor_id,
+    destinationId: s.destination_id,
+    filterKind: s.filter_kind,
+    filterConfig: s.filter_config_json
+      ? JSON.parse(s.filter_config_json)
+      : null,
+    createdAt: s.created_at,
   };
 }
 
