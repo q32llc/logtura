@@ -583,6 +583,12 @@ apiAuth.get("/deploy-targets/fly/poll", async (c) => {
     `https://api.fly.io/api/v1/cli_sessions/${encodeURIComponent(requested)}`,
     { headers: { accept: "application/json" } },
   );
+  // Fly returns 404 until the user approves at auth_url — that's the
+  // expected "still waiting" state, not a failure. flyctl polls the
+  // same endpoint and retries on 404.
+  if (res.status === 404) {
+    return c.json({ status: "pending" });
+  }
   if (!res.ok) {
     return c.json(
       { error: "fly_poll_failed", status: res.status },
