@@ -253,8 +253,48 @@ async function decodeAndProbe() {
   console.log(`  body: ${(await restRes.text()).slice(0, 400)}`);
 }
 
+async function probeStart() {
+  const { dischargeBundle } = await import("../src/deploy-targets/fly-macaroon.ts");
+  const auth = await dischargeBundle(authHeader);
+  const APP = "logtura-zs5etbgsu1hikhgokczr";
+  console.log(`=== list machines ===`);
+  const lr = await fetch(`https://api.machines.dev/v1/apps/${APP}/machines`, { headers: { authorization: auth, accept: "application/json" } });
+  const ms = await lr.json();
+  for (const m of ms) console.log(`  ${m.id} name=${m.name} state=${m.state} region=${m.region}`);
+  if (ms.length === 0) { console.log("  no machines"); return; }
+  const mid = ms[0].id;
+  console.log(`\n=== start ${mid} ===`);
+  const sr = await fetch(`https://api.machines.dev/v1/apps/${APP}/machines/${mid}/start`, { method: "POST", headers: { authorization: auth, accept: "application/json" } });
+  console.log(`  HTTP ${sr.status}`);
+  console.log(`  body: ${(await sr.text()).slice(0, 600)}`);
+  console.log(`\n=== re-list ===`);
+  const lr2 = await fetch(`https://api.machines.dev/v1/apps/${APP}/machines`, { headers: { authorization: auth, accept: "application/json" } });
+  const ms2 = await lr2.json();
+  for (const m of ms2) console.log(`  ${m.id} state=${m.state}`);
+}
+
+async function probeMachineFull() {
+  const { dischargeBundle } = await import("../src/deploy-targets/fly-macaroon.ts");
+  const auth = await dischargeBundle(authHeader);
+  const APP = "logtura-zs5etbgsu1hikhgokczr";
+  const lr = await fetch(`https://api.machines.dev/v1/apps/${APP}/machines`, { headers: { authorization: auth, accept: "application/json" } });
+  const ms = await lr.json();
+  for (const m of ms) {
+    console.log(`\n=== ${m.id} (${m.name}) state=${m.state} instance_id=${m.instance_id} ===`);
+    const events = m.events || [];
+    console.log(`  events (${events.length} total, showing latest 8):`);
+    for (const e of events.slice(0, 8)) {
+      console.log(`    ${new Date(e.timestamp).toISOString()} type=${e.type} status=${e.status} source=${e.source ?? ''}`);
+    }
+    if (m.checks) console.log(`  checks: ${JSON.stringify(m.checks)}`);
+    if (m.host_status) console.log(`  host_status: ${m.host_status}`);
+  }
+}
+
 const probes = {
   decode: decodeAndProbe,
+  start: probeStart,
+  full: probeMachineFull,
   graphql_viewer: () =>
     call("GraphQL: viewer (User|Macaroon union)", "POST", "https://api.fly.io/graphql", {
       query: `query { viewer { __typename ... on User { id email } ... on Macaroon { email } } }`,

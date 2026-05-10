@@ -191,6 +191,39 @@ export async function updateFlyMachine(
   return (await res.json()) as FlyMachine;
 }
 
+/** Transition a machine to `started`. Required after
+ *  `updateFlyMachine` because the update endpoint leaves the
+ *  machine in its prior state. Returns whatever Fly says about the
+ *  current state — wait_running is the source of truth for "is it
+ *  actually running"; this call's job is just to nudge it. */
+export async function startFlyMachine(
+  authHeader: string,
+  input: { appName: string; machineId: string },
+): Promise<{ ok: boolean; status: number; bodySnippet: string }> {
+  const url = `${MACHINES_BASE}/v1/apps/${input.appName}/machines/${input.machineId}/start`;
+  const res = await flyFetch(url, authHeader, { method: "POST" });
+  const body = await res.text();
+  const bodySnippet = body.slice(0, 400);
+  if (res.status === 200 || res.status === 201) {
+    return { ok: true, status: res.status, bodySnippet };
+  }
+  // 412 is "precondition failed" — Fly returns this when the machine
+  // can't be started right now (already starting, mid-update,
+  // already started). Log + soft-succeed; wait_running will tell us
+  // if the machine actually fails to reach `started`.
+  if (res.status === 412) {
+    console.warn("fly_start_412_soft_ok", { url, body: bodySnippet });
+    return { ok: false, status: res.status, bodySnippet };
+  }
+  console.warn("fly_api_error", {
+    op: "startFlyMachine",
+    url,
+    status: res.status,
+    body: bodySnippet,
+  });
+  throw new FlyApiError(`startFlyMachine failed: ${res.status}`, res.status, body);
+}
+
 /**
  * Pick a Fly org slug for the connected token. The cli_session flow
  * doesn't return one directly, so we hit the GraphQL endpoint and

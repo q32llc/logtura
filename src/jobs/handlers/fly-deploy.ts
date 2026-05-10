@@ -12,6 +12,7 @@ import {
   getFlyApp,
   listFlyMachines,
   resolveFlyOrgSlug,
+  startFlyMachine,
   updateFlyMachine,
   type FlyMachineConfig,
 } from "../../deploy-targets/fly-machines";
@@ -178,6 +179,11 @@ export async function runFlyCreateOrUpdateMachine(
     });
   }
 
+  // We don't issue /start here. updateFlyMachine returns before Fly
+  // finishes propagating, so an immediate /start hits a 412 race.
+  // wait_running below issues /start on each poll tick that sees
+  // state=stopped — once Fly's update propagates, the start sticks.
+
   await updateDeployment(ctx.env.DB, ctx.job.userId, deployment.id, {
     externalId: `fly:${p.appName}:${machineId}`,
   });
@@ -235,12 +241,25 @@ export async function runFlyWaitRunning(
     );
   }
 
+  // If the machine is sitting in `stopped`, nudge it. Fly's update
+  // endpoint returns before its restart-after-config-change is ready
+  // for /start, so we just keep nudging from here. The call is
+  // best-effort — 412 means "not ready yet, try again" and we will.
+  let startStatus: number | undefined;
+  if (m.state === "stopped") {
+    const r = await startFlyMachine(flyAuth, {
+      appName: p.appName,
+      machineId: p.machineId,
+    });
+    startStatus = r.status;
+  }
+
   await ctx.enqueueSibling({
     kind: "fly_deploy.wait_running",
     payload: { ...p } as unknown as Record<string, unknown>,
     delaySecs: POLL_DELAY_SECS,
   });
-  return { machineState: m.state, polling: true };
+  return { machineState: m.state, startStatus, polling: true };
 }
 
 // --- helpers ---------------------------------------------------------
