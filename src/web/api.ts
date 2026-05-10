@@ -1,6 +1,7 @@
 import type {
   ApiBundle,
   ApiConnection,
+  ApiDeployTarget,
   ApiDeployTargetDriver,
   ApiDeployment,
   ApiDestination,
@@ -148,6 +149,24 @@ export const api = {
   // ----- Deploy targets ------------------------------------------------
   deployTargetDrivers: () =>
     request<{ drivers: ApiDeployTargetDriver[] }>("/deploy-targets/drivers"),
+  listDeployTargets: () =>
+    request<{ deployTargets: ApiDeployTarget[] }>("/deploy-targets"),
+  flyConnectStart: () =>
+    request<{ sessionId: string; authUrl: string }>(
+      "/deploy-targets/fly/start",
+      { method: "POST" },
+    ),
+  flyConnectPoll: (sessionId: string) =>
+    request<
+      | { status: "pending" }
+      | {
+          status: "connected";
+          deployTargetId: string;
+          displayName: string;
+        }
+    >(
+      `/deploy-targets/fly/poll?session_id=${encodeURIComponent(sessionId)}`,
+    ),
 
   // ----- Deployments ---------------------------------------------------
   listDeployments: () =>

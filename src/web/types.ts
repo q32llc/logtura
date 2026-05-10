@@ -53,7 +53,23 @@ export type ApiConnectFlow =
       startPath: string;
       buttonLabel: string;
       buttonDescription: string;
+    }
+  | {
+      kind: "cli_session";
+      startPath: string;
+      pollPath: string;
+      buttonLabel: string;
+      buttonDescription: string;
     };
+
+export interface ApiDeployTarget {
+  id: string;
+  kind: string;
+  displayName: string;
+  externalAccountId: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
 
 export interface ApiProvider {
   id: string;

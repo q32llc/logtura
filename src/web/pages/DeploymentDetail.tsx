@@ -22,6 +22,7 @@ import {
   IconCopy,
   IconDeviceFloppy,
   IconExternalLink,
+  IconRocket,
   IconTrash,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
@@ -30,6 +31,7 @@ import { ApiError, api } from "../api";
 import { SelectionEditor } from "../components/SelectionEditor";
 import type {
   ApiConnection,
+  ApiDeployTarget,
   ApiDeployment,
   ApiMonitor,
   ApiSource,
@@ -138,6 +140,7 @@ export function DeploymentDetail() {
         <Tabs.List>
           <Tabs.Tab value="overview">Overview</Tabs.Tab>
           <Tabs.Tab value="configure">Configure</Tabs.Tab>
+          <Tabs.Tab value="deploy">Deploy</Tabs.Tab>
           <Tabs.Tab value="bundle">Bundle</Tabs.Tab>
         </Tabs.List>
 
@@ -147,6 +150,10 @@ export function DeploymentDetail() {
 
         <Tabs.Panel value="configure" pt="md">
           <ConfigurePanel deployment={deployment} onSaved={refetch} />
+        </Tabs.Panel>
+
+        <Tabs.Panel value="deploy" pt="md">
+          <DeployPanel deployment={deployment} />
         </Tabs.Panel>
 
         <Tabs.Panel value="bundle" pt="md">
@@ -431,6 +438,230 @@ function relativeTime(ms: number): string {
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   return new Date(ms).toISOString().slice(0, 10);
+}
+
+// ---------- Deploy (managed) -------------------------------------------
+
+function DeployPanel({ deployment }: { deployment: ApiDeployment }) {
+  const [targets, setTargets] = useState<ApiDeployTarget[] | null>(null);
+  const [connecting, setConnecting] = useState<{
+    sessionId: string;
+    authUrl: string;
+  } | null>(null);
+  const [pollMessage, setPollMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function refetch() {
+    try {
+      const r = await api.listDeployTargets();
+      setTargets(r.deployTargets);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to load");
+    }
+  }
+
+  useEffect(() => {
+    refetch();
+  }, []);
+
+  // Poll the connect endpoint while a session is in progress.
+  useEffect(() => {
+    if (!connecting) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const r = await api.flyConnectPoll(connecting.sessionId);
+        if (cancelled) return;
+        if (r.status === "connected") {
+          setConnecting(null);
+          setPollMessage(`Connected as ${r.displayName}`);
+          await refetch();
+          return;
+        }
+        setTimeout(tick, 2000);
+      } catch (e) {
+        if (cancelled) return;
+        setError(e instanceof ApiError ? e.message : "Polling failed");
+        setConnecting(null);
+      }
+    };
+    setTimeout(tick, 2000);
+    return () => {
+      cancelled = true;
+    };
+  }, [connecting]);
+
+  async function startConnect() {
+    setError(null);
+    setPollMessage(null);
+    try {
+      const r = await api.flyConnectStart();
+      window.open(r.authUrl, "_blank", "noopener,noreferrer");
+      setConnecting({ sessionId: r.sessionId, authUrl: r.authUrl });
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to start connect");
+    }
+  }
+
+  if (deployment.targetKind === "other") {
+    return (
+      <Card withBorder p="lg">
+        <Stack gap="sm">
+          <Text fw={600}>Managed deploy isn't available for "Other"</Text>
+          <Text size="sm" c="dimmed">
+            You picked Other as the target, which means we don't know
+            where you're deploying. Use the Bundle tab to grab the
+            generic Dockerfile and run it yourself, or change the
+            target on the Configure tab.
+          </Text>
+        </Stack>
+      </Card>
+    );
+  }
+
+  if (deployment.targetKind !== "fly") {
+    return (
+      <Card withBorder p="lg">
+        <Stack gap="sm">
+          <Text fw={600}>Managed deploy for {deployment.targetKind}: coming next</Text>
+          <Text size="sm" c="dimmed">
+            We're rolling out managed deploys one provider at a time.
+            Fly is up; this target's click-flow lands soon.
+          </Text>
+        </Stack>
+      </Card>
+    );
+  }
+
+  // Fly path.
+  const flyTarget =
+    targets?.find(
+      (t) => t.kind === "fly" && t.externalAccountId === "personal",
+    ) ?? null;
+
+  return (
+    <Stack gap="md">
+      {error && <Alert color="red">{error}</Alert>}
+      {pollMessage && !error && (
+        <Alert color="teal" variant="light">
+          {pollMessage}
+        </Alert>
+      )}
+
+      <Card withBorder p="lg">
+        <Stack gap="sm">
+          <Text fw={600}>Fly account</Text>
+          {targets === null ? (
+            <Loader size="xs" />
+          ) : flyTarget ? (
+            <Stack gap={2}>
+              <Text size="sm">
+                Connected as <strong>{flyTarget.displayName}</strong>
+              </Text>
+              <Text size="xs" c="dimmed">
+                Token saved {new Date(flyTarget.updatedAt).toISOString().slice(0, 10)}.
+                We can deploy and manage this forwarder on your Fly
+                account. Re-running the connect rotates the token in
+                place.
+              </Text>
+              <Group mt="sm">
+                <Button
+                  size="xs"
+                  variant="default"
+                  onClick={startConnect}
+                  loading={connecting !== null}
+                >
+                  Reconnect Fly
+                </Button>
+              </Group>
+            </Stack>
+          ) : connecting ? (
+            <Stack gap={6}>
+              <Group gap="xs">
+                <Loader size="xs" />
+                <Text size="sm">
+                  Waiting for Fly approval — open the auth tab if it
+                  didn't pop up.
+                </Text>
+              </Group>
+              <Group>
+                <Button
+                  component="a"
+                  href={connecting.authUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  size="xs"
+                  variant="default"
+                  leftSection={<IconExternalLink size={12} />}
+                >
+                  Open Fly auth
+                </Button>
+                <Button
+                  size="xs"
+                  variant="subtle"
+                  onClick={() => setConnecting(null)}
+                >
+                  Cancel
+                </Button>
+              </Group>
+            </Stack>
+          ) : (
+            <Stack gap="sm">
+              <Text size="sm" c="dimmed">
+                Click below to authorize logtura to deploy on your Fly
+                account. Same flow flyctl uses for{" "}
+                <code>fly auth login</code> — we open Fly's auth page,
+                you approve, the token comes back here.
+              </Text>
+              <Group>
+                <Button
+                  onClick={startConnect}
+                  leftSection={<IconExternalLink size={14} />}
+                >
+                  Connect Fly
+                </Button>
+              </Group>
+            </Stack>
+          )}
+        </Stack>
+      </Card>
+
+      <Card withBorder p="lg">
+        <Stack gap="sm">
+          <Group gap={6}>
+            <IconRocket size={18} />
+            <Text fw={600}>Deploy this forwarder</Text>
+          </Group>
+          {flyTarget ? (
+            <>
+              <Text size="sm" c="dimmed">
+                The Fly Machines API integration (create app → set
+                secrets → boot machine → poll status) lands in the
+                next iteration. The connect flow you just walked
+                through stores the token; the click-deploy on top of
+                it is the next commit.
+              </Text>
+              <Group>
+                <Button disabled leftSection={<IconRocket size={14} />}>
+                  Deploy now (coming next)
+                </Button>
+              </Group>
+            </>
+          ) : (
+            <Text size="sm" c="dimmed">
+              Connect Fly above first.
+            </Text>
+          )}
+        </Stack>
+      </Card>
+
+      <Text size="xs" c="dimmed">
+        Detach is one click on this page once managed deploys land.
+        Container keeps running on your Fly account; we just stop
+        touching it.
+      </Text>
+    </Stack>
+  );
 }
 
 // ---------- Bundle (existing) ------------------------------------------

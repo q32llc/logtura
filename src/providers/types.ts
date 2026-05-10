@@ -46,14 +46,28 @@ export type ConnectFlow =
       kind: "external_token";
       /** Where to send the user to create the credential. */
       url: string;
-      /** Primary button label, e.g. "Connect with Cloudflare". */
       buttonLabel: string;
-      /** Short helper text shown under the button. */
       buttonDescription: string;
       /** Field name (in formFields) where the resulting token is pasted. */
       pasteFieldName: string;
       /** Optional manual instructions for users who'd rather DIY. */
       manualInstructions?: string;
+    }
+  | {
+      kind: "cli_session";
+      /**
+       * App-internal POST endpoint that opens a Fly-style device-flow
+       * session. Server returns { authUrl, sessionId }; client opens
+       * authUrl in a new tab and polls pollPath?session_id=… until
+       * the token comes back. Used for providers like Fly.io whose
+       * CLI auth flow has a public unauthenticated session API
+       * instead of a redirect-uri-style OAuth callback.
+       */
+      startPath: string;
+      /** Polling endpoint that returns { connected, orgSlug? }. */
+      pollPath: string;
+      buttonLabel: string;
+      buttonDescription: string;
     }
   | {
       kind: "oauth_redirect";

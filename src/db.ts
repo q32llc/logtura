@@ -857,6 +857,114 @@ export async function ensureHeartbeatToken(
   return token;
 }
 
+// --- Deploy targets -------------------------------------------------------
+
+export interface DeployTargetRow {
+  id: string;
+  user_id: string;
+  kind: string;
+  display_name: string;
+  external_account_id: string | null;
+  credentials_encrypted: ArrayBuffer | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export async function listDeployTargets(
+  db: D1Database,
+  userId: string,
+): Promise<DeployTargetRow[]> {
+  const r = await db
+    .prepare(
+      "SELECT * FROM deploy_targets WHERE user_id = ? ORDER BY created_at DESC",
+    )
+    .bind(userId)
+    .all<DeployTargetRow>();
+  return r.results ?? [];
+}
+
+export async function getDeployTargetByKind(
+  db: D1Database,
+  userId: string,
+  kind: string,
+  externalAccountId?: string | null,
+): Promise<DeployTargetRow | null> {
+  if (externalAccountId) {
+    return db
+      .prepare(
+        "SELECT * FROM deploy_targets WHERE user_id = ? AND kind = ? AND external_account_id = ? LIMIT 1",
+      )
+      .bind(userId, kind, externalAccountId)
+      .first<DeployTargetRow>();
+  }
+  return db
+    .prepare(
+      "SELECT * FROM deploy_targets WHERE user_id = ? AND kind = ? ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(userId, kind)
+    .first<DeployTargetRow>();
+}
+
+export async function upsertDeployTarget(
+  db: D1Database,
+  env: Env,
+  input: {
+    userId: string;
+    kind: string;
+    displayName: string;
+    externalAccountId: string | null;
+    credentials: unknown;
+  },
+): Promise<DeployTargetRow> {
+  // One row per (user, kind, external_account_id). Re-running the
+  // connect flow rotates the token in place.
+  const existing = await getDeployTargetByKind(
+    db,
+    input.userId,
+    input.kind,
+    input.externalAccountId,
+  );
+  const ts = now();
+  const ct = await encryptSecret(
+    JSON.stringify(input.credentials),
+    env.CREDENTIAL_ENCRYPTION_KEY,
+  );
+  if (existing) {
+    await db
+      .prepare(
+        `UPDATE deploy_targets SET display_name = ?, credentials_encrypted = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .bind(input.displayName, ct, ts, existing.id)
+      .run();
+    return { ...existing, display_name: input.displayName, updated_at: ts };
+  }
+  const id = newId("dpt");
+  await db
+    .prepare(
+      `INSERT INTO deploy_targets
+       (id, user_id, kind, display_name, external_account_id, credentials_encrypted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      id,
+      input.userId,
+      input.kind,
+      input.displayName,
+      input.externalAccountId,
+      ct,
+      ts,
+      ts,
+    )
+    .run();
+  const r = await db
+    .prepare("SELECT * FROM deploy_targets WHERE id = ?")
+    .bind(id)
+    .first<DeployTargetRow>();
+  if (!r) throw new Error("deploy_target vanished after insert");
+  return r;
+}
+
 /** Bump last_seen_at for a deployment receiving a heartbeat. */
 export async function recordHeartbeat(
   db: D1Database,

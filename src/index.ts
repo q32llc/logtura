@@ -40,6 +40,9 @@ import {
   getDeployment,
   listDeployments,
   listDeploymentsForConnection,
+  listDeployTargets,
+  upsertDeployTarget,
+  type DeployTargetRow,
   parseDeploymentSelection,
   updateDeployment,
   type DeploymentRow,
@@ -400,6 +403,21 @@ apiAuth.get("/deployments", async (c) => {
   return c.json({ deployments: rows.map(toApiDeployment) });
 });
 
+apiAuth.get("/deploy-targets", async (c) => {
+  const user = c.get("user")!;
+  const rows = await listDeployTargets(c.env.DB, user.id);
+  return c.json({
+    deployTargets: rows.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      displayName: r.display_name,
+      externalAccountId: r.external_account_id,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    })),
+  });
+});
+
 apiAuth.get("/connections/:id/deployments", async (c) => {
   const user = c.get("user")!;
   const id = c.req.param("id");
@@ -498,6 +516,105 @@ api.post("/heartbeat/:id", async (c) => {
   }
   await recordHeartbeat(c.env.DB, id);
   return c.body(null, 204);
+});
+
+// ----- Fly cli_session click-flow connect -----------------------------
+
+const FLY_SESSION_COOKIE = "logtura_fly_session";
+
+apiAuth.post("/deploy-targets/fly/start", async (c) => {
+  const user = c.get("user")!;
+  // Fly's session API is unauthenticated — we POST and get back an
+  // auth_url + id. Same flow `flyctl auth login` uses.
+  const res = await fetch("https://api.fly.io/api/v1/cli_sessions", {
+    method: "POST",
+    headers: { accept: "application/json" },
+  });
+  if (!res.ok) {
+    return c.json(
+      { error: "fly_start_failed", status: res.status },
+      502,
+    );
+  }
+  const data = (await res.json()) as { id?: string; auth_url?: string };
+  if (!data.id || !data.auth_url) {
+    return c.json({ error: "fly_unexpected_response" }, 502);
+  }
+  // Stamp the session id into a signed cookie so the poll endpoint
+  // can verify it came from us (defense against a rogue user
+  // polling someone else's session id).
+  const signed = await signCookie(
+    JSON.stringify({ sessionId: data.id, userId: user.id }),
+    c.env.SESSION_SECRET,
+  );
+  setCookie(c, FLY_SESSION_COOKIE, signed, {
+    httpOnly: true,
+    secure: c.env.APP_URL.startsWith("https://"),
+    sameSite: "Lax",
+    path: "/",
+    maxAge: 900,
+  });
+  return c.json({ sessionId: data.id, authUrl: data.auth_url });
+});
+
+apiAuth.get("/deploy-targets/fly/poll", async (c) => {
+  const user = c.get("user")!;
+  const requested = c.req.query("session_id") ?? "";
+  const stateRaw = await verifyCookie(
+    getCookie(c, FLY_SESSION_COOKIE),
+    c.env.SESSION_SECRET,
+  );
+  const state = (() => {
+    if (!stateRaw) return null;
+    try {
+      return JSON.parse(stateRaw) as { sessionId?: string; userId?: string };
+    } catch {
+      return null;
+    }
+  })();
+  if (
+    !state ||
+    state.sessionId !== requested ||
+    state.userId !== user.id
+  ) {
+    return c.json({ error: "session_mismatch" }, 400);
+  }
+  const res = await fetch(
+    `https://api.fly.io/api/v1/cli_sessions/${encodeURIComponent(requested)}`,
+    { headers: { accept: "application/json" } },
+  );
+  if (!res.ok) {
+    return c.json(
+      { error: "fly_poll_failed", status: res.status },
+      502,
+    );
+  }
+  const data = (await res.json()) as {
+    id?: string;
+    access_token?: string;
+    state?: string;
+    user_email?: string;
+  };
+  if (!data.access_token) {
+    return c.json({ status: "pending" });
+  }
+
+  // Token in hand — store as a deploy_target. orgSlug isn't part of
+  // the cli_sessions response, so we use 'personal' as a placeholder
+  // until we add an org picker.
+  const target = await upsertDeployTarget(c.env.DB, c.env, {
+    userId: user.id,
+    kind: "fly",
+    displayName: data.user_email ?? "Fly account",
+    externalAccountId: "personal",
+    credentials: { apiToken: data.access_token },
+  });
+  deleteCookie(c, FLY_SESSION_COOKIE, { path: "/" });
+  return c.json({
+    status: "connected",
+    deployTargetId: target.id,
+    displayName: target.display_name,
+  });
 });
 
 apiAuth.get("/deploy-targets/drivers", (c) => {

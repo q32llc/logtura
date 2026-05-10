@@ -32,12 +32,12 @@ export const flyDriver: DeployTargetDriver<FlyCredentials> = {
     "Always-on Machines, ~$2/month for a tiny shared-cpu VM. Designed for exactly this kind of workload. Pick a region close to your sources.",
   supportsManaged: true,
   connectFlow: {
-    kind: "external_token",
-    url: "https://fly.io/user/personal_access_tokens",
-    buttonLabel: "Create a Fly token",
+    kind: "cli_session",
+    startPath: "/api/deploy-targets/fly/start",
+    pollPath: "/api/deploy-targets/fly/poll",
+    buttonLabel: "Connect Fly",
     buttonDescription:
-      "Opens Fly.io's Personal Access Token page. Create one named 'logtura', then paste it below.",
-    pasteFieldName: "api_token",
+      "Opens Fly's auth page in a new tab. Approve, and we capture the access token automatically (same flow flyctl uses for `fly auth login`).",
   },
   formFields: [
     {
