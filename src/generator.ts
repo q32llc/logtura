@@ -291,7 +291,13 @@ function renderVectorYaml(
   }
 
   // Per-sink filter-step transforms + destination pre-sink transforms.
+  // Env vars are named per *destination* (not per sink): two sinks
+  // routing to the same Slack channel share LOGTURA_DEST_SLACK_*_URL
+  // and we only emit it once. Names come from the destination's
+  // display name so the docker run command is readable.
   const sinkSinkKeys: Array<{ sinkKey: string; yaml: string }> = [];
+  const destEnvVarByDestId = new Map<string, string>();
+  const usedEnvNames = new Set<string>();
   for (const m of monitors) {
     if (m.monitor.enabled !== 1) continue;
     const monitorOutputKey = monitorOutputKeys.get(m.monitor.id);
@@ -299,6 +305,31 @@ function renderVectorYaml(
     for (const sinkSpec of m.sinks) {
       const dDriver = getDestinationDriver(sinkSpec.destination.kind);
       if (!dDriver) continue;
+
+      // Resolve (or assign) the env var name for this destination.
+      // First sink for a given destination registers + adds the env
+      // var entry; subsequent sinks reuse the name.
+      let envVarName = destEnvVarByDestId.get(sinkSpec.destination.id);
+      if (!envVarName) {
+        const base = baseDestEnvName(sinkSpec.destination.display_name);
+        envVarName = uniquify(base, usedEnvNames);
+        usedEnvNames.add(envVarName);
+        destEnvVarByDestId.set(sinkSpec.destination.id, envVarName);
+        const envSpec = dDriver.runtimeEnvVars({
+          config: sinkSpec.destinationConfig,
+          envVarName,
+          displayName: sinkSpec.destination.display_name,
+        });
+        for (const e of envSpec) {
+          sinkEnvVars.push({
+            name: e.name,
+            description: e.description,
+            source: "destination",
+            value: dDriver.envVarValue(sinkSpec.destinationConfig, e.name),
+          });
+        }
+      }
+
       const sinkSteps = parseFilterSteps(sinkSpec.sink.filter_steps_json);
       const { transforms, outputKey } = renderStepTransforms(
         sinkSteps,
@@ -311,7 +342,6 @@ function renderVectorYaml(
         lines.push("");
       }
       const sinkKey = `sink_${safeKey(sinkSpec.sink.id)}`;
-      const envVarName = sinkEnvVarName(sinkSpec.sink.id);
       const bundle = dDriver.generateSinkBundle({
         config: sinkSpec.destinationConfig,
         inputs: [outputKey],
@@ -324,19 +354,6 @@ function renderVectorYaml(
         lines.push("");
       }
       sinkSinkKeys.push({ sinkKey: bundle.sink.key, yaml: bundle.sink.yaml });
-      const envSpec = dDriver.runtimeEnvVars({
-        config: sinkSpec.destinationConfig,
-        envVarName,
-        displayName: sinkSpec.destination.display_name,
-      });
-      for (const e of envSpec) {
-        sinkEnvVars.push({
-          name: e.name,
-          description: e.description,
-          source: "destination",
-          value: dDriver.envVarValue(sinkSpec.destinationConfig, e.name),
-        });
-      }
     }
   }
 
@@ -521,6 +538,28 @@ function safeKey(s: string): string {
   return s.replace(/[^a-zA-Z0-9_]/g, "_");
 }
 
-function sinkEnvVarName(sinkId: string): string {
-  return `LOGTURA_SINK_${sinkId.replace(/[^a-zA-Z0-9]/g, "").toUpperCase()}_URL`;
+/** Build the readable env-var name for a destination from its display
+ *  name. "Slack #alerts" → "LOGTURA_DEST_SLACK_ALERTS_URL". Falls back
+ *  to "LOGTURA_DEST_DEST_URL" if the display name has no usable
+ *  characters. */
+function baseDestEnvName(displayName: string): string {
+  const core = displayName
+    .normalize("NFKD")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 40);
+  return `LOGTURA_DEST_${core || "DEST"}_URL`;
+}
+
+/** Append a numeric suffix if a name is already taken, so two
+ *  destinations sharing a sanitized display name still get unique
+ *  env vars. */
+function uniquify(name: string, used: Set<string>): string {
+  if (!used.has(name)) return name;
+  for (let i = 2; i < 1000; i++) {
+    const candidate = name.replace(/_URL$/, `_${i}_URL`);
+    if (!used.has(candidate)) return candidate;
+  }
+  return `${name}_${Date.now()}`;
 }
