@@ -10,6 +10,7 @@ export const webhookDriver: DestinationDriver<WebhookConfig> = {
   displayName: "HTTPS webhook",
   description:
     "Send each matched log line as JSON to any HTTPS endpoint. Works with Discord, custom services, n8n, Better Stack's HTTP source, anything that accepts a POST.",
+  flows: ["logs"],
   formFields: [
     {
       name: "url",

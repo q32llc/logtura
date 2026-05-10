@@ -64,7 +64,7 @@ export interface GeneratorSink {
   destinationConfig: unknown;
 }
 
-interface GenerateInput {
+export interface GenerateInput {
   connection: ConnectionRow;
   selectedSources: LogSourceRow[];
   monitors: GeneratorMonitor[];
@@ -88,6 +88,24 @@ interface GenerateInput {
     /** Public URL the running container reaches for heartbeats. */
     appUrl: string;
   };
+  /**
+   * Where to ship Vector's internal metrics. kind="none" emits no
+   * sink; kind="logtura" posts to /api/metrics/:deploymentId (we
+   * record "last received" only — no time series in D1); kind=
+   * "destination" routes through the named destination's driver
+   * (datadog_metrics, prometheus_remote_write, etc.). The
+   * destination's `flows` must include "metrics".
+   */
+  metrics?:
+    | { kind: "none" }
+    | { kind: "logtura"; deploymentId: string; appUrl: string }
+    | {
+        kind: "destination";
+        destination: DestinationRow;
+        /** Decrypted destination config. Caller decrypts so the
+         *  generator stays sync. */
+        destinationConfig: unknown;
+      };
 }
 
 export function generateBundle(input: GenerateInput): GeneratedBundle {
@@ -115,6 +133,7 @@ export function generateBundle(input: GenerateInput): GeneratedBundle {
     sourceRefs,
     input.monitors,
     input.heartbeat,
+    input.metrics,
   );
 
   const dockerfile = renderDockerfile([sourceSpec.dockerfileDeps].flat());
@@ -161,6 +180,55 @@ export function generateBundle(input: GenerateInput): GeneratedBundle {
     });
   }
 
+  // Metrics-to-logtura env var. Same shape as heartbeat — Vector
+  // POSTs internal_metrics here. Logtura's endpoint records "last
+  // received" only, no time series. For graphs the user wires a
+  // metrics destination (datadog_metrics, prometheus_remote_write)
+  // and we route through that driver's sink instead.
+  if (input.metrics?.kind === "logtura") {
+    envVars.push({
+      name: "LOGTURA_METRICS_URL",
+      description:
+        "logtura's metrics endpoint for this deployment. Records last-received timestamp only; for graphs configure a metrics destination.",
+      source: "manual",
+      value: `${input.metrics.appUrl}/api/metrics/${input.metrics.deploymentId}`,
+    });
+    // Reuses the heartbeat token — same auth principle, same row.
+    envVars.push({
+      name: "LOGTURA_METRICS_TOKEN",
+      description:
+        "Bearer token authorizing this deployment to post metrics. Same secret as the heartbeat token.",
+      source: "manual",
+      value: null, // populated by caller from deployment.heartbeat_token
+    });
+  }
+
+  // For metrics-to-a-destination, declare the destination's env vars
+  // up-front so the bundle UI shows them and the deploy job populates
+  // them. The destination driver knows its own env spec.
+  if (input.metrics?.kind === "destination") {
+    const m = input.metrics;
+    const dDriver = getDestinationDriver(m.destination.kind);
+    if (dDriver) {
+      const envName = baseDestEnvName(m.destination.display_name).replace(
+        /_URL$/,
+        "_METRICS",
+      );
+      for (const e of dDriver.runtimeEnvVars({
+        config: m.destinationConfig,
+        envVarName: envName,
+        displayName: m.destination.display_name,
+      })) {
+        envVars.push({
+          name: e.name,
+          description: e.description,
+          source: "destination",
+          value: dDriver.envVarValue(m.destinationConfig, e.name),
+        });
+      }
+    }
+  }
+
   const runCommand = renderRunCommand(envVars);
   const sinkCount = input.monitors.reduce(
     (n, m) => n + m.sinks.length,
@@ -186,6 +254,7 @@ function renderVectorYaml(
   sources: SourceRef[],
   monitors: GeneratorMonitor[],
   heartbeat: GenerateInput["heartbeat"],
+  metrics: GenerateInput["metrics"],
 ): { vectorYaml: string; sinkEnvVars: BundleEnvVar[] } {
   const lines: string[] = [];
   const sinkEnvVars: BundleEnvVar[] = [];
@@ -409,6 +478,56 @@ function renderVectorYaml(
     lines.push("    healthcheck:");
     lines.push("      enabled: false");
     lines.push("");
+  }
+
+  // ---- metrics sink (optional) -------------------------------------
+  // metrics: logtura → http POST to /api/metrics/:deploymentId.
+  // metrics: destination → route internal_metrics through the named
+  //   destination's sink driver (datadog_metrics, prometheus_remote_write).
+  if (metrics?.kind === "logtura") {
+    lines.push("  metrics_logtura:");
+    lines.push("    type: http");
+    lines.push('    inputs: ["internal_metrics"]');
+    lines.push('    uri: "${LOGTURA_METRICS_URL}"');
+    lines.push("    method: post");
+    lines.push("    encoding:");
+    lines.push("      codec: json");
+    lines.push("    request:");
+    lines.push("      headers:");
+    lines.push('        authorization: "Bearer ${LOGTURA_METRICS_TOKEN}"');
+    lines.push("        content-type: application/json");
+    lines.push("    batch:");
+    lines.push("      max_events: 100");
+    lines.push("      timeout_secs: 30");
+    lines.push("    healthcheck:");
+    lines.push("      enabled: false");
+    lines.push("");
+  }
+
+  if (metrics?.kind === "destination") {
+    const m = metrics;
+    const dDriver = getDestinationDriver(m.destination.kind);
+    if (dDriver && dDriver.flows.includes("metrics")) {
+      const envName = baseDestEnvName(m.destination.display_name).replace(
+        /_URL$/,
+        "_METRICS",
+      );
+      const sinkKey = `metrics_${safeKey(m.destination.id)}`;
+      const bundle = dDriver.generateSinkBundle({
+        config: m.destinationConfig,
+        inputs: ["internal_metrics"],
+        sinkKey,
+        envVarName: envName,
+      });
+      for (const t of bundle.preSinkTransforms ?? []) {
+        lines.push(`  ${t.key}:`);
+        lines.push(t.yaml);
+        lines.push("");
+      }
+      lines.push(`  ${bundle.sink.key}:`);
+      lines.push(bundle.sink.yaml);
+      lines.push("");
+    }
   }
 
   return { vectorYaml: lines.join("\n"), sinkEnvVars };

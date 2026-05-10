@@ -9,6 +9,7 @@ import {
   Group,
   Loader,
   ScrollArea,
+  Select,
   Stack,
   Tabs,
   Text,
@@ -33,6 +34,7 @@ import type {
   ApiConnection,
   ApiDeployTarget,
   ApiDeployment,
+  ApiDestination,
   ApiJob,
   ApiMonitor,
   ApiSource,
@@ -231,6 +233,7 @@ function ConfigurePanel({
   const [connection, setConnection] = useState<ApiConnection | null>(null);
   const [sources, setSources] = useState<ApiSource[]>([]);
   const [monitors, setMonitors] = useState<ApiMonitor[]>([]);
+  const [destinations, setDestinations] = useState<ApiDestination[]>([]);
 
   const [name, setName] = useState(deployment.displayName);
   const [allSources, setAllSources] = useState(deployment.sourceIds === null);
@@ -242,6 +245,13 @@ function ConfigurePanel({
   );
   const [pickedMonitors, setPickedMonitors] = useState<Set<string>>(
     new Set(deployment.monitorIds ?? []),
+  );
+  // null → default ("logtura"). UI normalizes to "logtura" / "none".
+  const [heartbeatTarget, setHeartbeatTarget] = useState<string>(
+    deployment.heartbeatTarget ?? "logtura",
+  );
+  const [metricsTarget, setMetricsTarget] = useState<string>(
+    deployment.metricsTarget ?? "none",
   );
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -258,6 +268,10 @@ function ConfigurePanel({
       .listMonitors()
       .then((r) => setMonitors(r.monitors))
       .catch(() => {});
+    api
+      .listDestinations()
+      .then((r) => setDestinations(r.destinations))
+      .catch(() => {});
   }, [deployment.connectionId]);
 
   // When the deployment row reloads (e.g. after Save), rehydrate local
@@ -268,6 +282,8 @@ function ConfigurePanel({
     setPickedSources(new Set(deployment.sourceIds ?? []));
     setAllMonitors(deployment.monitorIds === null);
     setPickedMonitors(new Set(deployment.monitorIds ?? []));
+    setHeartbeatTarget(deployment.heartbeatTarget ?? "logtura");
+    setMetricsTarget(deployment.metricsTarget ?? "none");
   }, [deployment]);
 
   const applicableMonitors = useMemo(
@@ -279,12 +295,19 @@ function ConfigurePanel({
     [monitors, deployment.connectionId],
   );
 
+  const metricsDestinations = useMemo(
+    () => destinations.filter((d) => d.flows.includes("metrics")),
+    [destinations],
+  );
+
   const dirty =
     name.trim() !== deployment.displayName ||
     allSources !== (deployment.sourceIds === null) ||
     !setsEqual(pickedSources, new Set(deployment.sourceIds ?? [])) ||
     allMonitors !== (deployment.monitorIds === null) ||
-    !setsEqual(pickedMonitors, new Set(deployment.monitorIds ?? []));
+    !setsEqual(pickedMonitors, new Set(deployment.monitorIds ?? [])) ||
+    heartbeatTarget !== (deployment.heartbeatTarget ?? "logtura") ||
+    metricsTarget !== (deployment.metricsTarget ?? "none");
 
   async function save() {
     setSaving(true);
@@ -294,6 +317,8 @@ function ConfigurePanel({
         displayName: name.trim(),
         sourceIds: allSources ? null : [...pickedSources],
         monitorIds: allMonitors ? null : [...pickedMonitors],
+        heartbeatTarget,
+        metricsTarget: metricsTarget === "none" ? null : metricsTarget,
       });
       notifications.show({ message: "Deployment updated", color: "teal" });
       onSaved();
@@ -386,6 +411,58 @@ function ConfigurePanel({
             </Text>
           }
         />
+      </Card>
+
+      <Card withBorder p="lg">
+        <Stack gap="md">
+          <Stack gap={2}>
+            <Text fw={600}>Liveness signal</Text>
+            <Text size="xs" c="dimmed">
+              The container POSTs a heartbeat every 30s so logtura knows
+              it's alive. logtura records the last-seen timestamp only.
+            </Text>
+          </Stack>
+          <Select
+            label="Heartbeat target"
+            value={heartbeatTarget}
+            onChange={(v) => v && setHeartbeatTarget(v)}
+            data={[
+              { value: "logtura", label: "logtura (recommended)" },
+              { value: "none", label: "None (no liveness checks)" },
+            ]}
+            allowDeselect={false}
+          />
+
+          <Stack gap={2}>
+            <Text fw={600}>Metrics export</Text>
+            <Text size="xs" c="dimmed">
+              Vector's internal metrics (events received, sent, errors).
+              Pick "logtura" for last-received tracking only — for graphs
+              and alerts, send to a metrics destination instead.
+            </Text>
+          </Stack>
+          <Select
+            label="Metrics target"
+            value={metricsTarget}
+            onChange={(v) => v && setMetricsTarget(v)}
+            data={[
+              { value: "none", label: "None (don't export metrics)" },
+              { value: "logtura", label: "logtura (last-received only)" },
+              ...metricsDestinations.map((d) => ({
+                value: d.id,
+                label: `${d.displayName} (${d.kind})`,
+              })),
+            ]}
+            allowDeselect={false}
+          />
+          {metricsDestinations.length === 0 && (
+            <Text size="xs" c="dimmed">
+              No metrics-capable destinations configured. Add a Datadog
+              or Prometheus remote-write destination from the
+              Destinations page to enable graphs.
+            </Text>
+          )}
+        </Stack>
       </Card>
 
       {err && (

@@ -374,9 +374,34 @@ apiAuth.put("/deployments/:id", async (c) => {
     sourceIds?: string[] | null;
     monitorIds?: string[] | null;
     heartbeatTarget?: string | null;
+    metricsTarget?: string | null;
     status?: string;
     externalId?: string | null;
   };
+  // Sanity-check target values. heartbeat is currently logs+ping
+  // only ("logtura" | "none"); metrics can target any destination
+  // whose driver declares the "metrics" flow.
+  if (
+    body.metricsTarget &&
+    body.metricsTarget !== "none" &&
+    body.metricsTarget !== "logtura"
+  ) {
+    const dest = await c.env.DB.prepare(
+      "SELECT kind FROM destinations WHERE id = ? AND user_id = ?",
+    )
+      .bind(body.metricsTarget, user.id)
+      .first<{ kind: string }>();
+    if (!dest) {
+      return c.json({ error: "metrics_target_not_found" }, 400);
+    }
+    const driver = getDestinationDriver(dest.kind);
+    if (!driver || !driver.flows.includes("metrics")) {
+      return c.json(
+        { error: "metrics_target_flow_mismatch", kind: dest.kind },
+        400,
+      );
+    }
+  }
   const updated = await updateDeployment(c.env.DB, user.id, id, body as never);
   if (!updated) return c.json({ error: "not_found" }, 404);
   return c.json({ deployment: toApiDeployment(updated) });
@@ -455,6 +480,40 @@ api.post("/heartbeat/:id", async (c) => {
   }
   if (!constantTimeEqual(row.heartbeat_token, presented)) {
     return c.json({ error: "invalid_token" }, 401);
+  }
+  await recordHeartbeat(c.env.DB, id);
+  return c.body(null, 204);
+});
+
+// Metrics ingest. Same auth pair as heartbeat (deployment id +
+// bearer token). We don't store the time series — that's where money
+// goes; users who want graphs configure a metrics destination
+// (datadog_metrics, prometheus_remote_write) and the forwarder
+// routes through there instead. This endpoint exists so users who
+// pick "logtura" for metrics target see "yes, metrics are flowing"
+// without us standing up a TSDB.
+api.post("/metrics/:id", async (c) => {
+  const id = c.req.param("id");
+  const auth = c.req.header("authorization") ?? "";
+  const presented = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  if (!presented) return c.json({ error: "missing_token" }, 401);
+  const row = await c.env.DB.prepare(
+    "SELECT id, heartbeat_token FROM deployments WHERE id = ?",
+  )
+    .bind(id)
+    .first<{ id: string; heartbeat_token: string | null }>();
+  if (!row || !row.heartbeat_token) {
+    return c.json({ error: "not_found" }, 404);
+  }
+  if (!constantTimeEqual(row.heartbeat_token, presented)) {
+    return c.json({ error: "invalid_token" }, 401);
+  }
+  // Drain the body and discard — we don't store; we just acknowledge.
+  // (Vector will resend on 5xx, so always 2xx for a valid token.)
+  try {
+    await c.req.text();
+  } catch {
+    // ignore
   }
   await recordHeartbeat(c.env.DB, id);
   return c.body(null, 204);
@@ -989,6 +1048,7 @@ function toApiDeployment(d: DeploymentRow) {
       ? (JSON.parse(d.monitor_selection_json) as string[])
       : null,
     heartbeatTarget: d.heartbeat_target,
+    metricsTarget: d.metrics_target,
     createdAt: d.created_at,
     updatedAt: d.updated_at,
     lastSeenAt: d.last_seen_at,
@@ -996,10 +1056,17 @@ function toApiDeployment(d: DeploymentRow) {
 }
 
 function toApiDestination(d: DestinationRow) {
+  // flows is driven by the destination's kind, not the row — it's
+  // static per-driver. We surface it on the API so the UI can filter
+  // destinations by what flow the user is currently configuring
+  // (metrics_target dropdown only shows destinations whose driver
+  // declares the "metrics" flow).
+  const driver = getDestinationDriver(d.kind);
   return {
     id: d.id,
     kind: d.kind,
     displayName: d.display_name,
+    flows: driver?.flows ?? ["logs"],
     createdAt: d.created_at,
     updatedAt: d.updated_at,
   };

@@ -12,7 +12,11 @@ import {
   parseDeploymentSelection,
 } from "./db";
 import type { Env } from "./env";
-import { type GeneratedBundle, generateBundle } from "./generator";
+import {
+  type GeneratedBundle,
+  type GenerateInput,
+  generateBundle,
+} from "./generator";
 import { getProvider } from "./providers";
 
 export interface AssembledBundle {
@@ -98,6 +102,33 @@ export async function assembleDeploymentBundle(
     }
   }
 
+  // Resolve metrics target. "none"/null = no metrics sink;
+  // "logtura" = the http-POST-to-us sink; anything else is treated
+  // as a destination id and we look it up + decrypt its config.
+  let metricsInput: GenerateInput["metrics"];
+  const metricsTarget = deployment.metrics_target;
+  if (!metricsTarget || metricsTarget === "none") {
+    metricsInput = { kind: "none" };
+  } else if (metricsTarget === "logtura") {
+    metricsInput = {
+      kind: "logtura",
+      deploymentId: deployment.id,
+      appUrl: env.APP_URL,
+    };
+  } else {
+    const mDest = await getDestination(env.DB, userId, metricsTarget);
+    if (mDest) {
+      const mConfig = await decryptDestinationConfig(env, mDest);
+      metricsInput = {
+        kind: "destination",
+        destination: mDest,
+        destinationConfig: mConfig,
+      };
+    } else {
+      metricsInput = { kind: "none" };
+    }
+  }
+
   const bundle = generateBundle({
     connection,
     selectedSources,
@@ -111,11 +142,13 @@ export async function assembleDeploymentBundle(
       deploymentId: deployment.id,
       appUrl: env.APP_URL,
     },
+    metrics: metricsInput,
   });
 
   const heartbeatToken = await ensureHeartbeatToken(env.DB, deployment);
   for (const v of bundle.envVars) {
     if (v.name === "LOGTURA_HEARTBEAT_TOKEN") v.value = heartbeatToken;
+    if (v.name === "LOGTURA_METRICS_TOKEN") v.value = heartbeatToken;
     if (v.source === "credential") {
       if (!credentialIsFresh) {
         v.staleReason =

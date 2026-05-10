@@ -721,6 +721,11 @@ export interface DeploymentRow {
   heartbeat_target: string | null;
   heartbeat_token: string | null;
   last_alert_sent_at: number | null;
+  /** Where Vector's internal_metrics get shipped. See migration 0011
+   *  for the full description; in short: null/"none" = no sink,
+   *  "logtura" = ship to us (no time series stored), <destination_id>
+   *  = via a configured destination driver. */
+  metrics_target: string | null;
 }
 
 export interface DeploymentSelection {
@@ -1060,6 +1065,7 @@ export async function updateDeployment(
     sourceIds: string[] | null;
     monitorIds: string[] | null;
     heartbeatTarget: string | null;
+    metricsTarget: string | null;
     status: DeploymentStatus;
     externalId: string | null;
     metadata: Record<string, unknown> | null;
@@ -1073,7 +1079,8 @@ export async function updateDeployment(
       `UPDATE deployments SET
          display_name = ?, managed = ?, status = ?, external_id = ?,
          metadata_json = ?, source_selection_json = ?,
-         monitor_selection_json = ?, heartbeat_target = ?, updated_at = ?
+         monitor_selection_json = ?, heartbeat_target = ?,
+         metrics_target = ?, updated_at = ?
        WHERE id = ? AND user_id = ?`,
     )
     .bind(
@@ -1105,6 +1112,9 @@ export async function updateDeployment(
       patch.heartbeatTarget === undefined
         ? existing.heartbeat_target
         : patch.heartbeatTarget,
+      patch.metricsTarget === undefined
+        ? existing.metrics_target
+        : patch.metricsTarget,
       ts,
       id,
       userId,

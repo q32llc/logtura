@@ -37,10 +37,22 @@ export interface SinkBundle {
   sink: SinkBlock;
 }
 
+/** A destination can carry logs, metrics, or both. Vector sinks are
+ *  flow-specific (e.g., http accepts arbitrary log events, while
+ *  datadog_metrics only accepts metric events), so we declare what
+ *  each destination supports up-front. The deployment-configure UI
+ *  filters destinations by the flow it's currently configuring
+ *  (heartbeat/metrics → "metrics"; sinks on a monitor → "logs"). */
+export type DestinationFlow = "logs" | "metrics";
+
 export interface DestinationDriver<TConfig = unknown> {
   readonly id: string;
   readonly displayName: string;
   readonly description: string;
+  /** Which flows this destination accepts. Defaults to ["logs"] for
+   *  existing destinations; new metrics drivers (datadog_metrics,
+   *  prometheus_remote_write) declare ["metrics"]. */
+  readonly flows: readonly DestinationFlow[];
 
   /**
    * Optional structured connect flow (e.g. real OAuth for Slack).

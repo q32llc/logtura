@@ -132,6 +132,9 @@ export interface ApiDestination {
   id: string;
   kind: string;
   displayName: string;
+  /** Which Vector flows this destination accepts. UI filters
+   *  destinations by flow when configuring heartbeat/metrics. */
+  flows: readonly ("logs" | "metrics")[];
   createdAt: number;
   updatedAt: number;
 }
@@ -190,7 +193,11 @@ export interface ApiDeployment {
   sourceIds: string[] | null;
   /** null = wildcard (every applicable monitor) */
   monitorIds: string[] | null;
+  /** "logtura" | "none" | null. null means "logtura by default". */
   heartbeatTarget: string | null;
+  /** "logtura" | "none" | <destination_id> | null. null means
+   *  "no metrics export" (we don't emit a metrics sink). */
+  metricsTarget: string | null;
   createdAt: number;
   updatedAt: number;
   lastSeenAt: number | null;

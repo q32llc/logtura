@@ -28,6 +28,7 @@ export const slackDriver: DestinationDriver<SlackConfig> = {
   displayName: "Slack",
   description:
     "Post matched log lines to a Slack channel. OAuth into your workspace and pick a channel; we never see your messages, just the webhook URL Slack hands out.",
+  flows: ["logs"],
   connectFlow: {
     kind: "oauth_redirect",
     startPath: "/api/destinations/slack/start",

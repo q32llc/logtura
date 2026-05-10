@@ -198,6 +198,7 @@ export const api = {
       sourceIds: string[] | null;
       monitorIds: string[] | null;
       heartbeatTarget: string | null;
+      metricsTarget: string | null;
       status: string;
       externalId: string | null;
     }>,
