@@ -146,16 +146,28 @@ function AppShellLayout({
     >
       <AppShell.Header>
         <Group h="100%" px="lg" justify="space-between">
-          <Group gap="md">
-            <Text
-              fw={700}
-              size="lg"
-              component={Link}
+          <Group gap="sm">
+            <Link
               to="/"
-              style={{ textDecoration: "none", color: "inherit" }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                textDecoration: "none",
+                color: "inherit",
+              }}
             >
-              logtura
-            </Text>
+              <img
+                src="/logo.svg"
+                alt=""
+                width={28}
+                height={28}
+                style={{ display: "block" }}
+              />
+              <Text fw={700} size="lg">
+                logtura
+              </Text>
+            </Link>
           </Group>
           <Group gap="md">
             {loading ? (
