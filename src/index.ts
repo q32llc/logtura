@@ -27,8 +27,16 @@ import {
   listSinksForMonitor,
   listSinksForUser,
   listSources,
-  setSourceSelections,
   updateMonitor,
+  // Deployments — the unit of "what runs"
+  createDeployment,
+  deleteDeployment,
+  getDeployment,
+  listDeployments,
+  listDeploymentsForConnection,
+  parseDeploymentSelection,
+  updateDeployment,
+  type DeploymentRow,
   type ConnectionRow,
   type DestinationRow,
   type LogSourceRow,
@@ -189,19 +197,6 @@ apiAuth.get("/connections/:id", async (c) => {
   });
 });
 
-apiAuth.post("/connections/:id/sources", async (c) => {
-  const user = c.get("user")!;
-  const id = c.req.param("id");
-  const connection = await getConnection(c.env.DB, user.id, id);
-  if (!connection) return c.json({ error: "not_found" }, 404);
-  const body = (await c.req.json()) as { selectedSourceIds?: string[] };
-  const selected = new Set(body.selectedSourceIds ?? []);
-  await setSourceSelections(c.env.DB, connection.id, selected);
-  const sources = await listSources(c.env.DB, connection.id);
-  const driver = getProvider(connection.provider);
-  return c.json({ sources: sources.map((s) => toApiSource(s, driver)) });
-});
-
 apiAuth.post("/connections/:id/discover", async (c) => {
   const user = c.get("user")!;
   const id = c.req.param("id");
@@ -230,34 +225,49 @@ apiAuth.delete("/connections/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-apiAuth.get("/connections/:id/bundle", async (c) => {
+apiAuth.get("/deployments/:id/bundle", async (c) => {
   const user = c.get("user")!;
   const id = c.req.param("id");
-  const targetId = (c.req.query("target") ?? "other").trim();
+  const deployment = await getDeployment(c.env.DB, user.id, id);
+  if (!deployment) return c.json({ error: "not_found" }, 404);
+
+  const targetId = (c.req.query("target") ?? deployment.target_kind).trim();
   const targetDriver = getDeployTargetDriver(targetId);
   if (!targetDriver) {
     return c.json({ error: "unknown_target" }, 400);
   }
-  const deploymentName = (
-    c.req.query("name") ??
-    `connection-${id}`
-  ).trim();
   const region = c.req.query("region") ?? undefined;
 
-  const connection = await getConnection(c.env.DB, user.id, id);
-  if (!connection) return c.json({ error: "not_found" }, 404);
-  const all = await listSources(c.env.DB, connection.id);
-  const selected = all.filter((s) => s.selected === 1);
+  const connection = await getConnection(
+    c.env.DB,
+    user.id,
+    deployment.connection_id,
+  );
+  if (!connection) return c.json({ error: "connection_not_found" }, 404);
 
-  // Walk this connection's applicable monitors → their sinks →
-  // destinations, decrypting destination configs as we go.
-  const monitors = await listMonitorsForConnection(
+  // Resolve sources and monitors using the deployment's selection JSON
+  // (null = wildcard).
+  const selection = parseDeploymentSelection(deployment);
+  const allSources = await listSources(c.env.DB, connection.id);
+  const selectedSources =
+    selection.sourceIds === null
+      ? allSources
+      : allSources.filter((s) => selection.sourceIds!.includes(s.id));
+
+  const candidateMonitors = await listMonitorsForConnection(
     c.env.DB,
     user.id,
     connection.id,
   );
+  const applicableMonitors =
+    selection.monitorIds === null
+      ? candidateMonitors
+      : candidateMonitors.filter((m) =>
+          selection.monitorIds!.includes(m.id),
+        );
+
   const generatorMonitors = [];
-  for (const monitor of monitors) {
+  for (const monitor of applicableMonitors) {
     const sinks = await listSinksForMonitor(c.env.DB, monitor.id);
     const generatorSinks = [];
     for (const sink of sinks) {
@@ -278,13 +288,13 @@ apiAuth.get("/connections/:id/bundle", async (c) => {
 
   const sourceBundle = generateBundle({
     connection,
-    selectedSources: selected,
+    selectedSources,
     monitors: generatorMonitors,
   });
 
   const targetBundle = targetDriver.generateTargetBundle({
     sourceBundle,
-    deploymentName,
+    deploymentName: deployment.display_name,
     region,
     connectionId: connection.id,
   });
@@ -301,6 +311,89 @@ apiAuth.get("/connections/:id/bundle", async (c) => {
     selectedCount: sourceBundle.selectedCount,
     monitorSummary: sourceBundle.monitorSummary,
   });
+});
+
+// ----- Deployment CRUD -------------------------------------------------
+
+apiAuth.get("/deployments", async (c) => {
+  const user = c.get("user")!;
+  const rows = await listDeployments(c.env.DB, user.id);
+  return c.json({ deployments: rows.map(toApiDeployment) });
+});
+
+apiAuth.get("/connections/:id/deployments", async (c) => {
+  const user = c.get("user")!;
+  const id = c.req.param("id");
+  const rows = await listDeploymentsForConnection(c.env.DB, user.id, id);
+  return c.json({ deployments: rows.map(toApiDeployment) });
+});
+
+apiAuth.post("/deployments", async (c) => {
+  const user = c.get("user")!;
+  const body = (await c.req.json()) as {
+    connectionId?: string;
+    displayName?: string;
+    targetKind?: string;
+    managed?: boolean;
+    sourceIds?: string[] | null;
+    monitorIds?: string[] | null;
+    heartbeatTarget?: string | null;
+  };
+  if (!body.connectionId || !body.displayName || !body.targetKind) {
+    return c.json({ error: "missing_fields" }, 400);
+  }
+  // Verify the connection belongs to the user before creating.
+  const connection = await getConnection(
+    c.env.DB,
+    user.id,
+    body.connectionId,
+  );
+  if (!connection) return c.json({ error: "connection_not_found" }, 404);
+  if (!getDeployTargetDriver(body.targetKind)) {
+    return c.json({ error: "unknown_target" }, 400);
+  }
+  const deployment = await createDeployment(c.env.DB, {
+    userId: user.id,
+    connectionId: body.connectionId,
+    displayName: body.displayName,
+    targetKind: body.targetKind,
+    managed: body.managed,
+    sourceIds: body.sourceIds === undefined ? null : body.sourceIds,
+    monitorIds: body.monitorIds === undefined ? null : body.monitorIds,
+    heartbeatTarget: body.heartbeatTarget ?? null,
+  });
+  return c.json({ deployment: toApiDeployment(deployment) });
+});
+
+apiAuth.get("/deployments/:id", async (c) => {
+  const user = c.get("user")!;
+  const id = c.req.param("id");
+  const deployment = await getDeployment(c.env.DB, user.id, id);
+  if (!deployment) return c.json({ error: "not_found" }, 404);
+  return c.json({ deployment: toApiDeployment(deployment) });
+});
+
+apiAuth.put("/deployments/:id", async (c) => {
+  const user = c.get("user")!;
+  const id = c.req.param("id");
+  const body = (await c.req.json()) as {
+    displayName?: string;
+    managed?: boolean;
+    sourceIds?: string[] | null;
+    monitorIds?: string[] | null;
+    heartbeatTarget?: string | null;
+    status?: string;
+    externalId?: string | null;
+  };
+  const updated = await updateDeployment(c.env.DB, user.id, id, body as never);
+  if (!updated) return c.json({ error: "not_found" }, 404);
+  return c.json({ deployment: toApiDeployment(updated) });
+});
+
+apiAuth.delete("/deployments/:id", async (c) => {
+  const user = c.get("user")!;
+  await deleteDeployment(c.env.DB, user.id, c.req.param("id"));
+  return c.json({ ok: true });
 });
 
 apiAuth.get("/deploy-targets/drivers", (c) => {
@@ -639,8 +732,29 @@ function toApiSource(
     externalId: s.external_id,
     displayName: s.display_name,
     metadata: s.metadata_json ? JSON.parse(s.metadata_json) : null,
-    selected: s.selected === 1,
     discoveredAt: s.discovered_at,
+  };
+}
+
+function toApiDeployment(d: DeploymentRow) {
+  return {
+    id: d.id,
+    connectionId: d.connection_id,
+    displayName: d.display_name,
+    targetKind: d.target_kind,
+    managed: d.managed === 1,
+    status: d.status,
+    externalId: d.external_id,
+    sourceIds: d.source_selection_json
+      ? (JSON.parse(d.source_selection_json) as string[])
+      : null,
+    monitorIds: d.monitor_selection_json
+      ? (JSON.parse(d.monitor_selection_json) as string[])
+      : null,
+    heartbeatTarget: d.heartbeat_target,
+    createdAt: d.created_at,
+    updatedAt: d.updated_at,
+    lastSeenAt: d.last_seen_at,
   };
 }
 

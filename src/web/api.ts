@@ -2,6 +2,7 @@ import type {
   ApiBundle,
   ApiConnection,
   ApiDeployTargetDriver,
+  ApiDeployment,
   ApiDestination,
   ApiDestinationDriver,
   ApiJob,
@@ -144,17 +145,58 @@ export const api = {
   // ----- Deploy targets ------------------------------------------------
   deployTargetDrivers: () =>
     request<{ drivers: ApiDeployTargetDriver[] }>("/deploy-targets/drivers"),
-  getTargetBundle: (
-    connectionId: string,
-    target: string,
-    name?: string,
+
+  // ----- Deployments ---------------------------------------------------
+  listDeployments: () =>
+    request<{ deployments: ApiDeployment[] }>("/deployments"),
+  listDeploymentsForConnection: (connectionId: string) =>
+    request<{ deployments: ApiDeployment[] }>(
+      `/connections/${connectionId}/deployments`,
+    ),
+  getDeployment: (id: string) =>
+    request<{ deployment: ApiDeployment }>(`/deployments/${id}`),
+  createDeployment: (body: {
+    connectionId: string;
+    displayName: string;
+    targetKind: string;
+    managed?: boolean;
+    sourceIds?: string[] | null;
+    monitorIds?: string[] | null;
+    heartbeatTarget?: string | null;
+  }) =>
+    request<{ deployment: ApiDeployment }>("/deployments", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateDeployment: (
+    id: string,
+    body: Partial<{
+      displayName: string;
+      managed: boolean;
+      sourceIds: string[] | null;
+      monitorIds: string[] | null;
+      heartbeatTarget: string | null;
+      status: string;
+      externalId: string | null;
+    }>,
+  ) =>
+    request<{ deployment: ApiDeployment }>(`/deployments/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  deleteDeployment: (id: string) =>
+    request<{ ok: true }>(`/deployments/${id}`, { method: "DELETE" }),
+  getDeploymentBundle: (
+    deploymentId: string,
+    target?: string,
     region?: string,
   ) => {
-    const params = new URLSearchParams({ target });
-    if (name) params.set("name", name);
+    const params = new URLSearchParams();
+    if (target) params.set("target", target);
     if (region) params.set("region", region);
+    const qs = params.toString();
     return request<ApiTargetBundle>(
-      `/connections/${connectionId}/bundle?${params.toString()}`,
+      `/deployments/${deploymentId}/bundle${qs ? `?${qs}` : ""}`,
     );
   },
 };

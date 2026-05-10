@@ -29,6 +29,8 @@ import { ApiError, api } from "./api";
 import { ConnectionDetail } from "./pages/ConnectionDetail";
 import { Dashboard } from "./pages/Dashboard";
 import { DeployWizard } from "./pages/DeployWizard";
+import { DeploymentDetail } from "./pages/DeploymentDetail";
+import { Deployments } from "./pages/Deployments";
 import { Destinations } from "./pages/Destinations";
 import { Home } from "./pages/Home";
 import { Monitors } from "./pages/Monitors";
@@ -108,6 +110,22 @@ export function App() {
             element={
               <Authed loading={auth.loading} user={auth.user}>
                 <Monitors />
+              </Authed>
+            }
+          />
+          <Route
+            path="/app/deployments"
+            element={
+              <Authed loading={auth.loading} user={auth.user}>
+                <Deployments />
+              </Authed>
+            }
+          />
+          <Route
+            path="/app/deployments/:id"
+            element={
+              <Authed loading={auth.loading} user={auth.user}>
+                <DeploymentDetail />
               </Authed>
             }
           />
@@ -221,13 +239,11 @@ function AppShellLayout({
               label="Monitors"
               icon={<IconBell size={16} />}
             />
-            <Text size="xs" c="dimmed" mt="xl" mb={4}>
-              Coming next
-            </Text>
-            <MantineNavLink
+            <NavItem
+              to="/app/deployments"
               label="Deployments"
-              leftSection={<IconCloudUpload size={16} />}
-              disabled
+              icon={<IconCloudUpload size={16} />}
+              activeWhen={(p) => p.startsWith("/app/deployments")}
             />
           </Stack>
         </AppShell.Navbar>

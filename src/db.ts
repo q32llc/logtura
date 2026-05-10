@@ -33,7 +33,6 @@ export interface LogSourceRow {
   external_id: string;
   display_name: string;
   metadata_json: string | null;
-  selected: number;
   discovered_at: number;
 }
 
@@ -246,13 +245,11 @@ export async function upsertSources(
   for (const d of discovered) {
     const id = newId("src");
     const meta = d.metadata ? JSON.stringify(d.metadata) : null;
-    // INSERT OR IGNORE keeps the existing selected state if the source already
-    // existed; only new sources start selected = 1.
     await db
       .prepare(
         `INSERT OR IGNORE INTO log_sources
-         (id, connection_id, source_kind, external_id, display_name, metadata_json, selected, discovered_at)
-         VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
+         (id, connection_id, source_kind, external_id, display_name, metadata_json, discovered_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         id,
@@ -278,23 +275,6 @@ export async function upsertSources(
         d.externalId,
       )
       .run();
-  }
-}
-
-export async function setSourceSelections(
-  db: D1Database,
-  connectionId: string,
-  selectedIds: Set<string>,
-): Promise<void> {
-  const all = await listSources(db, connectionId);
-  for (const s of all) {
-    const sel = selectedIds.has(s.id) ? 1 : 0;
-    if (sel !== s.selected) {
-      await db
-        .prepare("UPDATE log_sources SET selected = ? WHERE id = ?")
-        .bind(sel, s.id)
-        .run();
-    }
   }
 }
 
@@ -671,4 +651,218 @@ export async function ensureDefaultErrorsMonitor(
     filterKind: "errors",
     filterConfig: null,
   });
+}
+
+// --- Deployments ---------------------------------------------------------
+//
+// A deployment is the unit of "this runs." It owns: which sources from
+// its connection to tail, which monitors apply, the deploy target,
+// managed flag, and runtime state.
+
+export type DeploymentStatus =
+  | "pending"
+  | "running"
+  | "crashed"
+  | "stopped"
+  | "detached";
+
+export interface DeploymentRow {
+  id: string;
+  user_id: string;
+  connection_id: string;
+  deploy_target_id: string | null;
+  target_kind: string;
+  display_name: string;
+  managed: number;
+  external_id: string | null;
+  status: string;
+  metadata_json: string | null;
+  created_at: number;
+  updated_at: number;
+  last_seen_at: number | null;
+  source_selection_json: string | null;
+  monitor_selection_json: string | null;
+  heartbeat_target: string | null;
+}
+
+export interface DeploymentSelection {
+  /** Null = all sources from the connection. Otherwise: log_source IDs. */
+  sourceIds: string[] | null;
+  /** Null = wildcard (every applicable monitor). Otherwise: monitor IDs. */
+  monitorIds: string[] | null;
+}
+
+export function parseDeploymentSelection(
+  d: DeploymentRow,
+): DeploymentSelection {
+  return {
+    sourceIds: d.source_selection_json
+      ? (JSON.parse(d.source_selection_json) as string[])
+      : null,
+    monitorIds: d.monitor_selection_json
+      ? (JSON.parse(d.monitor_selection_json) as string[])
+      : null,
+  };
+}
+
+export async function listDeployments(
+  db: D1Database,
+  userId: string,
+): Promise<DeploymentRow[]> {
+  const r = await db
+    .prepare(
+      "SELECT * FROM deployments WHERE user_id = ? ORDER BY created_at DESC",
+    )
+    .bind(userId)
+    .all<DeploymentRow>();
+  return r.results ?? [];
+}
+
+export async function listDeploymentsForConnection(
+  db: D1Database,
+  userId: string,
+  connectionId: string,
+): Promise<DeploymentRow[]> {
+  const r = await db
+    .prepare(
+      `SELECT * FROM deployments
+       WHERE user_id = ? AND connection_id = ?
+       ORDER BY created_at DESC`,
+    )
+    .bind(userId, connectionId)
+    .all<DeploymentRow>();
+  return r.results ?? [];
+}
+
+export async function getDeployment(
+  db: D1Database,
+  userId: string,
+  id: string,
+): Promise<DeploymentRow | null> {
+  return db
+    .prepare("SELECT * FROM deployments WHERE id = ? AND user_id = ?")
+    .bind(id, userId)
+    .first<DeploymentRow>();
+}
+
+export interface CreateDeploymentInput {
+  userId: string;
+  connectionId: string;
+  displayName: string;
+  targetKind: string;
+  managed?: boolean;
+  deployTargetId?: string | null;
+  sourceIds?: string[] | null;
+  monitorIds?: string[] | null;
+  heartbeatTarget?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export async function createDeployment(
+  db: D1Database,
+  input: CreateDeploymentInput,
+): Promise<DeploymentRow> {
+  const id = newId("dep");
+  const ts = now();
+  await db
+    .prepare(
+      `INSERT INTO deployments
+       (id, user_id, connection_id, deploy_target_id, target_kind, display_name,
+        managed, status, metadata_json, source_selection_json,
+        monitor_selection_json, heartbeat_target, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
+    )
+    .bind(
+      id,
+      input.userId,
+      input.connectionId,
+      input.deployTargetId ?? null,
+      input.targetKind,
+      input.displayName,
+      input.managed ? 1 : 0,
+      input.metadata ? JSON.stringify(input.metadata) : null,
+      input.sourceIds ? JSON.stringify(input.sourceIds) : null,
+      input.monitorIds ? JSON.stringify(input.monitorIds) : null,
+      input.heartbeatTarget ?? null,
+      ts,
+      ts,
+    )
+    .run();
+  const r = await getDeployment(db, input.userId, id);
+  if (!r) throw new Error("deployment vanished after insert");
+  return r;
+}
+
+export async function updateDeployment(
+  db: D1Database,
+  userId: string,
+  id: string,
+  patch: Partial<{
+    displayName: string;
+    managed: boolean;
+    sourceIds: string[] | null;
+    monitorIds: string[] | null;
+    heartbeatTarget: string | null;
+    status: DeploymentStatus;
+    externalId: string | null;
+    metadata: Record<string, unknown> | null;
+  }>,
+): Promise<DeploymentRow | null> {
+  const existing = await getDeployment(db, userId, id);
+  if (!existing) return null;
+  const ts = now();
+  await db
+    .prepare(
+      `UPDATE deployments SET
+         display_name = ?, managed = ?, status = ?, external_id = ?,
+         metadata_json = ?, source_selection_json = ?,
+         monitor_selection_json = ?, heartbeat_target = ?, updated_at = ?
+       WHERE id = ? AND user_id = ?`,
+    )
+    .bind(
+      patch.displayName ?? existing.display_name,
+      patch.managed === undefined
+        ? existing.managed
+        : patch.managed
+          ? 1
+          : 0,
+      patch.status ?? existing.status,
+      patch.externalId === undefined
+        ? existing.external_id
+        : patch.externalId,
+      patch.metadata === undefined
+        ? existing.metadata_json
+        : patch.metadata
+          ? JSON.stringify(patch.metadata)
+          : null,
+      patch.sourceIds === undefined
+        ? existing.source_selection_json
+        : patch.sourceIds
+          ? JSON.stringify(patch.sourceIds)
+          : null,
+      patch.monitorIds === undefined
+        ? existing.monitor_selection_json
+        : patch.monitorIds
+          ? JSON.stringify(patch.monitorIds)
+          : null,
+      patch.heartbeatTarget === undefined
+        ? existing.heartbeat_target
+        : patch.heartbeatTarget,
+      ts,
+      id,
+      userId,
+    )
+    .run();
+  return getDeployment(db, userId, id);
+}
+
+export async function deleteDeployment(
+  db: D1Database,
+  userId: string,
+  id: string,
+): Promise<void> {
+  await db
+    .prepare("DELETE FROM deployments WHERE id = ? AND user_id = ?")
+    .bind(id, userId)
+    .run();
 }

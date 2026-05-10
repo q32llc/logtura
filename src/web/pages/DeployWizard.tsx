@@ -3,43 +3,40 @@ import {
   Badge,
   Button,
   Card,
-  Code,
-  CopyButton,
+  Container,
+  Divider,
   Group,
   Loader,
   ScrollArea,
+  Select,
   SimpleGrid,
   Stack,
   Stepper,
-  Tabs,
+  Switch,
   Text,
   TextInput,
   Title,
-  Container,
 } from "@mantine/core";
 import {
   IconArrowLeft,
   IconBrandAws,
-  IconDroplet,
   IconBrandGoogle,
-  IconCheck,
-  IconCopy,
+  IconDroplet,
   IconRocket,
   IconServer2,
   IconWand,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApiError, api } from "../api";
-import type { ApiDeployTargetDriver, ApiTargetBundle } from "../types";
+import type {
+  ApiConnection,
+  ApiDeployTargetDriver,
+  ApiMonitor,
+  ApiSource,
+} from "../types";
 
-type Step = "target" | "mode" | "bundle" | "managed";
-
-interface TargetMeta {
-  id: string;
-  // override id-based icon if needed
-  icon?: React.ReactNode;
-}
+type Step = "target" | "config";
 
 const TARGET_ICONS: Record<string, React.ReactNode> = {
   fly: <IconServer2 size={28} />,
@@ -49,7 +46,6 @@ const TARGET_ICONS: Record<string, React.ReactNode> = {
   other: <IconWand size={28} />,
 };
 
-// Disabled targets are shown but greyed out.
 const DISABLED_TARGETS: { id: string; displayName: string; description: string }[] = [
   {
     id: "digitalocean",
@@ -69,13 +65,27 @@ const DISABLED_TARGETS: { id: string; displayName: string; description: string }
 ];
 
 export function DeployWizard() {
-  const { id } = useParams<{ id: string }>();
-  const [step, setStep] = useState<Step>("target");
+  const { id: connectionId } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
+  const presetTarget = searchParams.get("target");
+  const navigate = useNavigate();
+
+  const [step, setStep] = useState<Step>(presetTarget ? "config" : "target");
   const [drivers, setDrivers] = useState<ApiDeployTargetDriver[]>([]);
-  const [targetId, setTargetId] = useState<string | null>(null);
-  const [bundle, setBundle] = useState<ApiTargetBundle | null>(null);
-  const [loadingBundle, setLoadingBundle] = useState(false);
+  const [targetId, setTargetId] = useState<string | null>(presetTarget);
+
+  const [connection, setConnection] = useState<ApiConnection | null>(null);
+  const [sources, setSources] = useState<ApiSource[]>([]);
+  const [monitors, setMonitors] = useState<ApiMonitor[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  const [name, setName] = useState("");
+  const [allSourcesSelected, setAllSourcesSelected] = useState(true);
+  const [pickedSourceIds, setPickedSourceIds] = useState<Set<string>>(new Set());
+  const [allMonitorsSelected, setAllMonitorsSelected] = useState(true);
+  const [pickedMonitorIds, setPickedMonitorIds] = useState<Set<string>>(new Set());
+  const [managed, setManaged] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     api
@@ -84,79 +94,109 @@ export function DeployWizard() {
       .catch((e) =>
         setError(e instanceof ApiError ? e.message : "Failed to load targets"),
       );
-  }, []);
+    if (!connectionId) return;
+    api
+      .getConnection(connectionId)
+      .then((r) => {
+        setConnection(r.connection);
+        setSources(r.sources);
+        setName(`${r.connection.displayName}-forwarder`);
+      })
+      .catch((e) =>
+        setError(e instanceof ApiError ? e.message : "Failed to load connection"),
+      );
+    api
+      .listMonitors()
+      .then((r) => setMonitors(r.monitors))
+      .catch(() => {});
+  }, [connectionId]);
 
   const driver = drivers.find((d) => d.id === targetId) ?? null;
 
-  async function loadBundle(target: string) {
-    if (!id) return;
-    setLoadingBundle(true);
+  // Monitors applicable to this connection (scoped explicitly, or wildcard).
+  const applicableMonitors = useMemo(
+    () =>
+      monitors.filter(
+        (m) => m.connectionId === null || m.connectionId === connectionId,
+      ),
+    [monitors, connectionId],
+  );
+
+  const sinkCount = applicableMonitors.length; // proxy until we know sinks per monitor; safe lower bound
+  const canDeploy =
+    !!driver && !!connection && name.trim().length > 0 && (allSourcesSelected || pickedSourceIds.size > 0);
+
+  function pickTarget(d: ApiDeployTargetDriver) {
+    setTargetId(d.id);
+    if (!d.supportsManaged) setManaged(false);
+    setStep("config");
+  }
+
+  function toggleSource(id: string, on: boolean) {
+    setAllSourcesSelected(false);
+    setPickedSourceIds((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  function toggleMonitor(id: string, on: boolean) {
+    setAllMonitorsSelected(false);
+    setPickedMonitorIds((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  async function submit() {
+    if (!connectionId || !driver) return;
+    setSubmitting(true);
     setError(null);
     try {
-      const b = await api.getTargetBundle(id, target);
-      setBundle(b);
+      const sourceIds = allSourcesSelected ? null : [...pickedSourceIds];
+      const monitorIds = allMonitorsSelected ? null : [...pickedMonitorIds];
+      const r = await api.createDeployment({
+        connectionId,
+        displayName: name.trim(),
+        targetKind: driver.id,
+        managed,
+        sourceIds,
+        monitorIds,
+      });
+      navigate(`/app/deployments/${r.deployment.id}`);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed");
     } finally {
-      setLoadingBundle(false);
+      setSubmitting(false);
     }
   }
-
-  async function pickTarget(d: ApiDeployTargetDriver) {
-    setTargetId(d.id);
-    if (d.id === "other") {
-      // Other has no managed mode; jump straight to bundle.
-      setStep("bundle");
-      await loadBundle("other");
-    } else if (d.supportsManaged) {
-      setStep("mode");
-    } else {
-      setStep("bundle");
-      await loadBundle(d.id);
-    }
-  }
-
-  async function pickSelfDeploy() {
-    if (!targetId) return;
-    setStep("bundle");
-    await loadBundle(targetId);
-  }
-
-  function pickManaged() {
-    setStep("managed");
-  }
-
-  function reset() {
-    setStep("target");
-    setTargetId(null);
-    setBundle(null);
-  }
-
-  const stepIndex = ["target", "mode", "bundle"].indexOf(step);
 
   return (
     <Container size="lg">
       <Group justify="space-between" mb="md">
         <Stack gap={2}>
-          <Title order={1}>Deploy your forwarder</Title>
+          <Title order={1}>New deployment</Title>
           <Text size="sm" c="dimmed">
-            Pick where the Vector container will run. We tailor the bundle.
+            Pick a target and configure which sources and monitors run on it.
           </Text>
         </Stack>
         <Button
           component={Link}
-          to={`/app/connections/${id}`}
+          to={connectionId ? `/app/connections/${connectionId}` : "/app"}
           variant="subtle"
           leftSection={<IconArrowLeft size={16} />}
         >
-          Back to connection
+          Back
         </Button>
       </Group>
 
-      <Stepper active={Math.max(0, stepIndex)} size="sm" mb="lg">
+      <Stepper active={step === "target" ? 0 : 1} size="sm" mb="lg">
         <Stepper.Step label="Where" description="Pick a target" />
-        <Stepper.Step label="How" description="Self or managed" />
-        <Stepper.Step label="Deploy" description="Bundle or run" />
+        <Stepper.Step label="Configure" description="Sources, monitors, deploy" />
       </Stepper>
 
       {error && (
@@ -169,25 +209,160 @@ export function DeployWizard() {
         <TargetPicker drivers={drivers} onPick={pickTarget} />
       )}
 
-      {step === "mode" && driver && (
-        <ModePicker
-          driver={driver}
-          onSelfDeploy={pickSelfDeploy}
-          onManaged={pickManaged}
-          onBack={reset}
-        />
-      )}
+      {step === "config" && driver && connection && (
+        <Stack gap="md">
+          <Group>
+            <Button variant="subtle" size="sm" onClick={() => setStep("target")}>
+              ← Switch target
+            </Button>
+            <Group gap={6}>
+              <Badge variant="light">{driver.displayName}</Badge>
+            </Group>
+          </Group>
 
-      {step === "bundle" && (
-        <BundlePanel
-          loading={loadingBundle}
-          bundle={bundle}
-          onBack={reset}
-        />
-      )}
+          <Card withBorder p="lg">
+            <Stack gap="md">
+              <TextInput
+                label="Deployment name"
+                value={name}
+                onChange={(e) => setName(e.currentTarget.value)}
+                required
+                description="Used as the Fly app name and the label in your dashboard."
+              />
 
-      {step === "managed" && driver && (
-        <ManagedPanel driver={driver} onBack={() => setStep("mode")} />
+              {driver.supportsManaged && (
+                <Stack gap="xs">
+                  <Text size="sm" fw={600}>
+                    How should we deploy this?
+                  </Text>
+                  <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                    <Card
+                      withBorder
+                      p="md"
+                      style={{
+                        cursor: "pointer",
+                        borderColor: !managed
+                          ? "var(--mantine-color-teal-5)"
+                          : undefined,
+                      }}
+                      onClick={() => setManaged(false)}
+                    >
+                      <Group gap="xs" mb={4}>
+                        <Switch checked={!managed} readOnly size="xs" />
+                        <Text fw={600}>I'll handle it</Text>
+                      </Group>
+                      <Text c="dimmed" size="sm">
+                        Get the {driver.displayName}-tailored bundle and run
+                        it from your terminal. No credentials stored.
+                      </Text>
+                    </Card>
+                    <Card
+                      withBorder
+                      p="md"
+                      style={{
+                        cursor: "pointer",
+                        borderColor: managed
+                          ? "var(--mantine-color-teal-5)"
+                          : undefined,
+                      }}
+                      onClick={() => setManaged(true)}
+                    >
+                      <Group gap="xs" mb={4}>
+                        <Switch checked={managed} readOnly size="xs" />
+                        <Text fw={600}>Let logtura manage it</Text>
+                        <Badge size="xs" variant="light">
+                          coming next
+                        </Badge>
+                      </Group>
+                      <Text c="dimmed" size="sm">
+                        We deploy it to your {driver.displayName} account
+                        with credentials you provide. Revoke access anytime.
+                      </Text>
+                    </Card>
+                  </SimpleGrid>
+                </Stack>
+              )}
+            </Stack>
+          </Card>
+
+          <Card withBorder p="lg">
+            <SelectionEditor
+              label={`Sources (${sources.length} discovered)`}
+              hint="All sources are forwarded by default."
+              all={allSourcesSelected}
+              onAll={(on) => {
+                setAllSourcesSelected(on);
+                if (on) setPickedSourceIds(new Set());
+              }}
+              items={sources.map((s) => ({
+                id: s.id,
+                label: s.displayName,
+                sublabel: s.sourceKindLabel,
+              }))}
+              picked={pickedSourceIds}
+              toggle={toggleSource}
+            />
+          </Card>
+
+          <Card withBorder p="lg">
+            <SelectionEditor
+              label={`Monitors (${applicableMonitors.length} applicable)`}
+              hint="All applicable monitors apply by default. New monitors auto-apply unless you customize."
+              all={allMonitorsSelected}
+              onAll={(on) => {
+                setAllMonitorsSelected(on);
+                if (on) setPickedMonitorIds(new Set());
+              }}
+              items={applicableMonitors.map((m) => ({
+                id: m.id,
+                label: m.displayName,
+                sublabel: m.filterKind,
+              }))}
+              picked={pickedMonitorIds}
+              toggle={toggleMonitor}
+              empty={
+                <Stack gap="xs">
+                  <Text size="sm" c="dimmed">
+                    You don't have any monitors yet — without one, this
+                    deployment will run but won't ship logs anywhere.
+                  </Text>
+                  <Group>
+                    <Button
+                      component={Link}
+                      to="/app/monitors"
+                      size="xs"
+                      variant="default"
+                    >
+                      Create a monitor
+                    </Button>
+                  </Group>
+                </Stack>
+              }
+            />
+          </Card>
+
+          <Group justify="flex-end" mt="md">
+            <Button
+              variant="subtle"
+              component={Link}
+              to={`/app/connections/${connectionId}`}
+              disabled={submitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={submit}
+              loading={submitting}
+              disabled={!canDeploy || managed}
+            >
+              {managed
+                ? "Managed coming soon"
+                : driver.id === "other"
+                  ? "Create & show bundle"
+                  : `Create & generate ${driver.displayName} bundle`}
+            </Button>
+          </Group>
+        </Stack>
       )}
     </Container>
   );
@@ -200,7 +375,6 @@ function TargetPicker({
   drivers: ApiDeployTargetDriver[];
   onPick: (d: ApiDeployTargetDriver) => void;
 }) {
-  // Show available drivers first, then the disabled placeholders.
   const named = drivers.filter((d) => d.id !== "other");
   const other = drivers.find((d) => d.id === "other");
   return (
@@ -275,278 +449,75 @@ function TargetPicker({
   );
 }
 
-function ModePicker({
-  driver,
-  onSelfDeploy,
-  onManaged,
-  onBack,
+function SelectionEditor({
+  label,
+  hint,
+  all,
+  onAll,
+  items,
+  picked,
+  toggle,
+  empty,
 }: {
-  driver: ApiDeployTargetDriver;
-  onSelfDeploy: () => void;
-  onManaged: () => void;
-  onBack: () => void;
+  label: string;
+  hint: string;
+  all: boolean;
+  onAll: (on: boolean) => void;
+  items: { id: string; label: string; sublabel: string }[];
+  picked: Set<string>;
+  toggle: (id: string, on: boolean) => void;
+  empty?: React.ReactNode;
 }) {
-  return (
-    <Stack gap="md">
-      <Group>
-        <Button variant="subtle" size="sm" onClick={onBack}>
-          ← Pick a different target
-        </Button>
-      </Group>
-      <Text size="sm" c="dimmed">
-        How do you want to deploy to {driver.displayName}?
-      </Text>
-      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
-        <Card withBorder p="xl" style={{ cursor: "pointer" }} onClick={onSelfDeploy}>
-          <Stack gap="sm">
-            <Text fw={700} size="lg">
-              I'll handle it
-            </Text>
-            <Text c="dimmed" size="sm">
-              Get the {driver.displayName}-tailored config (Dockerfile,
-              vector.yaml, fly.toml or equivalent, plus a launch script).
-              Run it from your terminal. Total control, no credentials
-              stored on our side.
-            </Text>
-            <Button mt="md" fullWidth>
-              Give me the config
-            </Button>
-          </Stack>
-        </Card>
-        <Card
-          withBorder
-          p="xl"
-          style={{ cursor: "pointer" }}
-          onClick={onManaged}
-        >
-          <Stack gap="sm">
-            <Group gap={6}>
-              <Text fw={700} size="lg">
-                Let logtura manage it
-              </Text>
-              <Badge size="xs" variant="light" color="teal">
-                no lock-in
-              </Badge>
-            </Group>
-            <Text c="dimmed" size="sm">
-              We deploy and manage the forwarder on{" "}
-              <strong>your {driver.displayName} account</strong>. Sources
-              change, we redeploy. Crashes, we restart. Revoke our access
-              anytime — the container keeps running on your cloud, no
-              migration.
-            </Text>
-            <Button mt="md" fullWidth variant="filled" color="teal">
-              Deploy with logtura
-            </Button>
-          </Stack>
-        </Card>
-      </SimpleGrid>
-    </Stack>
-  );
-}
-
-function BundlePanel({
-  loading,
-  bundle,
-  onBack,
-}: {
-  loading: boolean;
-  bundle: ApiTargetBundle | null;
-  onBack: () => void;
-}) {
-  if (loading || !bundle) {
-    return (
-      <Group justify="center" mt="xl">
-        <Loader />
-      </Group>
-    );
-  }
-  const tabs = [
-    ...bundle.files.map((f) => ({ value: f.name, label: f.name, file: f })),
-  ];
-  const [first] = tabs;
-  return (
-    <Stack gap="md">
-      <Group>
-        <Button variant="subtle" size="sm" onClick={onBack}>
-          ← Start over
-        </Button>
-        <Group gap={6}>
-          <Badge variant="light">{bundle.target.displayName}</Badge>
-          <Badge variant="default">self-deploy</Badge>
-        </Group>
-      </Group>
-
-      <Card withBorder p="lg">
-        <Stack gap="xs">
-          <Text size="sm" c="dimmed">
-            Forwarding {bundle.selectedCount} source
-            {bundle.selectedCount === 1 ? "" : "s"} · {bundle.monitorSummary}
-          </Text>
-          <Text size="sm">
-            Save these files to an empty directory and follow the steps below.
-          </Text>
-        </Stack>
-      </Card>
-
-      <Card withBorder p={0}>
-        <Tabs defaultValue={first?.value}>
-          <Tabs.List>
-            {tabs.map((t) => (
-              <Tabs.Tab key={t.value} value={t.value}>
-                {t.label}
-              </Tabs.Tab>
-            ))}
-          </Tabs.List>
-          {tabs.map((t) => (
-            <Tabs.Panel key={t.value} value={t.value} p="md">
-              <FileBlock filename={t.file.name} content={t.file.content} />
-            </Tabs.Panel>
-          ))}
-        </Tabs>
-      </Card>
-
-      <Card withBorder p="lg">
-        <Title order={4} size="h5" mb="xs">
-          Steps
-        </Title>
-        <pre
-          style={{
-            margin: 0,
-            whiteSpace: "pre-wrap",
-            fontFamily:
-              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-            fontSize: 13,
-            lineHeight: 1.5,
-          }}
-        >
-          <code>{bundle.selfDeployInstructions}</code>
-        </pre>
-      </Card>
-
-      <Card withBorder p="lg">
-        <Title order={4} size="h5" mb="sm">
-          Environment variables
-        </Title>
-        <Stack gap="xs">
-          {bundle.envVars.map((v) => (
-            <Group key={v.name} justify="space-between" wrap="nowrap">
-              <Stack gap={0}>
-                <Code>{v.name}</Code>
-                <Text size="xs" c="dimmed">
-                  {v.description}
-                </Text>
-              </Stack>
-              {v.value !== null ? (
-                <CopyButton value={v.value}>
-                  {({ copied, copy }) => (
-                    <Button
-                      size="xs"
-                      variant="subtle"
-                      onClick={copy}
-                      leftSection={
-                        copied ? (
-                          <IconCheck size={12} />
-                        ) : (
-                          <IconCopy size={12} />
-                        )
-                      }
-                    >
-                      {copied ? "Copied" : "Copy value"}
-                    </Button>
-                  )}
-                </CopyButton>
-              ) : (
-                <Text size="xs" c="dimmed">
-                  set this yourself
-                </Text>
-              )}
-            </Group>
-          ))}
-        </Stack>
-      </Card>
-    </Stack>
-  );
-}
-
-function ManagedPanel({
-  driver,
-  onBack,
-}: {
-  driver: ApiDeployTargetDriver;
-  onBack: () => void;
-}) {
-  return (
-    <Stack gap="md">
-      <Group>
-        <Button variant="subtle" size="sm" onClick={onBack}>
-          ← Switch to self-deploy
-        </Button>
-      </Group>
-      <Card withBorder p="xl">
-        <Stack gap="sm">
-          <Title order={3} size="h4">
-            Managed {driver.displayName} deploy — coming next
-          </Title>
-          <Text c="dimmed">
-            We're wiring this up. The driver and credential flow are in
-            place; the actual deploy via {driver.displayName}'s API lands
-            in the next iteration. For now, switch to self-deploy and run
-            the bundle yourself — same files, same vector.yaml, same
-            target-tailored config we'd use for the managed deploy.
-          </Text>
-          <Text size="sm" c="dimmed">
-            When managed lands, your existing deployments keep running
-            unchanged; you'll be able to opt in (or out) per deployment.
-          </Text>
-        </Stack>
-      </Card>
-    </Stack>
-  );
-}
-
-function FileBlock({
-  filename,
-  content,
-}: {
-  filename: string;
-  content: string;
-}) {
+  const [showCustomize, setShowCustomize] = useState(false);
   return (
     <Stack gap="xs">
       <Group justify="space-between">
-        <Code>{filename}</Code>
-        <CopyButton value={content}>
-          {({ copied, copy }) => (
+        <Stack gap={2}>
+          <Text fw={600}>{label}</Text>
+          <Text size="xs" c="dimmed">
+            {hint}
+          </Text>
+        </Stack>
+        {items.length > 0 && (
+          <Group gap="xs">
+            <Switch
+              checked={all}
+              onChange={(e) => onAll(e.currentTarget.checked)}
+              label={all ? "All selected" : `${picked.size} of ${items.length}`}
+              size="sm"
+            />
             <Button
               size="xs"
               variant="subtle"
-              leftSection={
-                copied ? <IconCheck size={14} /> : <IconCopy size={14} />
-              }
-              onClick={copy}
+              onClick={() => setShowCustomize((v) => !v)}
             >
-              {copied ? "Copied" : "Copy"}
+              {showCustomize ? "Hide" : "Customize"}
             </Button>
-          )}
-        </CopyButton>
+          </Group>
+        )}
       </Group>
-      <ScrollArea.Autosize mah={500}>
-        <pre
-          style={{
-            margin: 0,
-            padding: "12px",
-            border: "1px solid var(--mantine-color-default-border)",
-            borderRadius: 6,
-            fontSize: 13,
-            lineHeight: 1.5,
-            fontFamily:
-              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-          }}
-        >
-          <code>{content}</code>
-        </pre>
-      </ScrollArea.Autosize>
+      {items.length === 0 && empty}
+      {showCustomize && items.length > 0 && (
+        <ScrollArea h={220}>
+          <Stack gap={4}>
+            {items.map((it) => (
+              <Group key={it.id} justify="space-between">
+                <Stack gap={0}>
+                  <Text size="sm">{it.label}</Text>
+                  <Text size="xs" c="dimmed">
+                    {it.sublabel}
+                  </Text>
+                </Stack>
+                <Switch
+                  checked={all || picked.has(it.id)}
+                  onChange={(e) => toggle(it.id, e.currentTarget.checked)}
+                  size="sm"
+                />
+              </Group>
+            ))}
+          </Stack>
+        </ScrollArea>
+      )}
     </Stack>
   );
 }

@@ -144,6 +144,31 @@ export interface ApiDeployTargetDriver {
   formFields: ApiFormField[];
 }
 
+export type ApiDeploymentStatus =
+  | "pending"
+  | "running"
+  | "crashed"
+  | "stopped"
+  | "detached";
+
+export interface ApiDeployment {
+  id: string;
+  connectionId: string;
+  displayName: string;
+  targetKind: string;
+  managed: boolean;
+  status: ApiDeploymentStatus;
+  externalId: string | null;
+  /** null = all sources from the connection */
+  sourceIds: string[] | null;
+  /** null = wildcard (every applicable monitor) */
+  monitorIds: string[] | null;
+  heartbeatTarget: string | null;
+  createdAt: number;
+  updatedAt: number;
+  lastSeenAt: number | null;
+}
+
 export type ApiJobStatus = "queued" | "running" | "succeeded" | "failed";
 
 export interface ApiJob {

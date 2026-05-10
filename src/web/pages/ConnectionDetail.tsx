@@ -3,7 +3,6 @@ import {
   Badge,
   Button,
   Card,
-  Checkbox,
   Container,
   Divider,
   Group,
@@ -20,7 +19,7 @@ import {
   IconAlertTriangle,
   IconCheck,
   IconClock,
-  IconDownload,
+  IconCloudUpload,
   IconRefresh,
   IconRoute,
   IconSearch,
@@ -31,6 +30,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api } from "../api";
 import type {
   ApiConnection,
+  ApiDeployment,
   ApiDestination,
   ApiJob,
   ApiJobStatus,
@@ -44,43 +44,26 @@ export function ConnectionDetail() {
   const navigate = useNavigate();
   const [connection, setConnection] = useState<ApiConnection | null>(null);
   const [sources, setSources] = useState<ApiSource[]>([]);
+  const [deployments, setDeployments] = useState<ApiDeployment[]>([]);
+  const [destinations, setDestinations] = useState<ApiDestination[]>([]);
   const [latestJob, setLatestJob] = useState<ApiJob | null>(null);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<"discover" | "save" | "delete" | null>(null);
+  const [busy, setBusy] = useState<"discover" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [selection, setSelection] = useState<Set<string>>(new Set());
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [destinations, setDestinations] = useState<ApiDestination[]>([]);
   const pollRef = useRef<number | null>(null);
-  // Track which source IDs we've seen across polls. When discovery is
-  // streaming sources in, each refetch surfaces a few new rows; we want
-  // any new server-selected source to go into the local selection so
-  // "auto-select all" actually catches everything that lands, not just
-  // the first batch. User edits to *existing* sources are preserved.
-  const seenSourceIdsRef = useRef<Set<string>>(new Set());
 
   const refetch = useCallback(async () => {
     if (!id) return;
     try {
-      const r = await api.getConnection(id);
-      setConnection(r.connection);
-      setLatestJob(r.latestDiscoveryJob);
-
-      const seen = seenSourceIdsRef.current;
-      const newlySelectedIds: string[] = [];
-      for (const s of r.sources) {
-        if (!seen.has(s.id) && s.selected) newlySelectedIds.push(s.id);
-      }
-      seenSourceIdsRef.current = new Set(r.sources.map((s) => s.id));
-      setSources(r.sources);
-      if (newlySelectedIds.length > 0) {
-        setSelection((prev) => {
-          const next = new Set(prev);
-          for (const sid of newlySelectedIds) next.add(sid);
-          return next;
-        });
-      }
+      const [conn, deps] = await Promise.all([
+        api.getConnection(id),
+        api.listDeploymentsForConnection(id),
+      ]);
+      setConnection(conn.connection);
+      setSources(conn.sources);
+      setLatestJob(conn.latestDiscoveryJob);
+      setDeployments(deps.deployments);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load");
     }
@@ -95,8 +78,7 @@ export function ConnectionDetail() {
       .catch(() => {});
   }, [refetch]);
 
-  // Poll while there's an active discovery job. Stops as soon as the
-  // job lands in a terminal status (succeeded/failed).
+  // Poll while discovery is active.
   useEffect(() => {
     if (!latestJob || !ACTIVE_STATUSES.includes(latestJob.status)) {
       if (pollRef.current) {
@@ -106,9 +88,7 @@ export function ConnectionDetail() {
       return;
     }
     if (pollRef.current) return;
-    pollRef.current = window.setInterval(() => {
-      refetch();
-    }, 2000) as unknown as number;
+    pollRef.current = window.setInterval(() => refetch(), 2000) as unknown as number;
     return () => {
       if (pollRef.current) {
         clearInterval(pollRef.current);
@@ -127,60 +107,12 @@ export function ConnectionDetail() {
     );
   }, [sources, search]);
 
-  // Counts per kind for the summary chips. Sorted by kind label.
   const breakdownByKind = useMemo(() => {
     const map = new Map<string, number>();
-    for (const s of sources) {
+    for (const s of sources)
       map.set(s.sourceKindLabel, (map.get(s.sourceKindLabel) ?? 0) + 1);
-    }
     return [...map.entries()].sort(([a], [b]) => a.localeCompare(b));
   }, [sources]);
-
-  const selectedCount = useMemo(
-    () => sources.reduce((n, s) => (selection.has(s.id) ? n + 1 : n), 0),
-    [sources, selection],
-  );
-  const allFilteredSelected =
-    filtered.length > 0 && filtered.every((s) => selection.has(s.id));
-  const someFilteredSelected =
-    filtered.some((s) => selection.has(s.id)) && !allFilteredSelected;
-
-  function toggleFiltered(checked: boolean) {
-    setSelection((prev) => {
-      const next = new Set(prev);
-      for (const s of filtered) {
-        if (checked) next.add(s.id);
-        else next.delete(s.id);
-      }
-      return next;
-    });
-  }
-
-  function toggleOne(id: string, checked: boolean) {
-    setSelection((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  }
-
-  async function save() {
-    if (!id) return;
-    setBusy("save");
-    try {
-      const res = await api.setSourceSelections(id, [...selection]);
-      setSources(res.sources);
-      notifications.show({ message: "Selection saved", color: "teal" });
-    } catch (e) {
-      notifications.show({
-        message: e instanceof ApiError ? e.message : "Failed to save",
-        color: "red",
-      });
-    } finally {
-      setBusy(null);
-    }
-  }
 
   async function rediscover() {
     if (!id) return;
@@ -207,9 +139,7 @@ export function ConnectionDetail() {
 
   async function destroy() {
     if (!id) return;
-    if (!confirm("Delete this connection? Sources will be removed too.")) {
-      return;
-    }
+    if (!confirm("Delete this connection? Deployments using it will be removed too.")) return;
     setBusy("delete");
     try {
       await api.deleteConnection(id);
@@ -241,11 +171,9 @@ export function ConnectionDetail() {
     );
   }
 
-  const dirty =
-    sources.length > 0 &&
-    sources.some((s) => s.selected !== selection.has(s.id));
   const jobActive =
     latestJob !== null && ACTIVE_STATUSES.includes(latestJob.status);
+  const hasDeployments = deployments.length > 0;
 
   return (
     <Container size="md">
@@ -293,20 +221,22 @@ export function ConnectionDetail() {
         >
           <Text size="sm" mb="xs">
             We found {sources.length} source
-            {sources.length === 1 ? "" : "s"}, but you haven't set up any
-            destinations yet. Pick a place for matched logs to land —
-            Slack, a webhook, anywhere.
+            {sources.length === 1 ? "" : "s"}. Set up a destination so a
+            deployment has somewhere to ship logs.
           </Text>
-          <Button
-            component={Link}
-            to="/app/destinations"
-            size="xs"
-            color="teal"
-          >
+          <Button component={Link} to="/app/destinations" size="xs" color="teal">
             Set up a destination
           </Button>
         </Alert>
       )}
+
+      <SimpleGridDeploymentsCard
+        connectionId={connection.id}
+        deployments={deployments}
+        sources={sources.length}
+        sourcesReady={sources.length > 0 && !jobActive}
+        hasDestinations={destinations.length > 0}
+      />
 
       <Card withBorder p="lg" mt="md">
         <Group justify="space-between" mb="sm">
@@ -314,15 +244,14 @@ export function ConnectionDetail() {
             Discovered log sources
           </Title>
           {sources.length > 0 && (
-            <Button
+            <TextInput
+              placeholder="Filter…"
+              leftSection={<IconSearch size={14} />}
+              value={search}
+              onChange={(e) => setSearch(e.currentTarget.value)}
+              w={220}
               size="xs"
-              variant="subtle"
-              onClick={() => setShowAdvanced((v) => !v)}
-            >
-              {showAdvanced
-                ? "Hide selection editor"
-                : "Customize selection"}
-            </Button>
+            />
           )}
         </Group>
 
@@ -341,7 +270,7 @@ export function ConnectionDetail() {
             )}
           </Stack>
         ) : (
-          <Stack gap="md">
+          <Stack gap="sm">
             <Group gap="xs">
               {breakdownByKind.map(([label, count]) => (
                 <Badge key={label} size="lg" variant="light" radius="sm">
@@ -350,127 +279,55 @@ export function ConnectionDetail() {
                 </Badge>
               ))}
             </Group>
-            <Text size="sm" c="dimmed">
-              {selectedCount === sources.length
-                ? `Forwarding all ${sources.length}.`
-                : selectedCount === 0
-                  ? `None selected for forwarding.`
-                  : `Forwarding ${selectedCount} of ${sources.length}.`}
+            <Text size="xs" c="dimmed">
+              Source selection happens per deployment, not on the connection.
             </Text>
-
-            {showAdvanced && (
-              <>
-                <Divider />
-                <Group justify="space-between" wrap="wrap" gap="sm">
-                  <TextInput
-                    placeholder="Filter sources…"
-                    leftSection={<IconSearch size={14} />}
-                    value={search}
-                    onChange={(e) => setSearch(e.currentTarget.value)}
-                    flex={1}
-                    miw={240}
-                  />
-                  <Group gap="xs">
-                    <Button
-                      size="xs"
-                      variant="default"
-                      onClick={() => toggleFiltered(true)}
-                    >
-                      Select all{search ? " filtered" : ""}
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant="default"
-                      onClick={() => toggleFiltered(false)}
-                    >
-                      Deselect all{search ? " filtered" : ""}
-                    </Button>
-                  </Group>
-                </Group>
-
-                <ScrollArea h={420} type="auto">
-                  <Table
-                    stickyHeader
-                    striped
-                    highlightOnHover
-                    horizontalSpacing="md"
-                  >
-                    <Table.Thead>
-                      <Table.Tr>
-                        <Table.Th style={{ width: 40 }}>
-                          <Checkbox
-                            checked={allFilteredSelected}
-                            indeterminate={someFilteredSelected}
-                            onChange={(e) =>
-                              toggleFiltered(e.currentTarget.checked)
-                            }
-                            aria-label="Select all"
-                          />
-                        </Table.Th>
-                        <Table.Th>Name</Table.Th>
-                        <Table.Th style={{ width: 160 }}>Kind</Table.Th>
+            <Divider />
+            <ScrollArea h={Math.min(420, sources.length * 38 + 60)} type="auto">
+              <Table stickyHeader striped horizontalSpacing="md">
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Name</Table.Th>
+                    <Table.Th style={{ width: 160 }}>Kind</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {filtered.length === 0 ? (
+                    <Table.Tr>
+                      <Table.Td colSpan={2}>
+                        <Text c="dimmed" size="sm" ta="center" py="md">
+                          No sources match this filter.
+                        </Text>
+                      </Table.Td>
+                    </Table.Tr>
+                  ) : (
+                    filtered.map((s) => (
+                      <Table.Tr key={s.id}>
+                        <Table.Td>
+                          <Text
+                            size="sm"
+                            style={{
+                              fontFamily:
+                                "ui-monospace, SFMono-Regular, Menlo, monospace",
+                            }}
+                          >
+                            {s.displayName}
+                          </Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm" c="dimmed">
+                            {s.sourceKindLabel}
+                          </Text>
+                        </Table.Td>
                       </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                      {filtered.length === 0 ? (
-                        <Table.Tr>
-                          <Table.Td colSpan={3}>
-                            <Text c="dimmed" size="sm" ta="center" py="md">
-                              No sources match this filter.
-                            </Text>
-                          </Table.Td>
-                        </Table.Tr>
-                      ) : (
-                        filtered.map((s) => (
-                          <Table.Tr key={s.id}>
-                            <Table.Td>
-                              <Checkbox
-                                checked={selection.has(s.id)}
-                                onChange={(e) =>
-                                  toggleOne(s.id, e.currentTarget.checked)
-                                }
-                                aria-label={`Toggle ${s.displayName}`}
-                              />
-                            </Table.Td>
-                            <Table.Td>
-                              <Text size="sm" style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace" }}>
-                                {s.displayName}
-                              </Text>
-                            </Table.Td>
-                            <Table.Td>
-                              <Text size="sm" c="dimmed">
-                                {s.sourceKindLabel}
-                              </Text>
-                            </Table.Td>
-                          </Table.Tr>
-                        ))
-                      )}
-                    </Table.Tbody>
-                  </Table>
-                </ScrollArea>
-                <Text size="xs" c="dimmed">
-                  Showing {filtered.length} of {sources.length}
-                </Text>
-              </>
-            )}
-
-            <Group justify="flex-end" mt="xs">
-              <Button
-                onClick={save}
-                disabled={!dirty}
-                loading={busy === "save"}
-              >
-                Save selection
-              </Button>
-              <Button
-                component={Link}
-                to={`/app/connections/${connection.id}/deploy`}
-                leftSection={<IconDownload size={16} />}
-                variant="default"
-              >
-                Deploy forwarder
-              </Button>
-            </Group>
+                    ))
+                  )}
+                </Table.Tbody>
+              </Table>
+            </ScrollArea>
+            <Text size="xs" c="dimmed">
+              Showing {filtered.length} of {sources.length}
+            </Text>
           </Stack>
         )}
       </Card>
@@ -478,45 +335,108 @@ export function ConnectionDetail() {
   );
 }
 
+function SimpleGridDeploymentsCard({
+  connectionId,
+  deployments,
+  sources,
+  sourcesReady,
+  hasDestinations,
+}: {
+  connectionId: string;
+  deployments: ApiDeployment[];
+  sources: number;
+  sourcesReady: boolean;
+  hasDestinations: boolean;
+}) {
+  return (
+    <Card withBorder p="lg" mt="md">
+      <Group justify="space-between" mb="sm">
+        <Title order={3} size="h4">
+          Deployments
+        </Title>
+        <Button
+          component={Link}
+          to={`/app/connections/${connectionId}/deploy`}
+          leftSection={<IconCloudUpload size={16} />}
+          size="sm"
+          disabled={!sourcesReady}
+        >
+          New deployment
+        </Button>
+      </Group>
+      {deployments.length === 0 ? (
+        <Stack gap="xs">
+          <Text c="dimmed" size="sm">
+            No deployments yet. Each deployment is one running forwarder
+            with its own source + monitor selection.
+          </Text>
+          {sourcesReady && hasDestinations && (
+            <Text size="sm">
+              {sources} source{sources === 1 ? "" : "s"} ready to forward.
+            </Text>
+          )}
+        </Stack>
+      ) : (
+        <Stack gap="xs">
+          {deployments.map((d) => (
+            <Card
+              key={d.id}
+              withBorder
+              p="sm"
+              component={Link}
+              to={`/app/deployments/${d.id}`}
+              style={{ textDecoration: "none", color: "inherit" }}
+            >
+              <Group justify="space-between">
+                <Group gap="xs">
+                  <Text fw={600}>{d.displayName}</Text>
+                  <Badge size="sm" variant="light">
+                    {d.targetKind}
+                  </Badge>
+                  <Badge size="sm" variant="light">
+                    {d.status}
+                  </Badge>
+                  {d.managed && (
+                    <Badge size="sm" variant="default" color="teal">
+                      managed
+                    </Badge>
+                  )}
+                </Group>
+                <Text size="xs" c="dimmed">
+                  {d.sourceIds === null ? "all sources" : `${d.sourceIds.length} sources`}
+                </Text>
+              </Group>
+            </Card>
+          ))}
+        </Stack>
+      )}
+    </Card>
+  );
+}
+
 function DiscoveryJobBanner({ job }: { job: ApiJob | null }) {
   if (!job) return null;
   if (job.status === "queued") {
     return (
-      <Alert
-        icon={<IconClock size={16} />}
-        color="blue"
-        variant="light"
-        title="Discovery queued"
-      >
+      <Alert icon={<IconClock size={16} />} color="blue" variant="light" title="Discovery queued">
         Waiting for a worker to pick up the job.
       </Alert>
     );
   }
   if (job.status === "running") {
     return (
-      <Alert
-        icon={<Loader size={14} />}
-        color="blue"
-        variant="light"
-        title="Discovery running"
-      >
+      <Alert icon={<Loader size={14} />} color="blue" variant="light" title="Discovery running">
         Asking the provider for log sources. This page updates automatically.
       </Alert>
     );
   }
   if (job.status === "failed") {
     return (
-      <Alert
-        icon={<IconAlertTriangle size={16} />}
-        color="red"
-        variant="light"
-        title="Last discovery failed"
-      >
+      <Alert icon={<IconAlertTriangle size={16} />} color="red" variant="light" title="Last discovery failed">
         {job.error ?? "Unknown error."} Click Re-discover to try again.
       </Alert>
     );
   }
-  // succeeded
   if (job.completedAt) {
     const ago = relativeTime(job.completedAt);
     const count =
@@ -524,12 +444,7 @@ function DiscoveryJobBanner({ job }: { job: ApiJob | null }) {
         ? job.result.sourceCount
         : null;
     return (
-      <Alert
-        icon={<IconCheck size={16} />}
-        color="teal"
-        variant="light"
-        title="Last discovery succeeded"
-      >
+      <Alert icon={<IconCheck size={16} />} color="teal" variant="light" title="Last discovery succeeded">
         {count !== null
           ? `Found ${count} source${count === 1 ? "" : "s"} ${ago}.`
           : `Completed ${ago}.`}
