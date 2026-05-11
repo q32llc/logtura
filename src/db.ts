@@ -448,7 +448,19 @@ export type FilterStep =
     }
   | { kind: "rate_limit"; per_minute: number }
   | { kind: "dedup"; window_secs: number; fields?: string[] }
-  | { kind: "sample"; rate: number };
+  | { kind: "sample"; rate: number }
+  /** Roll up bursts of events into one summary per window. Useful at
+   *  the head of an Errors-style monitor: instead of streaming 10k
+   *  individual error events to Slack (which Slack rate-limits and
+   *  the channel hates), emit one "140,211 errors in 5 min, top
+   *  messages: …" line per window. group_by lets you summarize per
+   *  script/source; empty = global rollup. */
+  | {
+      kind: "rollup";
+      window_secs: number;
+      group_by?: string[];
+      max_samples?: number;
+    };
 
 export function parseFilterSteps(json: string | null): FilterStep[] {
   if (!json) return [];
@@ -731,7 +743,20 @@ export async function ensureDefaultErrorsMonitor(
     userId,
     connectionId: null,
     displayName: "Errors",
-    filterSteps: [{ kind: "errors" }],
+    // errors → rollup-by-message-30s. The rollup keeps Slack and email
+    // sane during error storms — instead of 140k individual messages
+    // overflowing the channel, you get one "X events in 30s, top
+    // samples: …" line per window per script. Users can edit the
+    // pipeline anytime; default just protects them from day-one floods.
+    filterSteps: [
+      { kind: "errors" },
+      {
+        kind: "rollup",
+        window_secs: 30,
+        group_by: ["script"],
+        max_samples: 5,
+      },
+    ],
   });
 }
 

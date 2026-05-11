@@ -145,7 +145,13 @@ export type FilterStep =
   | { kind: "match"; pattern: string; mode: "include" | "exclude"; field?: string }
   | { kind: "rate_limit"; per_minute: number }
   | { kind: "dedup"; window_secs: number; fields?: string[] }
-  | { kind: "sample"; rate: number };
+  | { kind: "sample"; rate: number }
+  | {
+      kind: "rollup";
+      window_secs: number;
+      group_by?: string[];
+      max_samples?: number;
+    };
 
 export interface ApiMonitor {
   id: string;

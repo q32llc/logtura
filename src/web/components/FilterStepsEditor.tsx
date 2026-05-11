@@ -19,6 +19,7 @@ const STEP_KINDS: Array<FilterStep["kind"]> = [
   "match",
   "level",
   "dedup",
+  "rollup",
   "rate_limit",
   "sample",
 ];
@@ -28,6 +29,7 @@ const KIND_LABEL: Record<FilterStep["kind"], string> = {
   match: "Match (regex)",
   level: "Level",
   dedup: "Dedup",
+  rollup: "Rollup (summarize bursts)",
   rate_limit: "Rate-limit",
   sample: "Sample",
 };
@@ -42,6 +44,8 @@ function defaultStep(kind: FilterStep["kind"]): FilterStep {
       return { kind, level: "error", mode: "include" };
     case "dedup":
       return { kind, window_secs: 300, fields: ["message"] };
+    case "rollup":
+      return { kind, window_secs: 30, group_by: [], max_samples: 5 };
     case "rate_limit":
       return { kind, per_minute: 60 };
     case "sample":
@@ -59,6 +63,8 @@ function chipLabel(step: FilterStep): string {
       return `level ${step.mode === "exclude" ? "≠" : "="} ${step.level}`;
     case "dedup":
       return `dedup ${step.window_secs}s`;
+    case "rollup":
+      return `rollup ${step.window_secs}s`;
     case "rate_limit":
       return `≤${step.per_minute}/min`;
     case "sample":
@@ -316,6 +322,54 @@ function StepFields({
                   .split(",")
                   .map((s) => s.trim())
                   .filter(Boolean),
+              })
+            }
+          />
+        </Stack>
+      );
+    case "rollup":
+      return (
+        <Stack gap="sm">
+          <Text size="xs" c="dimmed">
+            Collapse bursts into one summary event per window. Same
+            messages within a window dedupe; the summary carries a
+            count and up to N unique sample lines. Keeps Slack /
+            email destinations sane during error storms.
+          </Text>
+          <NumberInput
+            label="Window (seconds)"
+            value={step.window_secs}
+            min={5}
+            onChange={(v) =>
+              onChange({
+                ...step,
+                window_secs: typeof v === "number" ? v : 30,
+              })
+            }
+          />
+          <TextInput
+            label="Group by (comma-separated; empty = global)"
+            placeholder="script, logtura_connection_id"
+            value={(step.group_by ?? []).join(", ")}
+            onChange={(e) =>
+              onChange({
+                ...step,
+                group_by: e.currentTarget.value
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean),
+              })
+            }
+          />
+          <NumberInput
+            label="Max samples in summary"
+            value={step.max_samples ?? 5}
+            min={1}
+            max={50}
+            onChange={(v) =>
+              onChange({
+                ...step,
+                max_samples: typeof v === "number" ? v : 5,
               })
             }
           />

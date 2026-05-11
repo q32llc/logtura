@@ -454,6 +454,24 @@ function MetricsCard({ deployment }: { deployment: ApiDeployment }) {
   );
 }
 
+type SortKey = "id" | "kind" | "throughput" | "errors" | "lastSeen";
+type SortDir = "asc" | "desc";
+
+/** Pick the kind-appropriate counter for "events handled by this
+ *  component" — sources track the events leaving them (.sent), sinks
+ *  the events they delivered (.sent), transforms the events flowing
+ *  in (.received). Reduces the table to one Throughput column so
+ *  the user isn't reading two columns whose meaning shifts per row. */
+function throughputCounter(c: ApiMetricsComponent): number | undefined {
+  if (c.kind === "sink" || c.kind === "source") return c.sent;
+  return c.received;
+}
+function throughputRate(c: ApiMetricsComponent): number | null {
+  const r = perComponentRate(c);
+  if (c.kind === "sink" || c.kind === "source") return r.sent;
+  return r.received;
+}
+
 function PerComponentTable({
   snap,
   mode,
@@ -461,23 +479,88 @@ function PerComponentTable({
   snap: ApiMetricsSnapshot;
   mode: "rate" | "total";
 }) {
-  const rows = Object.entries(snap.byComponent)
-    .map(([id, c]) => {
-      const rate = perComponentRate(c);
-      return { id, c, rate };
-    })
-    .sort((a, b) => {
-      // Sort sources first, then transforms, then sinks; within
-      // each kind, by id.
-      const kindRank: Record<string, number> = {
-        source: 0,
-        transform: 1,
-        sink: 2,
-        unknown: 3,
-      };
-      const k = (kindRank[a.c.kind] ?? 9) - (kindRank[b.c.kind] ?? 9);
-      return k !== 0 ? k : a.id.localeCompare(b.id);
-    });
+  const [sortKey, setSortKey] = useState<SortKey>("throughput");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  function toggle(k: SortKey) {
+    if (sortKey === k) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(k);
+      setSortDir(k === "id" || k === "kind" ? "asc" : "desc");
+    }
+  }
+
+  const rows = Object.entries(snap.byComponent).map(([id, c]) => ({
+    id,
+    c,
+    throughputN:
+      mode === "rate"
+        ? (throughputRate(c) ?? -1)
+        : (throughputCounter(c) ?? -1),
+    errN: mode === "rate"
+      ? (perComponentRate(c).errors ?? -1)
+      : (c.errors ?? -1),
+  }));
+  const kindRank: Record<string, number> = {
+    source: 0,
+    transform: 1,
+    sink: 2,
+    unknown: 3,
+  };
+  rows.sort((a, b) => {
+    const cmp = (() => {
+      switch (sortKey) {
+        case "id":
+          return a.id.localeCompare(b.id);
+        case "kind": {
+          const k = (kindRank[a.c.kind] ?? 9) - (kindRank[b.c.kind] ?? 9);
+          return k !== 0 ? k : a.id.localeCompare(b.id);
+        }
+        case "throughput":
+          return a.throughputN - b.throughputN;
+        case "errors":
+          return a.errN - b.errN;
+        case "lastSeen":
+          return a.c.lastSeen - b.c.lastSeen;
+      }
+    })();
+    return sortDir === "asc" ? cmp : -cmp;
+  });
+
+  const Header = ({
+    label,
+    sk,
+    width,
+    align = "left",
+  }: {
+    label: string;
+    sk: SortKey;
+    width: number | "auto";
+    align?: "left" | "right";
+  }) => {
+    const active = sortKey === sk;
+    const arrow = active ? (sortDir === "asc" ? " ↑" : " ↓") : "";
+    return (
+      <Text
+        size="xs"
+        c={active ? undefined : "dimmed"}
+        fw={active ? 600 : undefined}
+        style={{
+          flexBasis: width === "auto" ? undefined : width,
+          flex: width === "auto" ? 1 : undefined,
+          flexShrink: 0,
+          textAlign: align,
+          cursor: "pointer",
+          userSelect: "none",
+        }}
+        onClick={() => toggle(sk)}
+      >
+        {label}
+        {arrow}
+      </Text>
+    );
+  };
 
   return (
     <Stack gap={2} mt="xs">
@@ -489,92 +572,61 @@ function PerComponentTable({
           borderBottom: "1px solid var(--mantine-color-default-border)",
         }}
       >
-        <Text size="xs" c="dimmed" style={{ flexBasis: 220, flexShrink: 0 }}>
-          Component
-        </Text>
-        <Text size="xs" c="dimmed" style={{ flexBasis: 100, flexShrink: 0 }}>
-          Kind / type
-        </Text>
-        <Text
-          size="xs"
-          c="dimmed"
-          style={{ flexBasis: 110, flexShrink: 0, textAlign: "right" }}
-        >
-          Received
-        </Text>
-        <Text
-          size="xs"
-          c="dimmed"
-          style={{ flexBasis: 110, flexShrink: 0, textAlign: "right" }}
-        >
-          Sent
-        </Text>
-        <Text
-          size="xs"
-          c="dimmed"
-          style={{ flexBasis: 80, flexShrink: 0, textAlign: "right" }}
-        >
-          Errors
-        </Text>
-        <Text size="xs" c="dimmed" style={{ flex: 1, textAlign: "right" }}>
-          Last seen
-        </Text>
+        <Header label="Component" sk="id" width={220} />
+        <Header label="Kind / type" sk="kind" width={140} />
+        <Header label="Throughput" sk="throughput" width={130} align="right" />
+        <Header label="Errors" sk="errors" width={90} align="right" />
+        <Header label="Last seen" sk="lastSeen" width="auto" align="right" />
       </Group>
-      {rows.map(({ id, c, rate }) => (
-        <Group key={id} gap="md" px="xs" py={2}>
-          <Text size="xs" style={{ flexBasis: 220, flexShrink: 0 }} truncate>
-            {id}
-          </Text>
-          <Text
-            size="xs"
-            c="dimmed"
-            style={{ flexBasis: 100, flexShrink: 0 }}
-            truncate
-          >
-            {c.kind} · {c.type}
-          </Text>
-          <Text
-            size="xs"
-            style={{ flexBasis: 110, flexShrink: 0, textAlign: "right" }}
-          >
-            {mode === "rate"
-              ? rate.received !== null
-                ? `${fmt1(rate.received)}/min`
-                : "—"
-              : c.received !== undefined
-                ? fmtN(c.received)
-                : "—"}
-          </Text>
-          <Text
-            size="xs"
-            style={{ flexBasis: 110, flexShrink: 0, textAlign: "right" }}
-          >
-            {mode === "rate"
-              ? rate.sent !== null
-                ? `${fmt1(rate.sent)}/min`
-                : "—"
-              : c.sent !== undefined
-                ? fmtN(c.sent)
-                : "—"}
-          </Text>
-          <Text
-            size="xs"
-            c={(c.errors ?? 0) > 0 ? "red.5" : undefined}
-            style={{ flexBasis: 80, flexShrink: 0, textAlign: "right" }}
-          >
-            {mode === "rate"
-              ? rate.errors !== null
-                ? `${fmt1(rate.errors)}/min`
-                : "—"
-              : c.errors !== undefined
-                ? fmtN(c.errors)
-                : "—"}
-          </Text>
-          <Text size="xs" c="dimmed" style={{ flex: 1, textAlign: "right" }}>
-            {relativeTime(c.lastSeen)} ago
-          </Text>
-        </Group>
-      ))}
+      {rows.map(({ id, c }) => {
+        const tCount = throughputCounter(c);
+        const tRate = throughputRate(c);
+        const eCount = c.errors;
+        const eRate = perComponentRate(c).errors;
+        return (
+          <Group key={id} gap="md" px="xs" py={2}>
+            <Text size="xs" style={{ flexBasis: 220, flexShrink: 0 }} truncate>
+              {id}
+            </Text>
+            <Text
+              size="xs"
+              c="dimmed"
+              style={{ flexBasis: 140, flexShrink: 0 }}
+              truncate
+            >
+              {c.kind} · {c.type}
+            </Text>
+            <Text
+              size="xs"
+              style={{ flexBasis: 130, flexShrink: 0, textAlign: "right" }}
+            >
+              {mode === "rate"
+                ? tRate !== null
+                  ? `${fmt1(tRate)}/min`
+                  : "—"
+                : tCount !== undefined
+                  ? fmtN(tCount)
+                  : "—"}
+            </Text>
+            <Text
+              size="xs"
+              c={(c.errors ?? 0) > 0 ? "red.5" : undefined}
+              style={{ flexBasis: 90, flexShrink: 0, textAlign: "right" }}
+            >
+              {mode === "rate"
+                ? eRate !== null
+                  ? `${fmt1(eRate)}/min`
+                  : "—"
+                : eCount !== undefined
+                  ? fmtN(eCount)
+                  : "—"}
+            </Text>
+            <Text size="xs" c="dimmed" style={{ flex: 1, textAlign: "right" }}>
+              {relativeTime(c.lastSeen)} ago
+            </Text>
+          </Group>
+        );
+      })}
     </Stack>
   );
 }

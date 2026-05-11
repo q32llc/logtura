@@ -547,6 +547,17 @@ function renderStepTransforms(
   const transforms: Array<{ key: string; yaml: string }> = [];
   let current = inputKey;
   steps.forEach((step, idx) => {
+    // Rollup is special: needs 3 chained transforms (pre-remap +
+    // reduce + post-remap) instead of one. All other step kinds
+    // collapse to a single transform via renderStepYaml.
+    if (step.kind === "rollup") {
+      const stages = renderRollupStages(step, current, `${prefix}_${idx}`);
+      for (const s of stages) {
+        transforms.push(s);
+        current = s.key;
+      }
+      return;
+    }
     const key = `${prefix}_${idx}_${step.kind}`;
     const yaml = renderStepYaml(step, current);
     if (!yaml) return;
@@ -554,6 +565,85 @@ function renderStepTransforms(
     current = key;
   });
   return { transforms, outputKey: current };
+}
+
+/** Emit the three transforms a "rollup" step compiles to:
+ *
+ *   prefix_idx_rollup_pre   — remap: add count=1 and sample=.message
+ *   prefix_idx_rollup_reduce — reduce: group + sum count +
+ *                              flat_unique sample (so 140k identical
+ *                              messages collapse to one in the array
+ *                              before we render the summary, not
+ *                              after — memory-bounded by unique
+ *                              message count, not by event count)
+ *   prefix_idx_rollup_fmt    — remap: render `.message` as a human
+ *                              summary "N events in Ws; M unique
+ *                              samples: a | b | c"
+ *
+ * Post-rollup events have .error=true / .level=error so an upstream
+ * Errors filter further downstream still routes them.
+ */
+function renderRollupStages(
+  step: { window_secs: number; group_by?: string[]; max_samples?: number },
+  input: string,
+  prefix: string,
+): Array<{ key: string; yaml: string }> {
+  const windowSecs = Math.max(1, Math.floor(step.window_secs));
+  const windowMs = windowSecs * 1000;
+  const groupBy = step.group_by ?? [];
+  const maxSamples = Math.max(1, Math.min(50, step.max_samples ?? 5));
+
+  const preKey = `${prefix}_rollup_pre`;
+  const reduceKey = `${prefix}_rollup_reduce`;
+  const fmtKey = `${prefix}_rollup_fmt`;
+
+  const preYaml = [
+    "    type: remap",
+    `    inputs: ["${input}"]`,
+    "    source: |-",
+    `      .count = 1`,
+    `      .sample = string(.message) ?? encode_json(.)`,
+  ].join("\n");
+
+  const groupByYaml =
+    groupBy.length > 0
+      ? `    group_by: [${groupBy.map((g) => `"${g}"`).join(", ")}]`
+      : `    group_by: []`;
+  const reduceYaml = [
+    "    type: reduce",
+    `    inputs: ["${preKey}"]`,
+    `    expire_after_ms: ${windowMs}`,
+    `    flush_period_ms: ${windowMs}`,
+    groupByYaml,
+    "    merge_strategies:",
+    "      count: sum",
+    "      sample: flat_unique",
+  ].join("\n");
+
+  const fmtYaml = [
+    "    type: remap",
+    `    inputs: ["${reduceKey}"]`,
+    "    source: |-",
+    `      samples = array(.sample) ?? []`,
+    `      unique_count = length(samples)`,
+    `      top = slice!(samples, 0, ${maxSamples})`,
+    `      top_str = join!(top, " | ")`,
+    `      n = int(.count) ?? 0`,
+    `      window_label = "${windowSecs}s"`,
+    `      header = string(n) + " events in " + window_label`,
+    `      tail = if unique_count > length(top) { " (" + string(unique_count) + " unique, top " + string(length(top)) + ")" } else { "" }`,
+    `      .message = header + tail + " — " + top_str`,
+    `      .error = true`,
+    `      .level = "error"`,
+    `      del(.sample)`,
+    `      del(.count)`,
+  ].join("\n");
+
+  return [
+    { key: preKey, yaml: preYaml },
+    { key: reduceKey, yaml: reduceYaml },
+    { key: fmtKey, yaml: fmtYaml },
+  ];
 }
 
 function renderStepYaml(step: FilterStep, input: string): string | null {
