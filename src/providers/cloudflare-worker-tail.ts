@@ -134,18 +134,25 @@ function workerNormalizeYaml(inputKeys: string[]): string {
     `.timestamp = .eventTimestamp`,
     `exc_count = length(array(.exceptions) ?? [])`,
     `outcome = string(.outcome) ?? "ok"`,
-    // Only flag outcomes that mean the WORKER actually failed —
-    // exceptions, runtime-limit hits, and platform-side issues.
-    // "canceled" and "responseStreamDisconnected" are client-side
-    // (the browser/upstream closed before the worker finished);
-    // they're worth seeing as warnings but they're not bugs in
-    // the user's code. "unknown" we treat as warn too — CF emits
-    // it when classification fails and over-flagging would dilute
-    // the signal.
+    // Scan the worker's own console.* calls. CF tail emits each
+    // log with its level — "log" | "info" | "warn" | "error" |
+    // "debug". An explicit console.error() should flag the event
+    // even when the request itself succeeded; console.warn()
+    // should bubble to .level=warn.
+    `has_error_log = false`,
+    `has_warn_log = false`,
+    `for_each(array(.logs) ?? []) -> |_, log| {`,
+    `  lvl = string(log.level) ?? ""`,
+    `  if lvl == "error" { has_error_log = true }`,
+    `  if lvl == "warn" { has_warn_log = true }`,
+    `}`,
+    // Outcome-based classifier: only flag outcomes that mean the
+    // WORKER actually failed. Client disconnects ("canceled",
+    // "responseStreamDisconnected") and "unknown" stay at .warn.
     `worker_failed = outcome == "exception" || outcome == "exceededCpu" || outcome == "exceededMemory" || outcome == "scriptNotFound" || outcome == "daemonDown"`,
     `client_aborted = outcome == "canceled" || outcome == "responseStreamDisconnected"`,
-    `.error = exc_count > 0 || worker_failed`,
-    `.level = if .error { "error" } else if client_aborted || outcome == "unknown" { "warn" } else { "info" }`,
+    `.error = exc_count > 0 || worker_failed || has_error_log`,
+    `.level = if .error { "error" } else if has_warn_log || client_aborted || outcome == "unknown" { "warn" } else { "info" }`,
     `parts = []`,
     `for_each(array(.logs) ?? []) -> |_, log| {`,
     `  for_each(array(log.message) ?? []) -> |_, m| {`,
