@@ -15,9 +15,10 @@
     "db:migrate:remote": "wrangler d1 migrations apply logtura --remote",
     "secrets:sync": "node scripts/sync-secrets.mjs",
     "test:vector": "tsx scripts/test-vector-config.mjs",
-    "test:workerd": "vitest run",
+    "test:workerd": "vitest run --project workerd",
+    "test:core": "vitest run --project @logtura/core",
     "test:coverage": "vitest run --coverage",
-    "test": "pnpm typecheck && pnpm test:workerd && pnpm test:vector"
+    "test": "pnpm typecheck && vitest run && pnpm test:vector"
   },
   "dependencies": {
     "@logtura/core": "workspace:*",

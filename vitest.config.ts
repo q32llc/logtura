@@ -1,31 +1,45 @@
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
 
-// Workerd-pool integration tests. Real worker with real D1 + Queues,
-// migrations applied per-test, only outbound HTTP (Fly GraphQL, etc.)
-// mocked. Matches the project's "no DB mocks" rule.
+// Root vitest config — fans into two projects so `pnpm test` runs
+// the whole tree in one command:
+//
+//   workerd        — SaaS-side integration tests in test/workerd/.
+//                    Real D1 + Queues + signed sessions, only
+//                    outbound HTTP (Fly GraphQL, CF API, …) mocked.
+//   @logtura/core  — pure-logic tests in packages/core/test/.
+//                    Plain inputs, no I/O, sub-second. Vitest picks
+//                    up the package's local config via the path.
+//
+// Run a single project: `vitest run --project workerd` or
+// `vitest run --project @logtura/core`.
 export default defineConfig({
-  plugins: [
-    cloudflareTest({
-      wrangler: { configPath: "./wrangler.test.toml" },
-    }),
-  ],
   test: {
-    name: "workerd",
-    include: ["test/workerd/**/*.test.ts"],
-    globalSetup: ["./test/workerd/_global-setup.ts"],
-    // Istanbul (not v8) because v8 coverage relies on the runtime
-    // emitting V8 coverage profile data, which workerd doesn't.
-    // Istanbul instruments at the Vite transform step, so it works
-    // the same regardless of pool. Enabled only when --coverage is
-    // passed; idle otherwise. Run `pnpm test:coverage`.
+    projects: [
+      {
+        plugins: [
+          cloudflareTest({
+            wrangler: { configPath: "./wrangler.test.toml" },
+          }),
+        ],
+        test: {
+          name: "workerd",
+          include: ["test/workerd/**/*.test.ts"],
+          globalSetup: ["./test/workerd/_global-setup.ts"],
+        },
+      },
+      "./packages/core",
+    ],
+    // Coverage rolls up across projects. Istanbul because workerd
+    // doesn't emit V8 profile data; istanbul instruments via the
+    // Vite transform step and works regardless of pool.
     coverage: {
       provider: "istanbul",
       reporter: ["text", "html", "lcov"],
-      include: ["src/**/*.{ts,tsx}"],
+      include: ["src/**/*.{ts,tsx}", "packages/*/src/**/*.ts"],
       exclude: [
-        "src/web/**", // SPA; not exercised by workerd tests
-        "src/**/*.d.ts",
+        "src/web/**",
+        "**/*.d.ts",
       ],
     },
   },
