@@ -60,6 +60,16 @@ export interface ComponentMetrics {
   sent?: number;
   errors?: number;
   discarded?: number;
+  /** Per-error_type breakdown of the errors counter. Vector emits
+   *  `component_errors_total` with an `error_type` label
+   *  (request_failed, encoding_failed, event_send_failed, etc.).
+   *  Keeping the split here lets the UI say "0.2/min request_failed"
+   *  instead of an opaque "0.2/min errors" — without it, diagnosing
+   *  a sink error requires exec'ing into the running container and
+   *  reading prometheus directly. Bounded by Vector's enumeration
+   *  of error types (~10), times components that actually error
+   *  (a few). Small. */
+  errorsByType?: Record<string, number>;
   /** Previous sample, kept so we can derive per-interval rates
    *  without a time series. Overwritten on each post. */
   prev?: {
@@ -117,6 +127,9 @@ interface ParsedMetric {
   componentId?: string;
   componentKind?: ComponentKind;
   componentType?: string;
+  /** error_type label, when the metric carries one
+   *  (component_errors_total does). */
+  errorType?: string;
   buildVersion?: string;
   timestampMs: number;
   value: number;
@@ -174,6 +187,8 @@ export function parseMetricsBody(text: string): ParsedMetric[] {
         : undefined;
     const componentType =
       typeof tags.component_type === "string" ? tags.component_type : undefined;
+    const errorType =
+      typeof tags.error_type === "string" ? tags.error_type : undefined;
     const timestampMs = parseTimestampMs(raw.timestamp);
     const isCounter = raw.counter !== undefined;
     const isGauge = raw.gauge !== undefined;
@@ -191,6 +206,7 @@ export function parseMetricsBody(text: string): ParsedMetric[] {
       componentId,
       componentKind,
       componentType,
+      errorType,
       buildVersion,
       timestampMs,
       value,
@@ -265,6 +281,7 @@ export function applyMetricsToSnapshot(
       c.sent = undefined;
       c.errors = undefined;
       c.discarded = undefined;
+      c.errorsByType = undefined;
       c.prev = undefined;
       // Keep kind/type/lastSeen — they describe the component
       // identity, not a particular run.
@@ -280,6 +297,13 @@ export function applyMetricsToSnapshot(
   //    For each component, the LATEST sample for a given metric is
   //    what we keep. Previous samples get pushed into `prev` so the
   //    UI can derive a rate.
+  //
+  //    `errors` is special: Vector emits ONE counter per
+  //    (component_id, error_type) pair. We track each error_type
+  //    in errorsByType, then derive comp.errors as the sum so the
+  //    component-level total is correct AND the type breakdown
+  //    survives. Other metrics (received/sent/discarded) collapse
+  //    to a single counter per component.
   for (const event of events) {
     if (!event.isCounter) continue;
     const field =
@@ -304,6 +328,29 @@ export function applyMetricsToSnapshot(
     }
     if (event.componentKind) comp.kind = event.componentKind;
     if (event.componentType) comp.type = event.componentType;
+
+    if (field === "errors") {
+      if (!comp.errorsByType) comp.errorsByType = {};
+      const errType = event.errorType ?? "other";
+      const prevSum = comp.errors ?? 0;
+      comp.errorsByType[errType] = event.value;
+      const newSum = Object.values(comp.errorsByType).reduce(
+        (a, b) => a + b,
+        0,
+      );
+      // Stash prev for rate calc, when we had a prior sample.
+      if (prevSum > 0 && newSum >= prevSum) {
+        comp.prev = {
+          ...(comp.prev ?? {}),
+          errors: prevSum,
+          sampleAt: comp.lastSeen,
+        };
+      }
+      snap.totals.errors += newSum - prevSum;
+      comp.errors = newSum;
+      if (event.timestampMs > comp.lastSeen) comp.lastSeen = event.timestampMs;
+      continue;
+    }
 
     const oldValue = comp[field];
     if (oldValue !== undefined && event.value < oldValue) {
@@ -347,7 +394,14 @@ function mostRecent<T extends { timestampMs: number }>(
 function cloneSnapshot(s: MetricsSnapshot): MetricsSnapshot {
   return {
     byComponent: Object.fromEntries(
-      Object.entries(s.byComponent).map(([k, v]) => [k, { ...v, prev: v.prev ? { ...v.prev } : undefined }]),
+      Object.entries(s.byComponent).map(([k, v]) => [
+        k,
+        {
+          ...v,
+          prev: v.prev ? { ...v.prev } : undefined,
+          errorsByType: v.errorsByType ? { ...v.errorsByType } : undefined,
+        },
+      ]),
     ),
     totals: { ...s.totals },
     lifetimeOffset: { ...s.lifetimeOffset },

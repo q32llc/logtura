@@ -15,6 +15,7 @@ import {
   Text,
   TextInput,
   Title,
+  Tooltip,
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import {
@@ -462,6 +463,17 @@ type SortDir = "asc" | "desc";
  *  the events they delivered (.sent), transforms the events flowing
  *  in (.received). Reduces the table to one Throughput column so
  *  the user isn't reading two columns whose meaning shifts per row. */
+/** Format errorsByType as a multiline tooltip body. Sorted by count
+ *  desc so the dominant failure mode is on top. */
+function errorsByTypeTooltip(c: ApiMetricsComponent): string {
+  const t = c.errorsByType;
+  if (!t || Object.keys(t).length === 0) return "";
+  const lines = Object.entries(t)
+    .sort((a, b) => b[1] - a[1])
+    .map(([type, n]) => `${type}: ${n.toLocaleString()}`);
+  return lines.join("\n");
+}
+
 function throughputCounter(c: ApiMetricsComponent): number | undefined {
   if (c.kind === "sink" || c.kind === "source") return c.sent;
   return c.received;
@@ -608,19 +620,39 @@ function PerComponentTable({
                   ? fmtN(tCount)
                   : "—"}
             </Text>
-            <Text
-              size="xs"
-              c={(c.errors ?? 0) > 0 ? "red.5" : undefined}
-              style={{ flexBasis: 90, flexShrink: 0, textAlign: "right" }}
+            <Tooltip
+              label={errorsByTypeTooltip(c)}
+              disabled={!c.errorsByType || Object.keys(c.errorsByType).length === 0}
+              multiline
+              w={280}
+              withinPortal
             >
-              {mode === "rate"
-                ? eRate !== null
-                  ? `${fmt1(eRate)}/min`
-                  : "—"
-                : eCount !== undefined
-                  ? fmtN(eCount)
-                  : "—"}
-            </Text>
+              <Text
+                size="xs"
+                c={(c.errors ?? 0) > 0 ? "red.5" : undefined}
+                style={{
+                  flexBasis: 90,
+                  flexShrink: 0,
+                  textAlign: "right",
+                  textDecoration:
+                    c.errorsByType && Object.keys(c.errorsByType).length > 0
+                      ? "underline dotted"
+                      : undefined,
+                  cursor:
+                    c.errorsByType && Object.keys(c.errorsByType).length > 0
+                      ? "help"
+                      : undefined,
+                }}
+              >
+                {mode === "rate"
+                  ? eRate !== null
+                    ? `${fmt1(eRate)}/min`
+                    : "—"
+                  : eCount !== undefined
+                    ? fmtN(eCount)
+                    : "—"}
+              </Text>
+            </Tooltip>
             <Text size="xs" c="dimmed" style={{ flex: 1, textAlign: "right" }}>
               {relativeTime(c.lastSeen)} ago
             </Text>

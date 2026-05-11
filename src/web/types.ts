@@ -194,6 +194,12 @@ export interface ApiMetricsComponent {
   sent?: number;
   errors?: number;
   discarded?: number;
+  /** Per-error_type breakdown of the errors counter. Vector tags
+   *  component_errors_total with `error_type=request_failed |
+   *  encoding_failed | event_send_failed | …` — surfacing the split
+   *  lets the UI say "0.2/min request_failed" instead of an opaque
+   *  "0.2/min errors." */
+  errorsByType?: Record<string, number>;
   prev?: {
     received?: number;
     sent?: number;
