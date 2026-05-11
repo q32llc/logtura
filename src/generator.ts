@@ -962,6 +962,26 @@ function renderRollupStages(
   // E103 unhandled-fallible-assignment at runtime and the whole
   // config refuses to load. (vector validate doesn't catch it when
   // run with --no-environment — see scripts/test-vector-config.mjs.)
+  // Prefix the rendered message with the group-by key values
+  // ("[my-worker]", "[my-worker/iad]", etc.) so the user can tell
+  // which source the sample came from. Without this the message is
+  // just "14 events in 30s — <sample>" and the recipient has no
+  // anchor for "which of my 50 workers is this from."
+  //
+  // We read each configured group_by field with the same fallibility
+  // discipline as the rest of the normalize VRL: string(x) ?? "?"
+  // because the field might be a non-string or missing.
+  const groupKeyLines =
+    groupBy.length === 0
+      ? [`      key_label = ""`]
+      : [
+          `      key_parts = []`,
+          ...groupBy.map(
+            (f) =>
+              `      key_parts = push(key_parts, string(.${f}) ?? "?")`,
+          ),
+          `      key_label = "[" + join!(key_parts, "/") + "] "`,
+        ];
   const fmtYaml = [
     "    type: remap",
     `    inputs: ["${reduceKey}"]`,
@@ -972,7 +992,8 @@ function renderRollupStages(
     `      top_str = join!(top, " | ")`,
     `      n = int(.count) ?? 0`,
     `      window_label = "${windowSecs}s"`,
-    `      header = to_string(n) + " events in " + window_label`,
+    ...groupKeyLines,
+    `      header = key_label + to_string(n) + " events in " + window_label`,
     `      tail = if unique_count > length(top) { " (" + to_string(unique_count) + " unique, top " + to_string(length(top)) + ")" } else { "" }`,
     `      .message = header + tail + " — " + top_str`,
     `      .error = true`,
