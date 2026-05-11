@@ -874,9 +874,16 @@ function ConfigurePanel({
   const [destinations, setDestinations] = useState<ApiDestination[]>([]);
 
   const [name, setName] = useState(deployment.displayName);
-  const [allSources, setAllSources] = useState(deployment.sourceIds === null);
+  // Always an explicit set. Legacy deployments with sourceIds=null
+  // ("all from anchor connection") are expanded to the anchor's
+  // current source ids on first mount — saving back writes the
+  // explicit array, completing the one-way migration. New
+  // deployments never have null in the first place.
   const [pickedSources, setPickedSources] = useState<Set<string>>(
     new Set(deployment.sourceIds ?? []),
+  );
+  const [legacyNullToExpand, setLegacyNullToExpand] = useState(
+    deployment.sourceIds === null,
   );
   const [allMonitors, setAllMonitors] = useState(
     deployment.monitorIds === null,
@@ -900,6 +907,19 @@ function ConfigurePanel({
       .then((r) => {
         setAllUserSources(r.sources);
         setAllUserConnections(r.connections);
+        // Legacy deployment with sourceIds=null: expand to the
+        // anchor connection's current sources so the UI shows
+        // them ticked. The user's next Save writes the explicit
+        // array, retiring the null forever.
+        if (legacyNullToExpand) {
+          const seeded = new Set(
+            r.sources
+              .filter((s) => s.connectionId === deployment.connectionId)
+              .map((s) => s.id),
+          );
+          setPickedSources(seeded);
+          setLegacyNullToExpand(false);
+        }
       })
       .catch(() => {});
     api
@@ -910,13 +930,13 @@ function ConfigurePanel({
       .listDestinations()
       .then((r) => setDestinations(r.destinations))
       .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // When the deployment row reloads (e.g. after Save), rehydrate local
   // state to match.
   useEffect(() => {
     setName(deployment.displayName);
-    setAllSources(deployment.sourceIds === null);
     setPickedSources(new Set(deployment.sourceIds ?? []));
     setAllMonitors(deployment.monitorIds === null);
     setPickedMonitors(new Set(deployment.monitorIds ?? []));
@@ -925,19 +945,15 @@ function ConfigurePanel({
   }, [deployment]);
 
   // Which connections this deployment actually uses, derived from
-  // selected sources. When sourceIds is wildcard (null), fall back
-  // to the anchor connection so the UI doesn't blink "no
-  // connections" before the user makes a choice.
+  // selected sources. Sources fully determine the connection set;
+  // there's no separate "join" anymore.
   const derivedConnectionIds = useMemo(() => {
-    if (allSources) {
-      return deployment.connectionId ? new Set([deployment.connectionId]) : new Set<string>();
-    }
     const ids = new Set<string>();
     for (const s of allUserSources) {
       if (pickedSources.has(s.id)) ids.add(s.connectionId);
     }
     return ids;
-  }, [allSources, pickedSources, allUserSources, deployment.connectionId]);
+  }, [pickedSources, allUserSources]);
 
   // Applicable monitors: user-scoped null (apply to all) OR
   // scoped to one of the derived connections.
@@ -957,7 +973,11 @@ function ConfigurePanel({
 
   const dirty =
     name.trim() !== deployment.displayName ||
-    allSources !== (deployment.sourceIds === null) ||
+    // A legacy NULL we've expanded locally is always "dirty" so the
+    // Save button is enabled — saving migrates the row to an
+    // explicit array. Otherwise compare the picked set verbatim.
+    legacyNullToExpand ||
+    deployment.sourceIds === null ||
     !setsEqual(pickedSources, new Set(deployment.sourceIds ?? [])) ||
     allMonitors !== (deployment.monitorIds === null) ||
     !setsEqual(pickedMonitors, new Set(deployment.monitorIds ?? [])) ||
@@ -970,7 +990,9 @@ function ConfigurePanel({
     try {
       await api.updateDeployment(deployment.id, {
         displayName: name.trim(),
-        sourceIds: allSources ? null : [...pickedSources],
+        // Always an explicit array now; the legacy NULL semantic is
+        // gone from the data model going forward.
+        sourceIds: [...pickedSources],
         monitorIds: allMonitors ? null : [...pickedMonitors],
         heartbeatTarget,
         metricsTarget: metricsTarget === "none" ? null : metricsTarget,
@@ -985,7 +1007,6 @@ function ConfigurePanel({
   }
 
   function toggleSource(id: string, on: boolean) {
-    setAllSources(false);
     setPickedSources((prev) => {
       const next = new Set(prev);
       if (on) next.add(id);
@@ -1044,13 +1065,9 @@ function ConfigurePanel({
           <SourcePickerByConnection
             connections={allUserConnections}
             sources={allUserSources}
-            allSelected={allSources}
-            onAll={(on) => {
-              setAllSources(on);
-              if (on) setPickedSources(new Set());
-            }}
             picked={pickedSources}
             toggle={toggleSource}
+            setPicked={setPickedSources}
           />
         </Stack>
       </Card>
@@ -1214,17 +1231,18 @@ function RunPanel({
 // for scripted/server-side installs: it embeds an HMAC-signed URL that
 // expires in 60s.
 
-/** Cross-connection source picker. One flat list grouped by
- *  connection, with an "all sources" wildcard switch at the top
- *  and a filter input. Same toggle semantics as SelectionEditor —
- *  `allSelected=true` is the wildcard / "use everything" mode. */
+/** Cross-connection source picker. Flat list grouped by connection
+ *  with a filter input. No wildcard — `picked` is always the
+ *  authoritative explicit set. Bulk actions: select-all-visible
+ *  (respects the current filter) and clear-all. Per-group "toggle
+ *  all in this connection" makes "I want every Fly app" a one-click
+ *  affair without conflating connection-join with source-pick. */
 function SourcePickerByConnection({
   connections,
   sources,
-  allSelected,
-  onAll,
   picked,
   toggle,
+  setPicked,
 }: {
   connections: Array<{
     id: string;
@@ -1238,13 +1256,11 @@ function SourcePickerByConnection({
     sourceKind: string;
     displayName: string;
   }>;
-  allSelected: boolean;
-  onAll: (on: boolean) => void;
   picked: Set<string>;
   toggle: (id: string, on: boolean) => void;
+  setPicked: (next: Set<string>) => void;
 }) {
   const [filter, setFilter] = useState("");
-  const [expanded, setExpanded] = useState(false);
 
   const grouped = useMemo(() => {
     const filterLower = filter.trim().toLowerCase();
@@ -1265,7 +1281,13 @@ function SourcePickerByConnection({
     return out;
   }, [connections, sources, filter]);
 
-  const totalShown = grouped.reduce((n, g) => n + g.items.length, 0);
+  const visibleIds = useMemo(
+    () => grouped.flatMap((g) => g.items.map((s) => s.id)),
+    [grouped],
+  );
+  const totalShown = visibleIds.length;
+  const allVisibleSelected =
+    totalShown > 0 && visibleIds.every((id) => picked.has(id));
 
   if (sources.length === 0) {
     return (
@@ -1275,39 +1297,69 @@ function SourcePickerByConnection({
     );
   }
 
+  function selectAllVisible() {
+    const next = new Set(picked);
+    for (const id of visibleIds) next.add(id);
+    setPicked(next);
+  }
+  function clearVisible() {
+    const next = new Set(picked);
+    for (const id of visibleIds) next.delete(id);
+    setPicked(next);
+  }
+  function toggleGroup(items: typeof sources, on: boolean) {
+    const next = new Set(picked);
+    for (const s of items) {
+      if (on) next.add(s.id);
+      else next.delete(s.id);
+    }
+    setPicked(next);
+  }
+
   return (
     <Stack gap="xs">
       <Group justify="space-between" wrap="nowrap">
-        <Switch
-          checked={allSelected}
-          onChange={(e) => onAll(e.currentTarget.checked)}
-          label={
-            allSelected
-              ? "Forwarding all sources from the anchor connection"
-              : `${picked.size} selected`
-          }
-          size="sm"
-        />
-        <Button
-          size="xs"
-          variant="subtle"
-          onClick={() => setExpanded((v) => !v)}
-        >
-          {expanded ? "Hide" : "Customize"}
-        </Button>
+        <Text size="sm" c="dimmed">
+          {picked.size === 0
+            ? "Nothing selected — pick sources to forward."
+            : `${picked.size} source${picked.size === 1 ? "" : "s"} selected`}
+        </Text>
+        <Group gap="xs">
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            onClick={selectAllVisible}
+            disabled={totalShown === 0 || allVisibleSelected}
+          >
+            Select all{filter ? " matching" : ""}
+          </Button>
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            color="red"
+            onClick={clearVisible}
+            disabled={
+              totalShown === 0 ||
+              !visibleIds.some((id) => picked.has(id))
+            }
+          >
+            Clear{filter ? " matching" : ""}
+          </Button>
+        </Group>
       </Group>
-      {expanded && (
-        <Stack gap="xs">
-          <TextInput
-            size="xs"
-            placeholder="Filter by name or kind…"
-            value={filter}
-            onChange={(e) => setFilter(e.currentTarget.value)}
-          />
-          <ScrollArea h={300}>
-            <Stack gap="md">
-              {grouped.map(({ conn, items }) => (
-                <Stack key={conn.id} gap={4}>
+      <TextInput
+        size="xs"
+        placeholder="Filter by name or kind…"
+        value={filter}
+        onChange={(e) => setFilter(e.currentTarget.value)}
+      />
+      <ScrollArea h={300}>
+        <Stack gap="md">
+          {grouped.map(({ conn, items }) => {
+            const groupAllOn = items.every((s) => picked.has(s.id));
+            return (
+              <Stack key={conn.id} gap={4}>
+                <Group justify="space-between" wrap="nowrap">
                   <Group gap={6}>
                     <Text fw={600} size="sm">
                       {conn.displayName}
@@ -1316,35 +1368,42 @@ function SourcePickerByConnection({
                       {conn.provider}
                     </Badge>
                   </Group>
-                  <Stack gap={2} pl="md">
-                    {items.map((s) => (
-                      <Group key={s.id} justify="space-between">
-                        <Stack gap={0}>
-                          <Text size="sm">{s.displayName}</Text>
-                          <Text size="xs" c="dimmed">
-                            {s.sourceKind}
-                          </Text>
-                        </Stack>
-                        <Switch
-                          checked={allSelected || picked.has(s.id)}
-                          onChange={(e) => toggle(s.id, e.currentTarget.checked)}
-                          size="sm"
-                          disabled={allSelected}
-                        />
-                      </Group>
-                    ))}
-                  </Stack>
+                  <Switch
+                    size="xs"
+                    label={groupAllOn ? "All" : "All"}
+                    checked={groupAllOn}
+                    onChange={(e) =>
+                      toggleGroup(items, e.currentTarget.checked)
+                    }
+                  />
+                </Group>
+                <Stack gap={2} pl="md">
+                  {items.map((s) => (
+                    <Group key={s.id} justify="space-between">
+                      <Stack gap={0}>
+                        <Text size="sm">{s.displayName}</Text>
+                        <Text size="xs" c="dimmed">
+                          {s.sourceKind}
+                        </Text>
+                      </Stack>
+                      <Switch
+                        checked={picked.has(s.id)}
+                        onChange={(e) => toggle(s.id, e.currentTarget.checked)}
+                        size="sm"
+                      />
+                    </Group>
+                  ))}
                 </Stack>
-              ))}
-              {totalShown === 0 && (
-                <Text size="sm" c="dimmed">
-                  No sources match "{filter}".
-                </Text>
-              )}
-            </Stack>
-          </ScrollArea>
+              </Stack>
+            );
+          })}
+          {totalShown === 0 && (
+            <Text size="sm" c="dimmed">
+              No sources match "{filter}".
+            </Text>
+          )}
         </Stack>
-      )}
+      </ScrollArea>
     </Stack>
   );
 }
