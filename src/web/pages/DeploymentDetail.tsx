@@ -12,6 +12,7 @@ import {
   ScrollArea,
   Select,
   Stack,
+  Switch,
   Table,
   Tabs,
   Text,
@@ -81,14 +82,6 @@ export function DeploymentDetail() {
   const [initialDeployJob, setInitialDeployJob] = useState<ApiJob | null>(
     null,
   );
-  const [deploymentConnections, setDeploymentConnections] = useState<
-    Array<{
-      id: string;
-      displayName: string;
-      provider: string;
-      externalAccountId: string | null;
-    }>
-  >([]);
 
   async function refetch() {
     if (!id) return;
@@ -100,7 +93,6 @@ export function DeploymentDetail() {
       setDeployment(dep.deployment);
       setBundle(bun);
       setInitialDeployJob(dep.latestDeployJob);
-      setDeploymentConnections(dep.connections);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load");
     }
@@ -203,11 +195,7 @@ export function DeploymentDetail() {
         </Tabs.Panel>
 
         <Tabs.Panel value="configure" pt="md">
-          <ConfigurePanel
-            deployment={deployment}
-            connections={deploymentConnections}
-            onSaved={refetch}
-          />
+          <ConfigurePanel deployment={deployment} onSaved={refetch} />
         </Tabs.Panel>
 
         <Tabs.Panel value="run" pt="md">
@@ -857,20 +845,31 @@ function fmtN(n: number): string {
 
 function ConfigurePanel({
   deployment,
-  connections,
   onSaved,
 }: {
   deployment: ApiDeployment;
-  connections: Array<{
-    id: string;
-    displayName: string;
-    provider: string;
-    externalAccountId: string | null;
-  }>;
   onSaved: () => void;
 }) {
-  const [connection, setConnection] = useState<ApiConnection | null>(null);
-  const [sources, setSources] = useState<ApiSource[]>([]);
+  // All sources the user owns across every connection. The picker
+  // groups them by connection; whatever's selected drives which
+  // connections this deployment uses — there's no separate "join
+  // connections to deployment" step.
+  const [allUserSources, setAllUserSources] = useState<
+    Array<{
+      id: string;
+      connectionId: string;
+      sourceKind: string;
+      displayName: string;
+    }>
+  >([]);
+  const [allUserConnections, setAllUserConnections] = useState<
+    Array<{
+      id: string;
+      displayName: string;
+      provider: string;
+      externalAccountId: string | null;
+    }>
+  >([]);
   const [monitors, setMonitors] = useState<ApiMonitor[]>([]);
   const [destinations, setDestinations] = useState<ApiDestination[]>([]);
 
@@ -897,10 +896,10 @@ function ConfigurePanel({
 
   useEffect(() => {
     api
-      .getConnection(deployment.connectionId)
+      .listAllSources()
       .then((r) => {
-        setConnection(r.connection);
-        setSources(r.sources);
+        setAllUserSources(r.sources);
+        setAllUserConnections(r.connections);
       })
       .catch(() => {});
     api
@@ -911,7 +910,7 @@ function ConfigurePanel({
       .listDestinations()
       .then((r) => setDestinations(r.destinations))
       .catch(() => {});
-  }, [deployment.connectionId]);
+  }, []);
 
   // When the deployment row reloads (e.g. after Save), rehydrate local
   // state to match.
@@ -925,13 +924,30 @@ function ConfigurePanel({
     setMetricsTarget(deployment.metricsTarget ?? "none");
   }, [deployment]);
 
+  // Which connections this deployment actually uses, derived from
+  // selected sources. When sourceIds is wildcard (null), fall back
+  // to the anchor connection so the UI doesn't blink "no
+  // connections" before the user makes a choice.
+  const derivedConnectionIds = useMemo(() => {
+    if (allSources) {
+      return deployment.connectionId ? new Set([deployment.connectionId]) : new Set<string>();
+    }
+    const ids = new Set<string>();
+    for (const s of allUserSources) {
+      if (pickedSources.has(s.id)) ids.add(s.connectionId);
+    }
+    return ids;
+  }, [allSources, pickedSources, allUserSources, deployment.connectionId]);
+
+  // Applicable monitors: user-scoped null (apply to all) OR
+  // scoped to one of the derived connections.
   const applicableMonitors = useMemo(
     () =>
       monitors.filter(
         (m) =>
-          m.connectionId === null || m.connectionId === deployment.connectionId,
+          m.connectionId === null || derivedConnectionIds.has(m.connectionId),
       ),
-    [monitors, deployment.connectionId],
+    [monitors, derivedConnectionIds],
   );
 
   const metricsDestinations = useMemo(
@@ -1000,29 +1016,43 @@ function ConfigurePanel({
         </Stack>
       </Card>
 
-      <DeploymentConnectionsCard
-        deploymentId={deployment.id}
-        connections={connections}
-        onChanged={onSaved}
-      />
-
       <Card withBorder p="lg">
-        <SelectionEditor
-          label={`Sources (${sources.length} discovered)`}
-          hint="All sources are forwarded by default."
-          all={allSources}
-          onAll={(on) => {
-            setAllSources(on);
-            if (on) setPickedSources(new Set());
-          }}
-          items={sources.map((s) => ({
-            id: s.id,
-            label: s.displayName,
-            sublabel: s.sourceKindLabel,
-          }))}
-          picked={pickedSources}
-          toggle={toggleSource}
-        />
+        <Stack gap="md">
+          <Stack gap={2}>
+            <Text fw={600}>Sources</Text>
+            <Text size="xs" c="dimmed">
+              Pick what to forward. The deployment's connections are whichever
+              connections own the selected sources — no separate join step.
+            </Text>
+            {derivedConnectionIds.size > 0 && (
+              <Group gap={4} mt={4}>
+                <Text size="xs" c="dimmed">
+                  Currently uses:
+                </Text>
+                {[...derivedConnectionIds].map((cid) => {
+                  const c = allUserConnections.find((x) => x.id === cid);
+                  if (!c) return null;
+                  return (
+                    <Badge key={cid} size="xs" variant="light">
+                      {c.displayName} · {c.provider}
+                    </Badge>
+                  );
+                })}
+              </Group>
+            )}
+          </Stack>
+          <SourcePickerByConnection
+            connections={allUserConnections}
+            sources={allUserSources}
+            allSelected={allSources}
+            onAll={(on) => {
+              setAllSources(on);
+              if (on) setPickedSources(new Set());
+            }}
+            picked={pickedSources}
+            toggle={toggleSource}
+          />
+        </Stack>
       </Card>
 
       <Card withBorder p="lg">
@@ -1184,137 +1214,138 @@ function RunPanel({
 // for scripted/server-side installs: it embeds an HMAC-signed URL that
 // expires in 60s.
 
-function DeploymentConnectionsCard({
-  deploymentId,
+/** Cross-connection source picker. One flat list grouped by
+ *  connection, with an "all sources" wildcard switch at the top
+ *  and a filter input. Same toggle semantics as SelectionEditor —
+ *  `allSelected=true` is the wildcard / "use everything" mode. */
+function SourcePickerByConnection({
   connections,
-  onChanged,
+  sources,
+  allSelected,
+  onAll,
+  picked,
+  toggle,
 }: {
-  deploymentId: string;
   connections: Array<{
     id: string;
     displayName: string;
     provider: string;
     externalAccountId: string | null;
   }>;
-  onChanged: () => void;
+  sources: Array<{
+    id: string;
+    connectionId: string;
+    sourceKind: string;
+    displayName: string;
+  }>;
+  allSelected: boolean;
+  onAll: (on: boolean) => void;
+  picked: Set<string>;
+  toggle: (id: string, on: boolean) => void;
 }) {
-  const [allConnections, setAllConnections] = useState<ApiConnection[]>([]);
-  const [picking, setPicking] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+  const [expanded, setExpanded] = useState(false);
 
-  useEffect(() => {
-    api
-      .listConnections()
-      .then((r) => setAllConnections(r.connections))
-      .catch(() => {});
-  }, []);
-
-  // Providers already represented can't be added a second time
-  // (v1 constraint to keep env-var names — CLOUDFLARE_API_TOKEN
-  // etc. — from colliding). Filter the dropdown accordingly.
-  const usedProviders = useMemo(
-    () => new Set(connections.map((c) => c.provider)),
-    [connections],
-  );
-  const addable = allConnections.filter(
-    (c) => !usedProviders.has(c.provider) && !connections.some((d) => d.id === c.id),
-  );
-
-  async function commit(nextIds: string[]) {
-    setSaving(true);
-    setErr(null);
-    try {
-      await api.setDeploymentConnections(deploymentId, nextIds);
-      onChanged();
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Failed to update");
-    } finally {
-      setSaving(false);
+  const grouped = useMemo(() => {
+    const filterLower = filter.trim().toLowerCase();
+    const out: Array<{
+      conn: (typeof connections)[number];
+      items: typeof sources;
+    }> = [];
+    for (const conn of connections) {
+      const items = sources.filter(
+        (s) =>
+          s.connectionId === conn.id &&
+          (filterLower === "" ||
+            s.displayName.toLowerCase().includes(filterLower) ||
+            s.sourceKind.toLowerCase().includes(filterLower)),
+      );
+      if (items.length > 0) out.push({ conn, items });
     }
-  }
+    return out;
+  }, [connections, sources, filter]);
 
-  async function add() {
-    if (!picking) return;
-    const next = [...connections.map((c) => c.id), picking];
-    setPicking(null);
-    await commit(next);
-  }
+  const totalShown = grouped.reduce((n, g) => n + g.items.length, 0);
 
-  async function remove(id: string) {
-    if (connections.length === 1) return; // can't remove the last one
-    const next = connections.map((c) => c.id).filter((c) => c !== id);
-    await commit(next);
+  if (sources.length === 0) {
+    return (
+      <Text size="sm" c="dimmed">
+        No sources discovered yet. Connect a provider on the Connections page.
+      </Text>
+    );
   }
 
   return (
-    <Card withBorder p="lg">
-      <Stack gap="sm">
-        <Stack gap={2}>
-          <Text fw={600}>Connections</Text>
-          <Text size="xs" c="dimmed">
-            Sources from every connection here feed into the same Vector
-            forwarder. One per provider for now.
-          </Text>
-        </Stack>
-
+    <Stack gap="xs">
+      <Group justify="space-between" wrap="nowrap">
+        <Switch
+          checked={allSelected}
+          onChange={(e) => onAll(e.currentTarget.checked)}
+          label={
+            allSelected
+              ? "Forwarding all sources from the anchor connection"
+              : `${picked.size} selected`
+          }
+          size="sm"
+        />
+        <Button
+          size="xs"
+          variant="subtle"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? "Hide" : "Customize"}
+        </Button>
+      </Group>
+      {expanded && (
         <Stack gap="xs">
-          {connections.map((c) => (
-            <Group key={c.id} justify="space-between" wrap="nowrap">
-              <Stack gap={0}>
-                <Text size="sm">
-                  {c.displayName}{" "}
-                  <Text component="span" size="xs" c="dimmed">
-                    · {c.provider}
-                    {c.externalAccountId ? ` · ${c.externalAccountId}` : ""}
-                  </Text>
+          <TextInput
+            size="xs"
+            placeholder="Filter by name or kind…"
+            value={filter}
+            onChange={(e) => setFilter(e.currentTarget.value)}
+          />
+          <ScrollArea h={300}>
+            <Stack gap="md">
+              {grouped.map(({ conn, items }) => (
+                <Stack key={conn.id} gap={4}>
+                  <Group gap={6}>
+                    <Text fw={600} size="sm">
+                      {conn.displayName}
+                    </Text>
+                    <Badge size="xs" variant="light">
+                      {conn.provider}
+                    </Badge>
+                  </Group>
+                  <Stack gap={2} pl="md">
+                    {items.map((s) => (
+                      <Group key={s.id} justify="space-between">
+                        <Stack gap={0}>
+                          <Text size="sm">{s.displayName}</Text>
+                          <Text size="xs" c="dimmed">
+                            {s.sourceKind}
+                          </Text>
+                        </Stack>
+                        <Switch
+                          checked={allSelected || picked.has(s.id)}
+                          onChange={(e) => toggle(s.id, e.currentTarget.checked)}
+                          size="sm"
+                          disabled={allSelected}
+                        />
+                      </Group>
+                    ))}
+                  </Stack>
+                </Stack>
+              ))}
+              {totalShown === 0 && (
+                <Text size="sm" c="dimmed">
+                  No sources match "{filter}".
                 </Text>
-              </Stack>
-              <Button
-                size="compact-xs"
-                variant="subtle"
-                color="red"
-                disabled={connections.length === 1 || saving}
-                onClick={() => void remove(c.id)}
-              >
-                Remove
-              </Button>
-            </Group>
-          ))}
+              )}
+            </Stack>
+          </ScrollArea>
         </Stack>
-
-        {addable.length > 0 && (
-          <Group gap="xs" align="end">
-            <Select
-              size="xs"
-              label="Add a connection"
-              placeholder="Pick one"
-              value={picking}
-              onChange={setPicking}
-              data={addable.map((c) => ({
-                value: c.id,
-                label: `${c.displayName} · ${c.provider}`,
-              }))}
-              style={{ flex: 1 }}
-            />
-            <Button
-              size="compact-sm"
-              onClick={() => void add()}
-              disabled={!picking || saving}
-              loading={saving}
-            >
-              Add
-            </Button>
-          </Group>
-        )}
-
-        {err && (
-          <Alert color="red" variant="light">
-            {err}
-          </Alert>
-        )}
-      </Stack>
-    </Card>
+      )}
+    </Stack>
   );
 }
 

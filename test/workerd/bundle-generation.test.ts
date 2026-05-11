@@ -108,11 +108,10 @@ async function seedFullDeployment(): Promise<SeededDeployment> {
     .bind(sinkId, monitorId, destinationId, now)
     .run();
 
-  // Deployment row. `source_selection_json` / `monitor_selection_json`
-  // null = "use all" for that dimension. heartbeat_target=none and
-  // metrics_target=none keep the bundle minimal so we're testing the
-  // log pipeline path, not the heartbeat/metrics sinks (covered
-  // separately).
+  // Deployment row. source_selection_json = NULL exercises the
+  // back-compat path: bundle assembly falls back to "all sources
+  // from deployment.connection_id" when no explicit selection is
+  // recorded. The connection set is then derived from those rows.
   await env.DB.prepare(
     `INSERT INTO deployments
      (id, user_id, connection_id, display_name, target_kind, managed,
@@ -122,16 +121,6 @@ async function seedFullDeployment(): Promise<SeededDeployment> {
      VALUES (?, ?, ?, ?, 'other', 0, NULL, NULL, 'none', 'none', 'pending', ?, ?)`,
   )
     .bind(deploymentId, userId, connectionId, "test-deploy", now, now)
-    .run();
-  // The join table is what bundle assembly reads — production
-  // createDeployment writes here too. Without this insert the
-  // deployment would look "orphan" and bundle assembly would fail
-  // with "connection not found".
-  await env.DB.prepare(
-    `INSERT INTO deployment_connections (deployment_id, connection_id, added_at)
-     VALUES (?, ?, ?)`,
-  )
-    .bind(deploymentId, connectionId, now)
     .run();
 
   return { userId, sessionCookie, connectionId, deploymentId };

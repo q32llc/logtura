@@ -101,6 +101,26 @@ export const api = {
   deleteConnection: (id: string) =>
     request<{ ok: true }>(`/connections/${id}`, { method: "DELETE" }),
   getBundle: (id: string) => request<ApiBundle>(`/connections/${id}/bundle`),
+  /** Every source across every connection the user owns. Powers the
+   *  deployment configure tab's cross-connection picker — UI groups
+   *  by connection id, derives "this deployment uses these
+   *  connections" from whatever's selected. */
+  listAllSources: () =>
+    request<{
+      connections: Array<{
+        id: string;
+        displayName: string;
+        provider: string;
+        externalAccountId: string | null;
+      }>;
+      sources: Array<{
+        id: string;
+        connectionId: string;
+        sourceKind: string;
+        externalId: string;
+        displayName: string;
+      }>;
+    }>("/sources"),
 
   // ----- Destinations / Monitors / Sinks ------------------------------
   destinationDrivers: () =>
@@ -203,7 +223,6 @@ export const api = {
     }>(`/deployments/${id}`),
   createDeployment: (body: {
     connectionId: string;
-    additionalConnectionIds?: string[];
     displayName: string;
     targetKind: string;
     managed?: boolean;
@@ -214,18 +233,6 @@ export const api = {
     request<{ deployment: ApiDeployment }>("/deployments", {
       method: "POST",
       body: JSON.stringify(body),
-    }),
-  setDeploymentConnections: (id: string, connectionIds: string[]) =>
-    request<{
-      connections: Array<{
-        id: string;
-        displayName: string;
-        provider: string;
-        externalAccountId: string | null;
-      }>;
-    }>(`/deployments/${id}/connections`, {
-      method: "PUT",
-      body: JSON.stringify({ connectionIds }),
     }),
   updateDeployment: (
     id: string,

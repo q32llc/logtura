@@ -3,11 +3,11 @@ import { describe, expect, it } from "vitest";
 import { encryptSecret, newId } from "../../src/crypto";
 import { mockFetch, seedUser } from "./_setup";
 
-/** End-to-end coverage for multi-connection deployments: a single
- *  forwarder tailing both Cloudflare workers and Fly apps in one
- *  Vector config. Asserts that bundle assembly visits every joined
- *  connection (sources + creds + per-conn tag transforms) and that
- *  the one-per-provider constraint is enforced at the route. */
+/** Multi-connection deployments in the source-driven model. A
+ *  deployment IS a set of source IDs; connections are derived from
+ *  which connections own those sources. No join table, no
+ *  primary-vs-additional split — pick sources from multiple
+ *  connections and the bundle stitches them together. */
 
 interface ConnSeed {
   connectionId: string;
@@ -44,15 +44,16 @@ async function seedConnection(
   return { connectionId };
 }
 
-describe("multi-connection deployments", () => {
-  it("PUT /deployments/:id/connections accepts a second-provider connection and produces a merged bundle", async () => {
+describe("multi-connection deployments (source-derived)", () => {
+  it("derives both connections from a sourceIds array spanning two providers", async () => {
     const { userId, sessionCookie } = await seedUser();
     const cf = await seedConnection(userId, "cloudflare", "acct_xyz", "cf_tok");
     const fly = await seedConnection(userId, "fly", "personal", "fly_tok");
     const now = Date.now();
 
-    // One worker on CF, one app on Fly. Each connection contributes
-    // its own source(s) to the unified config.
+    // One CF worker + one Fly app. Each lives under its own
+    // connection; the deployment's source_selection_json lists
+    // both ids, which is the entirety of the wiring.
     const cfSourceId = newId("src");
     const flySourceId = newId("src");
     await env.DB.prepare(
@@ -70,47 +71,30 @@ describe("multi-connection deployments", () => {
       .bind(flySourceId, fly.connectionId, now)
       .run();
 
-    // Deployment + primary connection join row. CF is the primary;
-    // Fly gets added via the PUT route below — same mechanic the UI
-    // uses when you add a second connection from the Configure tab.
+    // Deployment seeded with sourceIds spanning both providers.
+    // No deployment_connections row needed — bundle assembly
+    // computes the connection set from sources.
     const deploymentId = newId("dep");
     await env.DB.prepare(
       `INSERT INTO deployments
        (id, user_id, connection_id, display_name, target_kind, managed,
+        source_selection_json, monitor_selection_json,
         heartbeat_target, metrics_target, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'other', 0, 'none', 'none', 'pending', ?, ?)`,
+       VALUES (?, ?, ?, ?, 'other', 0, ?, NULL, 'none', 'none', 'pending', ?, ?)`,
     )
-      .bind(deploymentId, userId, cf.connectionId, "multi-test", now, now)
+      .bind(
+        deploymentId,
+        userId,
+        cf.connectionId, // anchor — used for app name + back-compat
+        "multi-test",
+        JSON.stringify([cfSourceId, flySourceId]),
+        now,
+        now,
+      )
       .run();
-    await env.DB.prepare(
-      `INSERT INTO deployment_connections (deployment_id, connection_id, added_at)
-       VALUES (?, ?, ?)`,
-    )
-      .bind(deploymentId, cf.connectionId, now)
-      .run();
-
-    // Route → add fly as a second connection.
-    const putRes = await SELF.fetch(
-      `http://localhost/api/deployments/${deploymentId}/connections`,
-      {
-        method: "PUT",
-        headers: { "content-type": "application/json", cookie: sessionCookie },
-        body: JSON.stringify({
-          connectionIds: [cf.connectionId, fly.connectionId],
-        }),
-      },
-    );
-    expect(putRes.status).toBe(200);
-    const putJson = (await putRes.json()) as {
-      connections: Array<{ provider: string }>;
-    };
-    expect(putJson.connections.map((c) => c.provider).sort()).toEqual([
-      "cloudflare",
-      "fly",
-    ]);
 
     // Bundle assembly's freshness check hits each provider:
-    // /user/tokens/verify (CF) and /graphql organizations(...) (Fly).
+    // /user/tokens/verify (CF) and /graphql organizations (Fly).
     mockFetch("https://api.cloudflare.com", async () =>
       Response.json({
         success: true,
@@ -144,23 +128,18 @@ describe("multi-connection deployments", () => {
       selectedCount: number;
     };
 
-    // 2 sources total (1 per connection).
     expect(bundle.selectedCount).toBe(2);
-
     const yaml = bundle.files.find((f) => f.name === "vector.yaml")!.content;
-    // Both provider-specific source blocks are present.
     expect(yaml).toContain("cf_worker_my_worker");
     expect(yaml).toContain("fly_app_my_app");
-    // Both normalize transforms emitted (one per kind).
     expect(yaml).toContain("cf_worker_norm:");
     expect(yaml).toContain("fly_app_norm:");
-    // Per-connection tag transforms — one per connection — both
-    // exist and the unified tag_received fans them in.
+    // Per-connection tag transforms exist for each derived
+    // connection; tag_received fans them together.
     expect(yaml).toMatch(/tag_conn_con_[A-Za-z0-9_-]+:/g);
     expect(yaml).toContain("tag_received:");
 
-    // Env vars from BOTH providers' runtimeSpec appear in the env
-    // list — proves multi-connection accumulation is wired through.
+    // Both providers' env vars are present and populated.
     const names = bundle.envVars.map((v) => v.name);
     expect(names).toContain("CLOUDFLARE_API_TOKEN");
     expect(names).toContain("FLY_API_TOKEN");
@@ -171,46 +150,106 @@ describe("multi-connection deployments", () => {
       "fly_tok",
     );
 
-    // Component manifest has primary sources for both providers.
     const sources = bundle.componentManifest.filter((c) => c.role === "source");
     expect(sources.length).toBe(2);
     expect(sources.some((s) => s.label.startsWith("Worker"))).toBe(true);
     expect(sources.some((s) => s.label.startsWith("App"))).toBe(true);
   });
 
-  it("rejects adding a second connection of the same provider", async () => {
+  it("GET /deployments/:id exposes derived connections matching the selected sources", async () => {
+    const { userId, sessionCookie } = await seedUser();
+    const cf = await seedConnection(userId, "cloudflare", "acct_x", "cf_tok");
+    const fly = await seedConnection(userId, "fly", "personal", "fly_tok");
+    const now = Date.now();
+    const cfSrc = newId("src");
+    const flySrc = newId("src");
+    await env.DB.prepare(
+      `INSERT INTO log_sources
+       (id, connection_id, source_kind, external_id, display_name, discovered_at)
+       VALUES (?, ?, 'cf_worker', 'w', 'w', ?), (?, ?, 'fly_app', 'a', 'a', ?)`,
+    )
+      .bind(cfSrc, cf.connectionId, now, flySrc, fly.connectionId, now)
+      .run();
+    const depId = newId("dep");
+    await env.DB.prepare(
+      `INSERT INTO deployments
+       (id, user_id, connection_id, display_name, target_kind, managed,
+        source_selection_json, heartbeat_target, metrics_target, status,
+        created_at, updated_at)
+       VALUES (?, ?, ?, 'derived-conns', 'other', 0, ?, 'none', 'none', 'pending', ?, ?)`,
+    )
+      .bind(
+        depId,
+        userId,
+        cf.connectionId,
+        JSON.stringify([cfSrc, flySrc]),
+        now,
+        now,
+      )
+      .run();
+
+    const res = await SELF.fetch(`http://localhost/api/deployments/${depId}`, {
+      headers: { cookie: sessionCookie },
+    });
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      connections: Array<{ id: string; provider: string }>;
+    };
+    expect(json.connections.map((c) => c.provider).sort()).toEqual([
+      "cloudflare",
+      "fly",
+    ]);
+  });
+
+  it("bundle assembly fails when selected sources span two connections of the same provider", async () => {
     const { userId, sessionCookie } = await seedUser();
     const cf1 = await seedConnection(userId, "cloudflare", "acct_a", "tok_a");
     const cf2 = await seedConnection(userId, "cloudflare", "acct_b", "tok_b");
     const now = Date.now();
-    const deploymentId = newId("dep");
+    const s1 = newId("src");
+    const s2 = newId("src");
+    await env.DB.prepare(
+      `INSERT INTO log_sources
+       (id, connection_id, source_kind, external_id, display_name, discovered_at)
+       VALUES (?, ?, 'cf_worker', 'w1', 'w1', ?), (?, ?, 'cf_worker', 'w2', 'w2', ?)`,
+    )
+      .bind(s1, cf1.connectionId, now, s2, cf2.connectionId, now)
+      .run();
+    const depId = newId("dep");
     await env.DB.prepare(
       `INSERT INTO deployments
        (id, user_id, connection_id, display_name, target_kind, managed,
-        heartbeat_target, metrics_target, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'other', 0, 'none', 'none', 'pending', ?, ?)`,
+        source_selection_json, heartbeat_target, metrics_target, status,
+        created_at, updated_at)
+       VALUES (?, ?, ?, 'dup-test', 'other', 0, ?, 'none', 'none', 'pending', ?, ?)`,
     )
-      .bind(deploymentId, userId, cf1.connectionId, "dup-test", now, now)
-      .run();
-    await env.DB.prepare(
-      `INSERT INTO deployment_connections (deployment_id, connection_id, added_at)
-       VALUES (?, ?, ?)`,
-    )
-      .bind(deploymentId, cf1.connectionId, now)
+      .bind(
+        depId,
+        userId,
+        cf1.connectionId,
+        JSON.stringify([s1, s2]),
+        now,
+        now,
+      )
       .run();
 
-    const res = await SELF.fetch(
-      `http://localhost/api/deployments/${deploymentId}/connections`,
-      {
-        method: "PUT",
-        headers: { "content-type": "application/json", cookie: sessionCookie },
-        body: JSON.stringify({
-          connectionIds: [cf1.connectionId, cf2.connectionId],
-        }),
-      },
+    // Freshness check still runs first. Mock CF /verify but expect
+    // the bundle endpoint to throw at the same-provider check
+    // before getting to source-block generation.
+    mockFetch("https://api.cloudflare.com", async () =>
+      Response.json({
+        success: true,
+        result: { id: "tok_abc", status: "active" },
+      }),
     );
-    expect(res.status).toBe(400);
-    const json = (await res.json()) as { error: string };
-    expect(json.error).toBe("duplicate_provider");
+    const res = await SELF.fetch(
+      `http://localhost/api/deployments/${depId}/bundle`,
+      { headers: { cookie: sessionCookie } },
+    );
+    // The route catches the assembly error as a 500 (it doesn't
+    // know how to translate it to a specific 4xx code); the
+    // important assertion is that it doesn't silently succeed with
+    // a half-baked bundle.
+    expect(res.status).toBeGreaterThanOrEqual(500);
   });
 });

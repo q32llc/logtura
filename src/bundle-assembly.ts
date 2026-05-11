@@ -5,9 +5,11 @@ import {
   decryptConnectionCredentials,
   decryptDestinationConfig,
   ensureHeartbeatToken,
+  getConnection,
+  getConnectionsByIds,
   getDeployment,
   getDestination,
-  listConnectionsForDeployment,
+  getSourcesByIdsForUser,
   listMonitorsForConnection,
   listSinksForMonitor,
   listSources,
@@ -45,18 +47,67 @@ export async function assembleDeploymentBundle(
   const deployment = await getDeployment(env.DB, userId, deploymentId);
   if (!deployment) throw new Error("deployment not found");
 
-  // Authoritative connection set lives in the deployment_connections
-  // join table. deployments.connection_id is still kept as the
-  // "primary" for app naming + UX, but bundle assembly uses the
-  // join because v1 supports multi-connection deployments.
-  const connections = await listConnectionsForDeployment(
-    env.DB,
-    userId,
-    deployment.id,
-  );
-  if (connections.length === 0) throw new Error("connection not found");
-
   const selection = parseDeploymentSelection(deployment);
+
+  // CONNECTIONS ARE DERIVED FROM SELECTED SOURCES. A deployment is
+  // "this set of source IDs to forward"; whatever connections own
+  // those sources are the ones we need creds for. No join table —
+  // the source → connection FK is the source of truth.
+  //
+  // sourceIds === null is treated as "all sources from the
+  // deployment's primary connection_id" for back-compat with rows
+  // created before the explicit-selection model. New rows write
+  // explicit arrays; this branch keeps existing deployments working.
+  let selectedSources: LogSourceRow[];
+  if (selection.sourceIds === null) {
+    if (!deployment.connection_id) {
+      selectedSources = [];
+    } else {
+      selectedSources = await listSources(env.DB, deployment.connection_id);
+    }
+  } else {
+    selectedSources = await getSourcesByIdsForUser(
+      env.DB,
+      userId,
+      selection.sourceIds,
+    );
+  }
+
+  // Group sources by their owning connection. This implicitly
+  // computes the set of connections to load + decrypt.
+  const sourcesByConnId = new Map<string, LogSourceRow[]>();
+  for (const s of selectedSources) {
+    const list = sourcesByConnId.get(s.connection_id) ?? [];
+    list.push(s);
+    sourcesByConnId.set(s.connection_id, list);
+  }
+  let connectionIds = Array.from(sourcesByConnId.keys());
+  // Empty-selection deployment (heartbeat-only) still needs at
+  // least one connection's creds for the bundle's "Connection"
+  // header. Fall back to the deployment's primary.
+  if (connectionIds.length === 0 && deployment.connection_id) {
+    connectionIds = [deployment.connection_id];
+  }
+  if (connectionIds.length === 0) {
+    throw new Error("connection not found");
+  }
+  const connections = await getConnectionsByIds(env.DB, userId, connectionIds);
+
+  // Same-provider collision is enforced HERE rather than at the
+  // route: two CF connections would both want CLOUDFLARE_API_TOKEN
+  // and we can't disambiguate. The UI prevents it at picker time,
+  // but bundle assembly is the bottleneck that has to fail loudly
+  // if it ever happens (stale UI, API call, etc.).
+  const seenProviders = new Map<string, string>();
+  for (const c of connections) {
+    const prior = seenProviders.get(c.provider);
+    if (prior) {
+      throw new Error(
+        `deployment has sources from two ${c.provider} connections (${prior} + ${c.id}); only one connection per provider is supported`,
+      );
+    }
+    seenProviders.set(c.provider, c.id);
+  }
 
   // Per-connection: selected sources, decrypted creds, freshness.
   // We treat freshness as a per-connection signal but roll it up to
@@ -72,11 +123,7 @@ export async function assembleDeploymentBundle(
     expiresAt?: number | null;
   }> = [];
   for (const c of connections) {
-    const allSources = await listSources(env.DB, c.id);
-    const selectedSources =
-      selection.sourceIds === null
-        ? allSources
-        : allSources.filter((s) => selection.sourceIds!.includes(s.id));
+    const sources = sourcesByConnId.get(c.id) ?? [];
     const credentials =
       await decryptConnectionCredentials<Record<string, unknown>>(env, c);
     let fresh = true;
@@ -97,7 +144,7 @@ export async function assembleDeploymentBundle(
     }
     perConn.push({
       connection: c,
-      selectedSources,
+      selectedSources: sources,
       credentials,
       fresh,
       staleReason,
@@ -105,10 +152,10 @@ export async function assembleDeploymentBundle(
     });
   }
 
-  // Monitors are user-scoped (their connection_id is nullable — null
-  // means "applies to all connections"). The selection list operates
-  // on the merged candidate set across all connections this
-  // deployment touches.
+  // Monitors are user-scoped. A monitor's `connection_id` is
+  // nullable — null = "applies to all connections". When non-null
+  // it only applies to events from that specific connection.
+  // Filter to monitors that match SOME derived connection.
   const monitorsSeen = new Set<string>();
   const applicableMonitors = [];
   for (const c of connections) {
