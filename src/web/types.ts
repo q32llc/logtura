@@ -67,6 +67,10 @@ export interface ApiDeployTarget {
   kind: string;
   displayName: string;
   externalAccountId: string | null;
+  /** Source-provider IDs this deploy target can mint scoped
+   *  credentials for. Empty for targets without a bootstrap-mint
+   *  path. Drives the "use existing X connection" UI. */
+  mintsForProviders: readonly string[];
   createdAt: number;
   updatedAt: number;
 }

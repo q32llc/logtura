@@ -37,6 +37,7 @@ export const flyDriver: DeployTargetDriver<FlyCredentials> = {
   description:
     "Always-on Machines, ~$2/month for a tiny shared-cpu VM. Designed for exactly this kind of workload. Pick a region close to your sources.",
   supportsManaged: true,
+  mintsForProviders: ["fly-log-tail"],
   connectFlow: {
     kind: "cli_session",
     startPath: "/api/deploy-targets/fly/start",

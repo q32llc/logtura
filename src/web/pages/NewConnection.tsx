@@ -53,13 +53,14 @@ export function NewConnection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // A bootstrap is "compatible" with this provider if its kind
-  // matches the provider id — today that's only Fly. (Future:
-  // drivers will declare `mintsForProviders: string[]`, but kind-
-  // equality is a fine starting heuristic for the one case that
-  // exists.)
+  // A bootstrap is compatible with a source provider when the
+  // bootstrap's driver declares it via `mintsForProviders`. Each
+  // deploy_target row carries its driver's list via the API.
   const compatibleBootstraps = useMemo(
-    () => deployTargets.filter((t) => t.kind === providerId),
+    () =>
+      deployTargets.filter(
+        (t) => providerId !== null && t.mintsForProviders.includes(providerId),
+      ),
     [deployTargets, providerId],
   );
 

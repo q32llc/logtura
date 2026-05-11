@@ -46,6 +46,12 @@ export interface DeployTargetDriver<TCreds = unknown> {
   readonly description: string;
   /** True when logtura can deploy on the user's behalf (Flavor B). */
   readonly supportsManaged: boolean;
+  /** Source-provider IDs this bootstrap can mint scoped
+   *  credentials for. Used by the New Connection UI to decide
+   *  whether to surface the "use existing X connection" mint card
+   *  for the currently-picked provider. Drivers without
+   *  `mintConnectionCredentials` should leave this empty. */
+  readonly mintsForProviders?: readonly string[];
 
   /** Connect flow + form fields when a managed deploy is offered. */
   readonly connectFlow?: ConnectFlow;

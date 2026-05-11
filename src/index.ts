@@ -644,6 +644,12 @@ apiAuth.get("/deploy-targets", async (c) => {
       kind: r.kind,
       displayName: r.display_name,
       externalAccountId: r.external_account_id,
+      // Surface what source providers this bootstrap can mint
+      // for — used by the New Connection UI to light up the
+      // "use existing X connection" card. Belt-and-suspenders:
+      // the server-side mint route also enforces the check.
+      mintsForProviders:
+        getDeployTargetDriver(r.kind)?.mintsForProviders ?? [],
       createdAt: r.created_at,
       updatedAt: r.updated_at,
     })),
