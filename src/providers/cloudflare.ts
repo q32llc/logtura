@@ -86,14 +86,21 @@ const FORM_FIELDS: readonly FormField[] = [
   },
 ];
 
-// Cloudflare's prefilled token-creation URL. We only include
-// permission groups whose keys are confirmed working from the
-// Cloudflare docs (workers_scripts). AI Gateway:Read is a real
-// permission but its template-URL key isn't documented, so we ask the
-// user to add that one manually if they use AI Gateway. Discovery
-// soft-fails per resource, so a Workers-only token still yields a
-// working pipeline.
-const PERMISSION_GROUPS = [{ key: "workers_scripts", type: "read" }];
+// Cloudflare's prefilled token-creation URL. We include the keys
+// that are documented + needed for our pipeline:
+//   workers_scripts:read     — list + introspect Workers
+//   workers_tail:read        — required for `wrangler tail` (the
+//                              forwarder's actual log source). Without
+//                              this, wrangler errors with auth 10000
+//                              and the pipeline is silent.
+// AI Gateway:Read is a real permission but its template-URL key
+// isn't documented, so we ask the user to add that one manually if
+// they use AI Gateway. Discovery soft-fails per resource, so a
+// Workers-only token still yields a working pipeline.
+const PERMISSION_GROUPS = [
+  { key: "workers_scripts", type: "read" },
+  { key: "workers_tail", type: "read" },
+];
 
 const TOKEN_TEMPLATE_URL = (() => {
   const base = "https://dash.cloudflare.com/profile/api-tokens";
@@ -258,7 +265,11 @@ export const cloudflareDriver: ProviderDriver<CloudflareCredentials> = {
     if (source.sourceKind === "cf_worker") {
       const yaml = [
         `    type: exec`,
-        `    command: ["sh", "-c", "wrangler tail ${shellQuote(source.externalId)} --format json --account-id $CLOUDFLARE_ACCOUNT_ID"]`,
+        // wrangler picks up CLOUDFLARE_ACCOUNT_ID from env automatically;
+        // recent wrangler versions reject `--account-id` as "Unknown
+        // arguments" and exit immediately, which Vector then tries to
+        // JSON-parse and floods decoder errors. Don't pass the flag.
+        `    command: ["sh", "-c", "wrangler tail ${shellQuote(source.externalId)} --format json"]`,
         `    mode: streaming`,
         `    decoding:`,
         `      codec: json`,
