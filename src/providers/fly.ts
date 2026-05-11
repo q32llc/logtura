@@ -130,14 +130,20 @@ export const flyDriver: ProviderDriver<FlyCredentials> = {
       throw new Error(`Unknown fly source kind: ${source.sourceKind}`);
     }
     const key = `fly_app_${safeKey(source.externalId)}`;
-    // `flyctl logs --json -a <app>` streams one JSON object per line
-    // on stdout — the same shape Vector's `codec: json` parses
-    // directly without needing jq -c (unlike wrangler tail, which
-    // pretty-prints). FLY_API_TOKEN is the env var flyctl reads;
-    // set in the forwarder env from the connection credential.
+    // `flyctl logs --json -a <app>` emits one JSON event per line,
+    // but the app name isn't in the event payload (flyctl knows it
+    // from `-a` and doesn't repeat it). We tag at the source via a
+    // shell pipeline:  flyctl … | jq -c '. + {app: "<app>"}'
+    // so every event carries .app before reaching the consolidated
+    // normalize transform — the downstream filters need .script set
+    // correctly per-app, and we know the name at bundle time. jq +
+    // unbuffered output both ship in our kitchen-sink image, same
+    // as the wrangler-tail path.
+    const appJq = JSON.stringify(source.externalId).replace(/"/g, '\\"');
+    const command = `flyctl logs --json -a ${shellQuote(source.externalId)} | jq -c --unbuffered '. + {app: "${appJq.slice(1, -1)}"}'`;
     const yaml = [
       `    type: exec`,
-      `    command: ["flyctl", "logs", "--json", "-a", ${JSON.stringify(source.externalId)}]`,
+      `    command: ["sh", "-c", ${JSON.stringify(command)}]`,
       `    mode: streaming`,
       `    decoding:`,
       `      codec: json`,
@@ -189,22 +195,33 @@ function safeKey(s: string): string {
   return s.replace(/[^a-zA-Z0-9_]/g, "_");
 }
 
+/** Refuse anything that could break out of the shell quoting. App
+ *  names are validated by Fly to a strict charset (lowercase
+ *  alphanum + hyphen) and we discovered them via our own API call,
+ *  so anything weirder than that means tampering or a Fly change we
+ *  haven't seen. Better to fail loudly. */
+function shellQuote(s: string): string {
+  if (!/^[a-zA-Z0-9_-]+$/.test(s)) {
+    throw new Error(`unsafe fly app name for shell: ${s}`);
+  }
+  return s;
+}
+
 /**
  * Normalize fly log events to the uniform shape (.message, .level,
  * .error, .script, .timestamp) so downstream filters can be
- * provider-agnostic. flyctl logs --json shape:
+ * provider-agnostic. flyctl logs --json shape (per emitted line):
  *   { timestamp, level, message, region, instance, ... }
- * We map app name → .script (mirrors cloudflare's .scriptName →
- * .script) so per-app monitor filters work the same way.
+ * The source wrapper around `flyctl logs` pre-tags every event with
+ * `.app = "<app>"` (the app name isn't in flyctl's payload — it
+ * knows from `-a` and doesn't repeat it), so .script is always
+ * populated here. Mirrors cloudflare's .scriptName → .script
+ * convention so per-app/per-worker monitor filters use the same
+ * field.
  */
 function flyAppNormalizeYaml(inputKeys: string[]): string {
   const vrl = [
-    // The app name isn't in the event itself when flyctl emits it
-    // (the CLI knows which app it's tailing). Vector's
-    // `internal_log_rate_limit`-style sources expose the originating
-    // source name via `.source_type` / metadata in some versions; we
-    // fall back to "fly" so we always have a non-empty .script.
-    `.script = string(.app) ?? string(.fly?.app?.name) ?? "fly"`,
+    `.script = string(.app) ?? "fly"`,
     `.timestamp = .timestamp`,
     `level_str = string(.level) ?? "info"`,
     `.level = level_str`,

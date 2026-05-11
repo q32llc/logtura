@@ -81,6 +81,14 @@ export function DeploymentDetail() {
   const [initialDeployJob, setInitialDeployJob] = useState<ApiJob | null>(
     null,
   );
+  const [deploymentConnections, setDeploymentConnections] = useState<
+    Array<{
+      id: string;
+      displayName: string;
+      provider: string;
+      externalAccountId: string | null;
+    }>
+  >([]);
 
   async function refetch() {
     if (!id) return;
@@ -92,6 +100,7 @@ export function DeploymentDetail() {
       setDeployment(dep.deployment);
       setBundle(bun);
       setInitialDeployJob(dep.latestDeployJob);
+      setDeploymentConnections(dep.connections);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load");
     }
@@ -194,7 +203,11 @@ export function DeploymentDetail() {
         </Tabs.Panel>
 
         <Tabs.Panel value="configure" pt="md">
-          <ConfigurePanel deployment={deployment} onSaved={refetch} />
+          <ConfigurePanel
+            deployment={deployment}
+            connections={deploymentConnections}
+            onSaved={refetch}
+          />
         </Tabs.Panel>
 
         <Tabs.Panel value="run" pt="md">
@@ -844,9 +857,16 @@ function fmtN(n: number): string {
 
 function ConfigurePanel({
   deployment,
+  connections,
   onSaved,
 }: {
   deployment: ApiDeployment;
+  connections: Array<{
+    id: string;
+    displayName: string;
+    provider: string;
+    externalAccountId: string | null;
+  }>;
   onSaved: () => void;
 }) {
   const [connection, setConnection] = useState<ApiConnection | null>(null);
@@ -977,14 +997,14 @@ function ConfigurePanel({
             value={name}
             onChange={(e) => setName(e.currentTarget.value)}
           />
-          {connection && (
-            <Text size="xs" c="dimmed">
-              Connected to <strong>{connection.displayName}</strong> ·{" "}
-              {connection.provider}
-            </Text>
-          )}
         </Stack>
       </Card>
+
+      <DeploymentConnectionsCard
+        deploymentId={deployment.id}
+        connections={connections}
+        onChanged={onSaved}
+      />
 
       <Card withBorder p="lg">
         <SelectionEditor
@@ -1163,6 +1183,140 @@ function RunPanel({
 // path (browser → .tgz → untar → ./install.sh). The curl one-liner is
 // for scripted/server-side installs: it embeds an HMAC-signed URL that
 // expires in 60s.
+
+function DeploymentConnectionsCard({
+  deploymentId,
+  connections,
+  onChanged,
+}: {
+  deploymentId: string;
+  connections: Array<{
+    id: string;
+    displayName: string;
+    provider: string;
+    externalAccountId: string | null;
+  }>;
+  onChanged: () => void;
+}) {
+  const [allConnections, setAllConnections] = useState<ApiConnection[]>([]);
+  const [picking, setPicking] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .listConnections()
+      .then((r) => setAllConnections(r.connections))
+      .catch(() => {});
+  }, []);
+
+  // Providers already represented can't be added a second time
+  // (v1 constraint to keep env-var names — CLOUDFLARE_API_TOKEN
+  // etc. — from colliding). Filter the dropdown accordingly.
+  const usedProviders = useMemo(
+    () => new Set(connections.map((c) => c.provider)),
+    [connections],
+  );
+  const addable = allConnections.filter(
+    (c) => !usedProviders.has(c.provider) && !connections.some((d) => d.id === c.id),
+  );
+
+  async function commit(nextIds: string[]) {
+    setSaving(true);
+    setErr(null);
+    try {
+      await api.setDeploymentConnections(deploymentId, nextIds);
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Failed to update");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function add() {
+    if (!picking) return;
+    const next = [...connections.map((c) => c.id), picking];
+    setPicking(null);
+    await commit(next);
+  }
+
+  async function remove(id: string) {
+    if (connections.length === 1) return; // can't remove the last one
+    const next = connections.map((c) => c.id).filter((c) => c !== id);
+    await commit(next);
+  }
+
+  return (
+    <Card withBorder p="lg">
+      <Stack gap="sm">
+        <Stack gap={2}>
+          <Text fw={600}>Connections</Text>
+          <Text size="xs" c="dimmed">
+            Sources from every connection here feed into the same Vector
+            forwarder. One per provider for now.
+          </Text>
+        </Stack>
+
+        <Stack gap="xs">
+          {connections.map((c) => (
+            <Group key={c.id} justify="space-between" wrap="nowrap">
+              <Stack gap={0}>
+                <Text size="sm">
+                  {c.displayName}{" "}
+                  <Text component="span" size="xs" c="dimmed">
+                    · {c.provider}
+                    {c.externalAccountId ? ` · ${c.externalAccountId}` : ""}
+                  </Text>
+                </Text>
+              </Stack>
+              <Button
+                size="compact-xs"
+                variant="subtle"
+                color="red"
+                disabled={connections.length === 1 || saving}
+                onClick={() => void remove(c.id)}
+              >
+                Remove
+              </Button>
+            </Group>
+          ))}
+        </Stack>
+
+        {addable.length > 0 && (
+          <Group gap="xs" align="end">
+            <Select
+              size="xs"
+              label="Add a connection"
+              placeholder="Pick one"
+              value={picking}
+              onChange={setPicking}
+              data={addable.map((c) => ({
+                value: c.id,
+                label: `${c.displayName} · ${c.provider}`,
+              }))}
+              style={{ flex: 1 }}
+            />
+            <Button
+              size="compact-sm"
+              onClick={() => void add()}
+              disabled={!picking || saving}
+              loading={saving}
+            >
+              Add
+            </Button>
+          </Group>
+        )}
+
+        {err && (
+          <Alert color="red" variant="light">
+            {err}
+          </Alert>
+        )}
+      </Stack>
+    </Card>
+  );
+}
 
 function SelfDeployCard({ deployment }: { deployment: ApiDeployment }) {
   const [curlCmd, setCurlCmd] = useState<string | null>(null);

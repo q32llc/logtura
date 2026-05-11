@@ -123,6 +123,16 @@ async function seedFullDeployment(): Promise<SeededDeployment> {
   )
     .bind(deploymentId, userId, connectionId, "test-deploy", now, now)
     .run();
+  // The join table is what bundle assembly reads — production
+  // createDeployment writes here too. Without this insert the
+  // deployment would look "orphan" and bundle assembly would fail
+  // with "connection not found".
+  await env.DB.prepare(
+    `INSERT INTO deployment_connections (deployment_id, connection_id, added_at)
+     VALUES (?, ?, ?)`,
+  )
+    .bind(deploymentId, connectionId, now)
+    .run();
 
   return { userId, sessionCookie, connectionId, deploymentId };
 }

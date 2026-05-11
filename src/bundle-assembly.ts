@@ -1,11 +1,13 @@
 import {
+  type ConnectionRow,
   type DeploymentRow,
+  type LogSourceRow,
   decryptConnectionCredentials,
   decryptDestinationConfig,
   ensureHeartbeatToken,
-  getConnection,
   getDeployment,
   getDestination,
+  listConnectionsForDeployment,
   listMonitorsForConnection,
   listSinksForMonitor,
   listSources,
@@ -43,31 +45,82 @@ export async function assembleDeploymentBundle(
   const deployment = await getDeployment(env.DB, userId, deploymentId);
   if (!deployment) throw new Error("deployment not found");
 
-  const connection = await getConnection(
+  // Authoritative connection set lives in the deployment_connections
+  // join table. deployments.connection_id is still kept as the
+  // "primary" for app naming + UX, but bundle assembly uses the
+  // join because v1 supports multi-connection deployments.
+  const connections = await listConnectionsForDeployment(
     env.DB,
     userId,
-    deployment.connection_id,
+    deployment.id,
   );
-  if (!connection) throw new Error("connection not found");
+  if (connections.length === 0) throw new Error("connection not found");
 
   const selection = parseDeploymentSelection(deployment);
-  const allSources = await listSources(env.DB, connection.id);
-  const selectedSources =
-    selection.sourceIds === null
-      ? allSources
-      : allSources.filter((s) => selection.sourceIds!.includes(s.id));
 
-  const candidateMonitors = await listMonitorsForConnection(
-    env.DB,
-    userId,
-    connection.id,
-  );
-  const applicableMonitors =
-    selection.monitorIds === null
-      ? candidateMonitors
-      : candidateMonitors.filter((m) =>
-          selection.monitorIds!.includes(m.id),
-        );
+  // Per-connection: selected sources, decrypted creds, freshness.
+  // We treat freshness as a per-connection signal but roll it up to
+  // a single boolean for the AssembledBundle return shape so the
+  // existing API surface (`credentialIsFresh`) stays stable —
+  // "any connection is stale" trips the UI's stale banner.
+  const perConn: Array<{
+    connection: ConnectionRow;
+    selectedSources: LogSourceRow[];
+    credentials?: Record<string, unknown>;
+    fresh: boolean;
+    staleReason?: string;
+    expiresAt?: number | null;
+  }> = [];
+  for (const c of connections) {
+    const allSources = await listSources(env.DB, c.id);
+    const selectedSources =
+      selection.sourceIds === null
+        ? allSources
+        : allSources.filter((s) => selection.sourceIds!.includes(s.id));
+    const credentials =
+      await decryptConnectionCredentials<Record<string, unknown>>(env, c);
+    let fresh = true;
+    let staleReason: string | undefined;
+    let expiresAt: number | null | undefined;
+    const provider = getProvider(c.provider);
+    if (provider?.checkCredentialFreshness) {
+      try {
+        const r = await provider.checkCredentialFreshness(credentials);
+        fresh = r.fresh;
+        staleReason = r.reason;
+        expiresAt = r.expiresAt ?? null;
+      } catch (err) {
+        console.warn("credential freshness check threw", err);
+        fresh = false;
+        staleReason = "freshness check failed";
+      }
+    }
+    perConn.push({
+      connection: c,
+      selectedSources,
+      credentials,
+      fresh,
+      staleReason,
+      expiresAt: expiresAt ?? undefined,
+    });
+  }
+
+  // Monitors are user-scoped (their connection_id is nullable — null
+  // means "applies to all connections"). The selection list operates
+  // on the merged candidate set across all connections this
+  // deployment touches.
+  const monitorsSeen = new Set<string>();
+  const applicableMonitors = [];
+  for (const c of connections) {
+    const candidates = await listMonitorsForConnection(env.DB, userId, c.id);
+    for (const m of candidates) {
+      if (monitorsSeen.has(m.id)) continue;
+      monitorsSeen.add(m.id);
+      if (selection.monitorIds === null || selection.monitorIds.includes(m.id)) {
+        applicableMonitors.push(m);
+      }
+    }
+  }
 
   const generatorMonitors = [];
   for (const monitor of applicableMonitors) {
@@ -82,25 +135,21 @@ export async function assembleDeploymentBundle(
     generatorMonitors.push({ monitor, sinks: generatorSinks });
   }
 
-  const decryptedCredentials =
-    await decryptConnectionCredentials<Record<string, unknown>>(env, connection);
-
-  let credentialIsFresh = true;
-  let credentialStaleReason: string | undefined;
-  let credentialExpiresAt: number | null | undefined;
-  const provider = getProvider(connection.provider);
-  if (provider?.checkCredentialFreshness) {
-    try {
-      const r = await provider.checkCredentialFreshness(decryptedCredentials);
-      credentialIsFresh = r.fresh;
-      credentialStaleReason = r.reason;
-      credentialExpiresAt = r.expiresAt ?? null;
-    } catch (err) {
-      console.warn("credential freshness check threw", err);
-      credentialIsFresh = false;
-      credentialStaleReason = "freshness check failed";
-    }
-  }
+  // Roll per-connection freshness up to a single bundle-level
+  // signal. The UI explains "X of Y connections have stale
+  // credentials" via the reason; the boolean gates whether we
+  // inline values at all.
+  const staleConns = perConn.filter((c) => !c.fresh);
+  const credentialIsFresh = staleConns.length === 0;
+  const credentialStaleReason = staleConns.length
+    ? staleConns
+        .map((c) => `${c.connection.display_name}: ${c.staleReason ?? "stale"}`)
+        .join("; ")
+    : undefined;
+  const credentialExpiresAt = perConn
+    .map((c) => c.expiresAt ?? null)
+    .filter((v): v is number => v !== null)
+    .reduce<number | null>((m, v) => (m === null || v < m ? v : m), null);
 
   // Resolve metrics target. "none"/null = no metrics sink;
   // "logtura" = the http-POST-to-us sink; anything else is treated
@@ -130,10 +179,12 @@ export async function assembleDeploymentBundle(
   }
 
   const bundle = generateBundle({
-    connection,
-    selectedSources,
+    connections: perConn.map((c) => ({
+      connection: c.connection,
+      selectedSources: c.selectedSources,
+      credentials: c.fresh ? c.credentials : undefined,
+    })),
     monitors: generatorMonitors,
-    connectionCredentials: credentialIsFresh ? decryptedCredentials : undefined,
     heartbeat: {
       kind:
         (deployment.heartbeat_target ?? "logtura") === "logtura"

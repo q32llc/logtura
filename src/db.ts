@@ -869,7 +869,13 @@ export async function getDeployment(
 
 export interface CreateDeploymentInput {
   userId: string;
+  /** The primary connection — kept on the deployments row for app
+   *  naming, default selection UX, and back-compat. */
   connectionId: string;
+  /** Additional connections to join into the same forwarder. The
+   *  primary is auto-included; this is for the multi-provider case
+   *  (e.g. Cloudflare workers + Fly apps in one Vector config). */
+  additionalConnectionIds?: string[];
   displayName: string;
   targetKind: string;
   managed?: boolean;
@@ -916,9 +922,94 @@ export async function createDeployment(
       ts,
     )
     .run();
+  // Seed the deployment_connections join table with the primary
+  // plus any additional connections. The join table is the
+  // authoritative source for bundle assembly; the column on
+  // deployments is just the "primary" used for naming + UX.
+  const allConnIds = Array.from(
+    new Set([input.connectionId, ...(input.additionalConnectionIds ?? [])]),
+  );
+  for (const connId of allConnIds) {
+    await db
+      .prepare(
+        `INSERT OR IGNORE INTO deployment_connections
+         (deployment_id, connection_id, added_at) VALUES (?, ?, ?)`,
+      )
+      .bind(id, connId, ts)
+      .run();
+  }
+
   const r = await getDeployment(db, input.userId, id);
   if (!r) throw new Error("deployment vanished after insert");
   return r;
+}
+
+/** Return every connection joined to a deployment, ordered by when
+ *  it was added (oldest first). The deployments.connection_id
+ *  column is also present as a row here — bundle assembly should
+ *  read this list, not the column. */
+export async function listConnectionsForDeployment(
+  db: D1Database,
+  userId: string,
+  deploymentId: string,
+): Promise<ConnectionRow[]> {
+  const r = await db
+    .prepare(
+      `SELECT c.* FROM connections c
+       JOIN deployment_connections dc ON dc.connection_id = c.id
+       WHERE dc.deployment_id = ? AND c.user_id = ?
+       ORDER BY dc.added_at ASC`,
+    )
+    .bind(deploymentId, userId)
+    .all<ConnectionRow>();
+  return r.results ?? [];
+}
+
+/** Replace the join-table entries for a deployment with the given
+ *  connection set. Used when the user edits the deployment's
+ *  connection list on the configure tab. The primary
+ *  `deployments.connection_id` is kept as-is unless explicitly
+ *  changed elsewhere — orchestration uses the join table. */
+export async function setDeploymentConnections(
+  db: D1Database,
+  userId: string,
+  deploymentId: string,
+  connectionIds: string[],
+): Promise<void> {
+  // Verify every connection belongs to the user before we change
+  // anything. If one is bogus we fail loudly rather than silently
+  // pruning so the UI sees the error.
+  const dedup = Array.from(new Set(connectionIds));
+  for (const id of dedup) {
+    const owned = await db
+      .prepare("SELECT 1 FROM connections WHERE id = ? AND user_id = ?")
+      .bind(id, userId)
+      .first();
+    if (!owned) {
+      throw new Error(`connection ${id} not owned by user`);
+    }
+  }
+  // Verify the deployment is owned too.
+  const dep = await db
+    .prepare("SELECT 1 FROM deployments WHERE id = ? AND user_id = ?")
+    .bind(deploymentId, userId)
+    .first();
+  if (!dep) throw new Error(`deployment ${deploymentId} not owned by user`);
+
+  await db
+    .prepare("DELETE FROM deployment_connections WHERE deployment_id = ?")
+    .bind(deploymentId)
+    .run();
+  const ts = now();
+  for (const id of dedup) {
+    await db
+      .prepare(
+        `INSERT INTO deployment_connections (deployment_id, connection_id, added_at)
+         VALUES (?, ?, ?)`,
+      )
+      .bind(deploymentId, id, ts)
+      .run();
+  }
 }
 
 /**

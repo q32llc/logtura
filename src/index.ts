@@ -9,7 +9,9 @@ import {
 import {
   createConnection,
   updateConnectionCredentials,
+  listConnectionsForDeployment,
   markUserDeploymentsOutdated,
+  setDeploymentConnections,
   markDeploymentDeployed,
   createDestination,
   createMonitor,
@@ -611,7 +613,14 @@ apiAuth.get("/connections/:id/deployments", async (c) => {
 apiAuth.post("/deployments", async (c) => {
   const user = c.get("user")!;
   const body = (await c.req.json()) as {
+    /** Primary connection — used as deployments.connection_id (app
+     *  naming + back-compat). Required. */
     connectionId?: string;
+    /** Additional connections to include in the same forwarder.
+     *  Each must be a different provider from connectionId and
+     *  from each other — v1 constraint to avoid env-var collisions
+     *  (two CF tokens both wanting CLOUDFLARE_API_TOKEN, etc.). */
+    additionalConnectionIds?: string[];
     displayName?: string;
     targetKind?: string;
     managed?: boolean;
@@ -622,19 +631,37 @@ apiAuth.post("/deployments", async (c) => {
   if (!body.connectionId || !body.displayName || !body.targetKind) {
     return c.json({ error: "missing_fields" }, 400);
   }
-  // Verify the connection belongs to the user before creating.
-  const connection = await getConnection(
-    c.env.DB,
-    user.id,
-    body.connectionId,
-  );
-  if (!connection) return c.json({ error: "connection_not_found" }, 404);
   if (!getDeployTargetDriver(body.targetKind)) {
     return c.json({ error: "unknown_target" }, 400);
+  }
+  // Verify all connections belong to the user + enforce
+  // one-per-provider. Failing here is cheaper than failing in
+  // bundle assembly with a less-helpful error.
+  const allConnIds = Array.from(
+    new Set([body.connectionId, ...(body.additionalConnectionIds ?? [])]),
+  );
+  const providersSeen = new Map<string, string>();
+  for (const id of allConnIds) {
+    const conn = await getConnection(c.env.DB, user.id, id);
+    if (!conn) {
+      return c.json({ error: "connection_not_found", connectionId: id }, 404);
+    }
+    const prior = providersSeen.get(conn.provider);
+    if (prior) {
+      return c.json(
+        {
+          error: "duplicate_provider",
+          message: `Two connections of the same provider can't share one deployment yet (provider=${conn.provider}).`,
+        },
+        400,
+      );
+    }
+    providersSeen.set(conn.provider, conn.id);
   }
   const deployment = await createDeployment(c.env.DB, {
     userId: user.id,
     connectionId: body.connectionId,
+    additionalConnectionIds: body.additionalConnectionIds,
     displayName: body.displayName,
     targetKind: body.targetKind,
     managed: body.managed,
@@ -663,9 +690,73 @@ apiAuth.get("/deployments/:id", async (c) => {
     const { job } = await aggregateJobWithKids(jobs, activeParent);
     latestDeployJob = toApiJob(job);
   }
+  // Surface the deployment's connection set so the configure tab
+  // can render a multi-select instead of digging into a separate
+  // endpoint. Display name + provider are the only fields the
+  // chip-style row needs; full ApiConnection isn't necessary here.
+  const conns = await listConnectionsForDeployment(
+    c.env.DB,
+    user.id,
+    deployment.id,
+  );
   return c.json({
     deployment: toApiDeployment(deployment),
     latestDeployJob,
+    connections: conns.map((c) => ({
+      id: c.id,
+      displayName: c.display_name,
+      provider: c.provider,
+      externalAccountId: c.external_account_id,
+    })),
+  });
+});
+
+apiAuth.put("/deployments/:id/connections", async (c) => {
+  const user = c.get("user")!;
+  const id = c.req.param("id");
+  const body = (await c.req.json()) as { connectionIds?: string[] };
+  if (!Array.isArray(body.connectionIds) || body.connectionIds.length === 0) {
+    return c.json({ error: "missing_connection_ids" }, 400);
+  }
+  // Enforce one-per-provider here too (same rule as POST). Cheap to
+  // re-check; production catches mid-edit "I'll add a second CF"
+  // mistakes.
+  const providersSeen = new Map<string, string>();
+  for (const connId of body.connectionIds) {
+    const conn = await getConnection(c.env.DB, user.id, connId);
+    if (!conn) {
+      return c.json({ error: "connection_not_found", connectionId: connId }, 404);
+    }
+    const prior = providersSeen.get(conn.provider);
+    if (prior) {
+      return c.json(
+        {
+          error: "duplicate_provider",
+          message: `Two connections of the same provider can't share one deployment (provider=${conn.provider}).`,
+        },
+        400,
+      );
+    }
+    providersSeen.set(conn.provider, conn.id);
+  }
+  try {
+    await setDeploymentConnections(c.env.DB, user.id, id, body.connectionIds);
+  } catch (err) {
+    return c.json(
+      { error: "update_failed", message: err instanceof Error ? err.message : "?" },
+      400,
+    );
+  }
+  // Connection set changed → next bundle differs → flag outdated.
+  await markUserDeploymentsOutdated(c.env.DB, user.id);
+  const updated = await listConnectionsForDeployment(c.env.DB, user.id, id);
+  return c.json({
+    connections: updated.map((c) => ({
+      id: c.id,
+      displayName: c.display_name,
+      provider: c.provider,
+      externalAccountId: c.external_account_id,
+    })),
   });
 });
 

@@ -194,9 +194,16 @@ export const api = {
     request<{
       deployment: ApiDeployment;
       latestDeployJob: ApiJob | null;
+      connections: Array<{
+        id: string;
+        displayName: string;
+        provider: string;
+        externalAccountId: string | null;
+      }>;
     }>(`/deployments/${id}`),
   createDeployment: (body: {
     connectionId: string;
+    additionalConnectionIds?: string[];
     displayName: string;
     targetKind: string;
     managed?: boolean;
@@ -207,6 +214,18 @@ export const api = {
     request<{ deployment: ApiDeployment }>("/deployments", {
       method: "POST",
       body: JSON.stringify(body),
+    }),
+  setDeploymentConnections: (id: string, connectionIds: string[]) =>
+    request<{
+      connections: Array<{
+        id: string;
+        displayName: string;
+        provider: string;
+        externalAccountId: string | null;
+      }>;
+    }>(`/deployments/${id}/connections`, {
+      method: "PUT",
+      body: JSON.stringify({ connectionIds }),
     }),
   updateDeployment: (
     id: string,

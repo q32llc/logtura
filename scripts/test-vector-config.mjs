@@ -272,7 +272,22 @@ for (const fx of FIXTURES) {
   mkdirSync(dir, { recursive: true });
   let bundle;
   try {
-    bundle = generateBundle(fx.input);
+    // Fixtures use the historic single-connection shape; adapt to
+    // the multi-connection API the generator now expects without
+    // rewriting every fixture.
+    const input = fx.input.connections
+      ? fx.input
+      : {
+          ...fx.input,
+          connections: [
+            {
+              connection: fx.input.connection,
+              selectedSources: fx.input.selectedSources,
+              credentials: fx.input.connectionCredentials,
+            },
+          ],
+        };
+    bundle = generateBundle(input);
   } catch (e) {
     console.error(`✗ ${fx.name}: generateBundle threw —`, e instanceof Error ? e.message : e);
     failed++;
