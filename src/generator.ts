@@ -631,6 +631,12 @@ function renderRollupStages(
     "      sample: flat_unique",
   ].join("\n");
 
+  // NOTE: VRL's `string(x)` is a type-assertion (errors if x isn't
+  // string), not a converter. For ints we use `to_string(x)`, which
+  // is infallible for primitive types. Getting this wrong yields
+  // E103 unhandled-fallible-assignment at runtime and the whole
+  // config refuses to load. (vector validate doesn't catch it when
+  // run with --no-environment — see scripts/test-vector-config.mjs.)
   const fmtYaml = [
     "    type: remap",
     `    inputs: ["${reduceKey}"]`,
@@ -641,8 +647,8 @@ function renderRollupStages(
     `      top_str = join!(top, " | ")`,
     `      n = int(.count) ?? 0`,
     `      window_label = "${windowSecs}s"`,
-    `      header = string(n) + " events in " + window_label`,
-    `      tail = if unique_count > length(top) { " (" + string(unique_count) + " unique, top " + string(length(top)) + ")" } else { "" }`,
+    `      header = to_string(n) + " events in " + window_label`,
+    `      tail = if unique_count > length(top) { " (" + to_string(unique_count) + " unique, top " + to_string(length(top)) + ")" } else { "" }`,
     `      .message = header + tail + " — " + top_str`,
     `      .error = true`,
     `      .level = "error"`,
@@ -678,7 +684,10 @@ function renderStepYaml(step: FilterStep, input: string): string | null {
     case "match": {
       const field = step.field ?? "message";
       const safePattern = step.pattern.replace(/'/g, "");
-      const matches = `match(string(.${field}) ?? "", r'${safePattern}') ?? false`;
+      // match() is infallible (returns boolean); the inner string()
+      // *is* fallible, so its ?? stays. Adding a trailing ?? on the
+      // match expression itself trips E651 unnecessary-coalescing.
+      const matches = `match(string(.${field}) ?? "", r'${safePattern}')`;
       const cond = step.mode === "exclude" ? `!(${matches})` : matches;
       return [
         "    type: filter",

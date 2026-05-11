@@ -286,6 +286,13 @@ for (const fx of FIXTURES) {
   const envLines = bundle.envVars.map((v) => `${v.name}=placeholder_value`);
   writeFileSync(join(dir, ".env"), envLines.join("\n"));
 
+  // IMPORTANT: do NOT pass --no-environment. The flag is named
+  // confusingly: it disables "environment checks" which Vector
+  // defines to include component compilation — so VRL transforms
+  // are never actually built, and every E103/E651/E701 slips
+  // through. We pass --skip-healthchecks instead so we don't try to
+  // hit Slack/Cloudflare from CI, but we DO want the VRL compile
+  // pass, which is the entire point of this script.
   const result = spawnSync(
     "docker",
     [
@@ -299,7 +306,7 @@ for (const fx of FIXTURES) {
       "/usr/bin/vector",
       FORWARDER_IMAGE,
       "validate",
-      "--no-environment",
+      "--skip-healthchecks",
       "/etc/vector/vector.yaml",
     ],
     { encoding: "utf8" },
