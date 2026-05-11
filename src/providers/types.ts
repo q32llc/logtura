@@ -107,13 +107,14 @@ export interface SourceBlock {
   key: string;
   // The YAML body for `sources.<key>:` (without the key itself).
   yaml: string;
-  // Optional normalize transform applied immediately after the source.
-  // Lets each provider flatten its native event shape into a uniform
-  // one (.message, .level, .error, .script, .timestamp) so downstream
-  // filters can be provider-agnostic. The transform's inputs is
-  // implicit — the source's key. If present, downstream pipeline
-  // reads from normalize.key instead of key.
-  normalize?: { key: string; yaml: string };
+  // If set, this source feeds into a per-kind normalize transform
+  // shared with every other source that returns the same kind tag.
+  // Lets one normalize remap fan-in 50 wrangler-tail workers
+  // instead of paying for 50 copies of identical VRL. The generator
+  // groups sources by this tag and calls `generateNormalize(kind,
+  // inputKeys)` once per group. If absent, downstream reads
+  // directly from the source key.
+  normalizeKind?: string;
 }
 
 // Minimal subset of ConnectionRow that drivers need. Avoids importing the
@@ -189,6 +190,20 @@ export interface ProviderDriver<TCreds = unknown> {
     source: SourceRef;
     connection: ConnectionRef;
   }): SourceBlock;
+
+  /**
+   * Render a single per-kind normalize transform that fans-in every
+   * source the generator grouped under `kind`. Called once per
+   * distinct `SourceBlock.normalizeKind` returned by the driver, with
+   * `inputKeys` listing the source keys to feed into it. Return null
+   * if this kind doesn't need a normalize step (raw events flow
+   * straight to tag_source).
+   */
+  generateNormalize?(input: {
+    kind: string;
+    inputKeys: string[];
+    connection: ConnectionRef;
+  }): { key: string; yaml: string } | null;
 
   /**
    * Runtime spec — env vars and Dockerfile install steps the bundle

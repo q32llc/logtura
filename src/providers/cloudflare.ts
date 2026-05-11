@@ -282,11 +282,7 @@ export const cloudflareDriver: ProviderDriver<CloudflareCredentials> = {
         `    decoding:`,
         `      codec: json`,
       ].join("\n");
-      return {
-        key,
-        yaml,
-        normalize: { key: `${key}_norm`, yaml: workerNormalizeYaml(key) },
-      };
+      return { key, yaml, normalizeKind: "cf_worker" };
     }
     if (source.sourceKind === "cf_ai_gateway") {
       const yaml = [
@@ -302,13 +298,31 @@ export const cloudflareDriver: ProviderDriver<CloudflareCredentials> = {
         `    decoding:`,
         `      codec: json`,
       ].join("\n");
-      return {
-        key,
-        yaml,
-        normalize: { key: `${key}_norm`, yaml: aiGatewayNormalizeYaml(key) },
-      };
+      return { key, yaml, normalizeKind: "cf_ai_gateway" };
     }
     throw new Error(`Unknown cloudflare source kind: ${source.sourceKind}`);
+  },
+
+  /** Per-kind normalize: one transform fans-in every source of the
+   *  same kind. VRL body is identical across sources of a kind, so
+   *  we used to emit N copies for N workers. Consolidating saves
+   *  ~30 lines of VRL × N runtime transforms; bug fixes also only
+   *  need to land in one place. */
+  generateNormalize({ kind, inputKeys }) {
+    if (inputKeys.length === 0) return null;
+    if (kind === "cf_worker") {
+      return {
+        key: "cf_worker_norm",
+        yaml: workerNormalizeYaml(inputKeys),
+      };
+    }
+    if (kind === "cf_ai_gateway") {
+      return {
+        key: "cf_ai_gateway_norm",
+        yaml: aiGatewayNormalizeYaml(inputKeys),
+      };
+    }
+    return null;
   },
 
   runtimeSpec(_connection: ConnectionRef): {
@@ -374,7 +388,7 @@ function shellQuote(s: string): string {
  * CF tail event shape (top-level): outcome, scriptName, exceptions[],
  * logs[{message[], level}], event, eventTimestamp.
  */
-function workerNormalizeYaml(sourceKey: string): string {
+function workerNormalizeYaml(inputKeys: string[]): string {
   const vrl = [
     `.script = string(.scriptName) ?? "worker"`,
     `.timestamp = .eventTimestamp`,
@@ -412,7 +426,7 @@ function workerNormalizeYaml(sourceKey: string): string {
   ];
   return [
     "    type: remap",
-    `    inputs: ["${sourceKey}"]`,
+    `    inputs: [${inputKeys.map((k) => `"${k}"`).join(", ")}]`,
     "    source: |-",
     ...vrl.map((line) => `      ${line}`),
   ].join("\n");
@@ -427,7 +441,7 @@ function workerNormalizeYaml(sourceKey: string): string {
  * AI Gateway log shape: {id, success, status_code, request_*, model,
  * provider, response_status_code, ...}
  */
-function aiGatewayNormalizeYaml(sourceKey: string): string {
+function aiGatewayNormalizeYaml(inputKeys: string[]): string {
   const vrl = [
     `.script = string(.provider) ?? "ai-gateway"`,
     `.timestamp = .created_at`,
@@ -440,7 +454,7 @@ function aiGatewayNormalizeYaml(sourceKey: string): string {
   ];
   return [
     "    type: remap",
-    `    inputs: ["${sourceKey}"]`,
+    `    inputs: [${inputKeys.map((k) => `"${k}"`).join(", ")}]`,
     "    source: |-",
     ...vrl.map((line) => `      ${line}`),
   ].join("\n");

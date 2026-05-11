@@ -272,10 +272,12 @@ function renderVectorYaml(
   // ---- sources -----------------------------------------------------
   lines.push("sources:");
   const sourceKeys: string[] = [];
-  // Per-source normalize transforms collected here, emitted into the
-  // transforms section below. Output keys (post-normalize) feed into
-  // tag_source so downstream filters see the uniform shape.
-  const normalizeBlocks: Array<{ key: string; yaml: string }> = [];
+  // Sources grouped by their `normalizeKind` so we can emit ONE
+  // normalize transform per kind that fans in every matching source.
+  // For 50 wrangler-tail workers that means one shared normalize VRL
+  // instead of 50 identical copies. Sources without a normalizeKind
+  // feed downstream raw.
+  const sourcesByNormalizeKind = new Map<string, string[]>();
   const downstreamInputKeys: string[] = [];
   if (sources.length === 0) {
     lines.push(
@@ -287,12 +289,33 @@ function renderVectorYaml(
       lines.push(`  ${block.key}:`);
       lines.push(block.yaml);
       sourceKeys.push(block.key);
-      if (block.normalize) {
-        normalizeBlocks.push(block.normalize);
-        downstreamInputKeys.push(block.normalize.key);
+      if (block.normalizeKind) {
+        const list = sourcesByNormalizeKind.get(block.normalizeKind) ?? [];
+        list.push(block.key);
+        sourcesByNormalizeKind.set(block.normalizeKind, list);
       } else {
         downstreamInputKeys.push(block.key);
       }
+    }
+  }
+  // Resolve per-kind normalize blocks now that all sources are seen.
+  // The driver is the source of truth for each kind's VRL body; we
+  // just hand it the list of input keys to fan in.
+  const normalizeBlocks: Array<{ key: string; yaml: string }> = [];
+  for (const [kind, inputKeys] of sourcesByNormalizeKind) {
+    const block = driver.generateNormalize?.({
+      kind,
+      inputKeys,
+      connection,
+    });
+    if (block) {
+      normalizeBlocks.push(block);
+      downstreamInputKeys.push(block.key);
+    } else {
+      // Driver declared a normalizeKind but didn't return a block —
+      // fall back to letting the raw source keys feed downstream so
+      // the pipeline still works (no silent event loss).
+      downstreamInputKeys.push(...inputKeys);
     }
   }
   lines.push("  internal_metrics:");
