@@ -246,10 +246,29 @@ describe("multi-connection deployments (source-derived)", () => {
       `http://localhost/api/deployments/${depId}/bundle`,
       { headers: { cookie: sessionCookie } },
     );
-    // The route catches the assembly error as a 500 (it doesn't
-    // know how to translate it to a specific 4xx code); the
-    // important assertion is that it doesn't silently succeed with
-    // a half-baked bundle.
-    expect(res.status).toBeGreaterThanOrEqual(500);
+    // Route translates the same-provider error to a 400 with a
+    // structured body so the picker UI can show the user which
+    // provider to narrow.
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string; message: string };
+    expect(body.error).toBe("duplicate_provider_sources");
+    expect(body.message).toMatch(/cloudflare/i);
+
+    // Now narrow the selection to a single CF connection's source
+    // and re-fetch — the same deployment row now produces a clean
+    // bundle. This proves the failure mode is specifically the
+    // cross-conn duplicate-provider rule, not some other accident.
+    await env.DB.prepare(
+      "UPDATE deployments SET source_selection_json = ? WHERE id = ?",
+    )
+      .bind(JSON.stringify([s1]), depId)
+      .run();
+    const okRes = await SELF.fetch(
+      `http://localhost/api/deployments/${depId}/bundle`,
+      { headers: { cookie: sessionCookie } },
+    );
+    expect(okRes.status).toBe(200);
+    const okBundle = (await okRes.json()) as { selectedCount: number };
+    expect(okBundle.selectedCount).toBe(1);
   });
 });

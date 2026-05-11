@@ -506,6 +506,18 @@ apiAuth.get("/deployments/:id/bundle", async (c) => {
       return c.json({ error: "not_found" }, 404);
     if (message.includes("connection not found"))
       return c.json({ error: "connection_not_found" }, 404);
+    // Same-provider env-var collision (two CF connections, two
+    // FLY_API_TOKEN, etc.) is a configuration problem the user can
+    // fix from the picker — surface it as a 400 with the actual
+    // reason instead of a bare 500. The error message names the
+    // provider so the UI can highlight which source set to
+    // narrow.
+    if (message.includes("only one connection per provider")) {
+      return c.json(
+        { error: "duplicate_provider_sources", message },
+        400,
+      );
+    }
     throw err;
   }
   const { deployment, bundle: sourceBundle } = assembled;
