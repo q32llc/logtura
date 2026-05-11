@@ -243,15 +243,56 @@ function flyAppNormalizeYaml(inputKeys: string[]): string {
   const vrl = [
     `.script = string(.app) ?? "fly"`,
     `.timestamp = .timestamp`,
-    `level_str = string(.level) ?? "info"`,
-    `.level = level_str`,
-    `.error = level_str == "error" || level_str == "fatal" || level_str == "panic"`,
     `body = string(.message) ?? ""`,
     `if body == "" { body = "(no message)" }`,
+    // Fly only sees the STREAM (stdout=info, stderr=error), not
+    // the semantic level — so Node's console.warn / console.debug
+    // both look like "error" to Fly because they hit stderr. To
+    // route correctly, try parsing the body as a structured log
+    // (pino, winston, zap, bunyan, structlog all emit JSON) and
+    // prefer the embedded level when present.
+    //
+    // String levels: error / warn / info / debug / trace / fatal /
+    // panic / critical (plus the "warning" variant).
+    //
+    // Numeric levels: pino's scheme — 10/20/30/40/50/60. We treat
+    // 0–9 and unknown as "no opinion" → fall back to Fly's stream.
+    // Try `level` (winston/pino/bunyan/zap/logrus/structlog),
+    // `severity` (GCP / Google Cloud Logging), and `lvl` (some Go
+    // loggers). Normalize uppercase forms (Go slog, Rust tracing
+    // emit "INFO" etc) and aliases ("warning"→"warn",
+    // "emergency"/"alert"→"fatal"/"error").
+    //
+    // Numeric levels: pino + bunyan use 10/20/30/40/50/60.
+    // Cumulative-if pattern (monotonic overwrite) instead of
+    // else-if chains — VRL rejects `else` on a new line.
+    `fly_level = string(.level) ?? "info"`,
+    `inner_level = ""`,
+    `parsed = parse_json(body) ?? null`,
+    `if is_object(parsed) {`,
+    `  raw_str = string(parsed.level) ?? string(parsed.severity) ?? string(parsed.lvl) ?? ""`,
+    `  if raw_str != "" {`,
+    `    lower = downcase(raw_str)`,
+    `    if lower == "warning" { inner_level = "warn" }`,
+    `    if lower == "warn" || lower == "info" || lower == "debug" || lower == "trace" { inner_level = lower }`,
+    `    if lower == "error" || lower == "fatal" || lower == "panic" || lower == "critical" { inner_level = lower }`,
+    `    if lower == "alert" { inner_level = "error" }`,
+    `    if lower == "emergency" { inner_level = "fatal" }`,
+    `  } else {`,
+    `    n = int(parsed.level) ?? 0`,
+    `    if n >= 10 { inner_level = "debug" }`,
+    `    if n >= 30 { inner_level = "info" }`,
+    `    if n >= 40 { inner_level = "warn" }`,
+    `    if n >= 50 { inner_level = "error" }`,
+    `    if n >= 60 { inner_level = "fatal" }`,
+    `  }`,
+    `}`,
+    `effective = if inner_level != "" { inner_level } else { fly_level }`,
+    `.level = effective`,
+    `.error = effective == "error" || effective == "fatal" || effective == "panic" || effective == "critical"`,
     // Always prefix with [app] so monitors WITHOUT rollup still
-    // deliver tagged Slack messages. Bare bodies — common when
-    // Fly's runtime emits structured-but-stringified events — lose
-    // their app association otherwise.
+    // deliver tagged Slack messages. Bare bodies lose their app
+    // association otherwise.
     `.message = "[" + .script + "] " + body`,
   ];
   return [
