@@ -85,6 +85,41 @@ const CF_SOURCES = [
   },
 ];
 
+const FLY_CONNECTION = {
+  id: "con_fly",
+  user_id: "usr_test",
+  provider: "fly",
+  display_name: "test fly",
+  external_account_id: "personal",
+  credentials_encrypted: new ArrayBuffer(0),
+  created_at: 0,
+  updated_at: 0,
+  last_discovered_at: null,
+};
+
+const FLY_SOURCES = [
+  {
+    id: "src_fly1",
+    connection_id: "con_fly",
+    source_kind: "fly_app",
+    source_kind_label: "App",
+    external_id: "my-app",
+    display_name: "my-app",
+    metadata_json: null,
+    discovered_at: 0,
+  },
+  {
+    id: "src_fly2",
+    connection_id: "con_fly",
+    source_kind: "fly_app",
+    source_kind_label: "App",
+    external_id: "other-app",
+    display_name: "other-app",
+    metadata_json: null,
+    discovered_at: 0,
+  },
+];
+
 const SLACK_DEST = {
   id: "dest_slack",
   user_id: "usr_test",
@@ -256,6 +291,23 @@ const FIXTURES = [
         deploymentId: "dep_test",
         appUrl: "https://logtura.example.com",
       },
+      metrics: { kind: "none" },
+    },
+  },
+  {
+    name: "fly-two-apps",
+    desc: "Fly source provider: exec command + jq pipeline shouldn't trip Vector's $VAR pre-pass on the jq filter",
+    input: {
+      connection: FLY_CONNECTION,
+      selectedSources: FLY_SOURCES,
+      monitors: [
+        monitorWithSteps(
+          "mon_fly_errors",
+          [{ kind: "errors" }],
+          [sinkWith("snk_webhook", WEBHOOK_DEST, WEBHOOK_CONFIG, [])],
+        ),
+      ],
+      heartbeat: { kind: "none" },
       metrics: { kind: "none" },
     },
   },

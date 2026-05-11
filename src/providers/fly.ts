@@ -154,8 +154,17 @@ export const flyDriver: ProviderDriver<FlyCredentials> = {
     //
     // shellQuote() already restricts externalId to
     // [a-zA-Z0-9_-]+ so it's safe to interpolate the `-a` arg.
+    //
+    // NOTE the `$$app` — Vector pre-processes the WHOLE config file
+    // for `$VAR` / `${VAR}` env-var substitution before parsing any
+    // structure, even inside string literals destined for `sh -c`.
+    // A bare `$app` in the jq filter would be substituted to "" at
+    // load time (no env var named `app`) and Vector crashes with
+    // "Missing environment variable in config. name = app". The
+    // escape `$$` collapses to a single `$` in Vector's pre-pass,
+    // so jq receives `$app` and resolves it from `--arg app …`.
     const app = shellQuote(source.externalId);
-    const command = `stdbuf -oL flyctl logs --json -a ${app} | jq -c --unbuffered --arg app ${app} '. + {app: $app}'`;
+    const command = `stdbuf -oL flyctl logs --json -a ${app} | jq -c --unbuffered --arg app ${app} '. + {app: $$app}'`;
     const yaml = [
       `    type: exec`,
       `    command: ["sh", "-c", ${JSON.stringify(command)}]`,
