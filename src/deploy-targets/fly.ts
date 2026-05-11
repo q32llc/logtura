@@ -157,9 +157,9 @@ export const flyDriver: DeployTargetDriver<FlyCredentials> = {
   // toggle in the UI surfaces a "coming soon" until these land.
 
   async mintConnectionCredentials({ bootstrapCredentials, providerId, scope }) {
-    if (providerId !== "fly") {
+    if (providerId !== "fly-log-tail") {
       throw new DeployTargetError(
-        `Fly bootstrap can only mint credentials for the Fly source provider, got: ${providerId}`,
+        `Fly bootstrap can only mint credentials for the fly-log-tail source provider, got: ${providerId}`,
         400,
       );
     }

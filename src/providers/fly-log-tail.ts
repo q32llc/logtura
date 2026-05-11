@@ -32,9 +32,10 @@ export interface FlyCredentials {
  * the source connection (where the credential lives in the user's
  * forwarder container and should be narrowly scoped).
  */
-export const flyDriver: ProviderDriver<FlyCredentials> = {
-  id: "fly",
-  displayName: "Fly.io",
+export const flyLogTailDriver: ProviderDriver<FlyCredentials> = {
+  id: "fly-log-tail",
+  displayName: "Fly.io log tail",
+  sourceLabel: "App",
 
   connectFlow: {
     kind: "external_token",
@@ -172,12 +173,11 @@ export const flyDriver: ProviderDriver<FlyCredentials> = {
       `    decoding:`,
       `      codec: json`,
     ].join("\n");
-    return { key, yaml, normalizeKind: "fly_app" };
+    return { key, yaml };
   },
 
-  generateNormalize({ kind, inputKeys }) {
+  generateNormalize({ inputKeys }) {
     if (inputKeys.length === 0) return null;
-    if (kind !== "fly_app") return null;
     return {
       key: "fly_app_norm",
       yaml: flyAppNormalizeYaml(inputKeys),
@@ -209,10 +209,6 @@ export const flyDriver: ProviderDriver<FlyCredentials> = {
     };
   },
 
-  sourceKindLabel(kind) {
-    if (kind === "fly_app") return "App";
-    return kind;
-  },
 };
 
 function safeKey(s: string): string {

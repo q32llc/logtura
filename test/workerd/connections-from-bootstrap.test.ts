@@ -72,7 +72,7 @@ describe("POST /api/connections/from-bootstrap", () => {
       },
       body: JSON.stringify({
         deployTargetId: bootstrap.id,
-        providerId: "fly",
+        providerId: "fly-log-tail",
         displayName: "Fly source (test)",
         scope: "personal",
       }),
@@ -81,7 +81,7 @@ describe("POST /api/connections/from-bootstrap", () => {
     const json = (await res.json()) as {
       connection: { id: string; provider: string; externalAccountId: string };
     };
-    expect(json.connection.provider).toBe("fly");
+    expect(json.connection.provider).toBe("fly-log-tail");
     expect(json.connection.externalAccountId).toBe("personal");
 
     // The stored credential should decrypt to a TWO-caveat macaroon:
@@ -154,7 +154,7 @@ describe("POST /api/connections/from-bootstrap", () => {
       },
       body: JSON.stringify({
         deployTargetId: bootstrap.id,
-        providerId: "cloudflare",
+        providerId: "cloudflare-worker-tail",
         displayName: "CF from bootstrap",
       }),
     });
@@ -214,7 +214,7 @@ describe("Fly mint pipeline — assertion of attenuation against a stored cred",
     const driver = getDeployTargetDriver("fly")!;
     const result = await driver.mintConnectionCredentials!({
       bootstrapCredentials: { apiToken: fakeFlyMacaroon(12345) },
-      providerId: "fly",
+      providerId: "fly-log-tail",
       scope: "personal",
     });
 

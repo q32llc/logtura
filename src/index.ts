@@ -1463,7 +1463,7 @@ function toApiSource(
   return {
     id: s.id,
     sourceKind: s.source_kind,
-    sourceKindLabel: driver?.sourceKindLabel(s.source_kind) ?? s.source_kind,
+    sourceKindLabel: driver?.sourceLabel ?? s.source_kind,
     externalId: s.external_id,
     displayName: s.display_name,
     metadata: s.metadata_json ? JSON.parse(s.metadata_json) : null,

@@ -107,14 +107,6 @@ export interface SourceBlock {
   key: string;
   // The YAML body for `sources.<key>:` (without the key itself).
   yaml: string;
-  // If set, this source feeds into a per-kind normalize transform
-  // shared with every other source that returns the same kind tag.
-  // Lets one normalize remap fan-in 50 wrangler-tail workers
-  // instead of paying for 50 copies of identical VRL. The generator
-  // groups sources by this tag and calls `generateNormalize(kind,
-  // inputKeys)` once per group. If absent, downstream reads
-  // directly from the source key.
-  normalizeKind?: string;
 }
 
 // Minimal subset of ConnectionRow that drivers need. Avoids importing the
@@ -192,15 +184,14 @@ export interface ProviderDriver<TCreds = unknown> {
   }): SourceBlock;
 
   /**
-   * Render a single per-kind normalize transform that fans-in every
-   * source the generator grouped under `kind`. Called once per
-   * distinct `SourceBlock.normalizeKind` returned by the driver, with
-   * `inputKeys` listing the source keys to feed into it. Return null
-   * if this kind doesn't need a normalize step (raw events flow
-   * straight to tag_source).
+   * Render this driver's one normalize transform — fans every
+   * source emitted by this driver into a single remap that
+   * flattens to the uniform .message/.level/.error/.script/
+   * .timestamp shape. One driver, one transport, one normalize.
+   * Return null when the driver's source events already carry the
+   * uniform shape (raw passthrough is fine).
    */
   generateNormalize?(input: {
-    kind: string;
     inputKeys: string[];
     connection: ConnectionRef;
   }): { key: string; yaml: string } | null;
@@ -215,8 +206,10 @@ export interface ProviderDriver<TCreds = unknown> {
     dockerfileDeps: DockerfileDep[];
   };
 
-  /** Friendly label for a discovered source's kind. UI only. */
-  sourceKindLabel(sourceKind: string): string;
+  /** Friendly noun for a single source emitted by this driver
+   *  ("Worker", "AI Gateway", "App"). Used in component manifest
+   *  labels — `${sourceLabel} · ${displayName}`. */
+  readonly sourceLabel: string;
 }
 
 export class ProviderError extends Error {

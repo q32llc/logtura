@@ -36,7 +36,7 @@ async function seedFullDeployment(): Promise<SeededDeployment> {
   await env.DB.prepare(
     `INSERT INTO connections
      (id, user_id, provider, display_name, external_account_id, credentials_encrypted, created_at, updated_at)
-     VALUES (?, ?, 'cloudflare', 'CF', 'acct_xyz', ?, ?, ?)`,
+     VALUES (?, ?, 'cloudflare-worker-tail', 'CF', 'acct_xyz', ?, ?, ?)`,
   )
     .bind(connectionId, userId, credsCt, now, now)
     .run();

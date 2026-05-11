@@ -24,7 +24,7 @@ async function seedConnection(
   await env.DB.prepare(
     `INSERT INTO connections
      (id, user_id, provider, display_name, external_account_id, credentials_encrypted, created_at, updated_at)
-     VALUES (?, ?, 'cloudflare', 'CF', ?, ?, ?, ?)`,
+     VALUES (?, ?, 'cloudflare-worker-tail', 'CF', ?, ?, ?, ?)`,
   )
     .bind(id, userId, externalAccountId, ct, now, now)
     .run();
@@ -49,7 +49,7 @@ function makeCtx(env_: typeof env, job: JobRecord): JobHandlerCtx {
   };
 }
 
-describe("runDiscovery (Cloudflare)", () => {
+describe("runDiscovery (cloudflare-worker-tail)", () => {
   it("upserts discovered workers + ai gateways and marks the connection", async () => {
     const { userId } = await seedUser();
     const connId = await seedConnection(userId, "acct_xyz");
@@ -57,6 +57,9 @@ describe("runDiscovery (Cloudflare)", () => {
     // Cloudflare's discoverSources hits:
     //   /accounts/<id>/workers/scripts
     //   /accounts/<id>/ai-gateway/gateways
+    // cloudflare-worker-tail is now a single-transport driver — it
+    // ONLY discovers workers. AI Gateway is a separate driver with
+    // its own discovery path.
     mockFetch("https://api.cloudflare.com", async (req) => {
       const url = new URL(req.url);
       if (url.pathname === "/client/v4/accounts/acct_xyz/workers/scripts") {
@@ -66,12 +69,6 @@ describe("runDiscovery (Cloudflare)", () => {
             { id: "worker-a", modified_on: "2026-01-01T00:00:00Z" },
             { id: "worker-b", modified_on: "2026-01-02T00:00:00Z" },
           ],
-        });
-      }
-      if (url.pathname === "/client/v4/accounts/acct_xyz/ai-gateway/gateways") {
-        return Response.json({
-          success: true,
-          result: [{ id: "gateway-1", collect_logs: true }],
         });
       }
       throw new Error(`unexpected CF path: ${url.pathname}`);
@@ -104,16 +101,16 @@ describe("runDiscovery (Cloudflare)", () => {
     const result = (await runDiscovery(makeCtx(env, job))) as {
       sourceCount: number;
     };
-    expect(result.sourceCount).toBe(3);
+    expect(result.sourceCount).toBe(2);
 
-    // log_sources rows: 2 cf_worker + 1 cf_ai_gateway.
+    // log_sources rows: 2 cf_worker. AI Gateway lives in a separate
+    // driver/connection now.
     const sources = await env.DB.prepare(
-      "SELECT source_kind, external_id FROM log_sources WHERE connection_id = ? ORDER BY source_kind, external_id",
+      "SELECT source_kind, external_id FROM log_sources WHERE connection_id = ? ORDER BY external_id",
     )
       .bind(connId)
       .all<{ source_kind: string; external_id: string }>();
     expect(sources.results).toEqual([
-      { source_kind: "cf_ai_gateway", external_id: "gateway-1" },
       { source_kind: "cf_worker", external_id: "worker-a" },
       { source_kind: "cf_worker", external_id: "worker-b" },
     ]);
@@ -137,9 +134,6 @@ describe("runDiscovery (Cloudflare)", () => {
           success: true,
           result: [{ id: "worker-a", modified_on: null }],
         });
-      }
-      if (url.pathname === "/client/v4/accounts/acct_xyz/ai-gateway/gateways") {
-        return Response.json({ success: true, result: [] });
       }
       throw new Error(`unexpected: ${url.pathname}`);
     });
@@ -212,7 +206,7 @@ describe("runDiscovery (Cloudflare)", () => {
     };
 
     await expect(runDiscovery(makeCtx(env, job))).rejects.toThrow(
-      /Cloudflare.*discovery failed/,
+      /Cloudflare worker tail/,
     );
   });
 });

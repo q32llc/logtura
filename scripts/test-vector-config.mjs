@@ -43,7 +43,7 @@ const { generateBundle } = await import(
 const CF_CONNECTION = {
   id: "con_test",
   user_id: "usr_test",
-  provider: "cloudflare",
+  provider: "cloudflare-worker-tail",
   display_name: "test cloudflare",
   external_account_id: "f0c6ed442ab8c6bf9d102678d9421dd8",
   credentials_encrypted: new ArrayBuffer(0),
@@ -52,6 +52,9 @@ const CF_CONNECTION = {
   last_discovered_at: null,
 };
 
+// Post-rename: one driver per transport. CF worker connections
+// only carry cf_worker sources; AI Gateway lives under its own
+// driver/connection (see CF_AIGW_* below).
 const CF_SOURCES = [
   {
     id: "src_w1",
@@ -73,9 +76,24 @@ const CF_SOURCES = [
     metadata_json: null,
     discovered_at: 0,
   },
+];
+
+const CF_AIGW_CONNECTION = {
+  id: "con_aigw",
+  user_id: "usr_test",
+  provider: "cloudflare-ai-gateway",
+  display_name: "test ai gateway",
+  external_account_id: "f0c6ed442ab8c6bf9d102678d9421dd8",
+  credentials_encrypted: new ArrayBuffer(0),
+  created_at: 0,
+  updated_at: 0,
+  last_discovered_at: null,
+};
+
+const CF_AIGW_SOURCES = [
   {
     id: "src_ai1",
-    connection_id: "con_test",
+    connection_id: "con_aigw",
     source_kind: "cf_ai_gateway",
     source_kind_label: "AI Gateway",
     external_id: "my-gateway",
@@ -88,7 +106,7 @@ const CF_SOURCES = [
 const FLY_CONNECTION = {
   id: "con_fly",
   user_id: "usr_test",
-  provider: "fly",
+  provider: "fly-log-tail",
   display_name: "test fly",
   external_account_id: "personal",
   credentials_encrypted: new ArrayBuffer(0),
@@ -303,6 +321,23 @@ const FIXTURES = [
       monitors: [
         monitorWithSteps(
           "mon_fly_errors",
+          [{ kind: "errors" }],
+          [sinkWith("snk_webhook", WEBHOOK_DEST, WEBHOOK_CONFIG, [])],
+        ),
+      ],
+      heartbeat: { kind: "none" },
+      metrics: { kind: "none" },
+    },
+  },
+  {
+    name: "cf-ai-gateway-poll",
+    desc: "cloudflare-ai-gateway driver: http_client poll source + its own normalize",
+    input: {
+      connection: CF_AIGW_CONNECTION,
+      selectedSources: CF_AIGW_SOURCES,
+      monitors: [
+        monitorWithSteps(
+          "mon_ai_errors",
           [{ kind: "errors" }],
           [sinkWith("snk_webhook", WEBHOOK_DEST, WEBHOOK_CONFIG, [])],
         ),

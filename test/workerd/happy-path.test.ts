@@ -27,7 +27,7 @@ describe("read endpoints — unauthenticated", () => {
     };
     expect(json.providers.length).toBeGreaterThan(0);
     const ids = json.providers.map((p) => p.id);
-    expect(ids).toContain("cloudflare");
+    expect(ids).toContain("cloudflare-worker-tail");
   });
 });
 
@@ -103,7 +103,7 @@ describe("POST /api/connections — Cloudflare paste-token happy path", () => {
     });
 
     const form = new FormData();
-    form.set("provider", "cloudflare");
+    form.set("provider", "cloudflare-worker-tail");
     form.set("display_name", "Test CF");
     form.set("api_token", "cf_test_token");
     const res = await SELF.fetch("http://localhost/api/connections", {
@@ -115,7 +115,7 @@ describe("POST /api/connections — Cloudflare paste-token happy path", () => {
     const json = (await res.json()) as {
       connection: { id: string; provider: string; externalAccountId: string };
     };
-    expect(json.connection.provider).toBe("cloudflare");
+    expect(json.connection.provider).toBe("cloudflare-worker-tail");
     expect(json.connection.externalAccountId).toBe("acct_xyz");
 
     // Connection row really landed in D1 and is scoped to this user.
@@ -129,7 +129,7 @@ describe("POST /api/connections — Cloudflare paste-token happy path", () => {
         external_account_id: string;
       }>();
     expect(row?.user_id).toBe(userId);
-    expect(row?.provider).toBe("cloudflare");
+    expect(row?.provider).toBe("cloudflare-worker-tail");
     expect(row?.external_account_id).toBe("acct_xyz");
 
     // Discovery job was enqueued — there should be a queued/running
@@ -159,7 +159,7 @@ describe("POST /api/connections — Cloudflare paste-token happy path", () => {
     );
 
     const form = new FormData();
-    form.set("provider", "cloudflare");
+    form.set("provider", "cloudflare-worker-tail");
     form.set("display_name", "Bad CF");
     form.set("api_token", "cf_bad_token");
     const res = await SELF.fetch("http://localhost/api/connections", {

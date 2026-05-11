@@ -364,31 +364,33 @@ function renderVectorYaml(
   // downstream. Without this the multi-connection bundle would
   // either smush events into one tag_source (wrong) or duplicate
   // the tag remap per source (wasteful).
+  // One driver = one transport = one normalize. Each driver
+  // contributes a single normalize transform per bundle that fans in
+  // every source it owns. The per-conn structure tracks which
+  // driver(s) each connection uses so we can emit the right
+  // tag_conn_<connId> downstream.
   interface PerConn {
-    /** Source keys that DON'T go through a normalize transform —
-     *  they feed straight into the per-conn tag step. */
+    /** Source keys that DON'T have a driver-provided normalize. */
     rawDirectKeys: string[];
-    /** normalizeKinds this connection contributes sources to. The
-     *  normalize transform's output then feeds the per-conn tag. */
-    normalizeKinds: string[];
-    /** True once we've actually emitted any source for this conn —
-     *  used to decide whether to emit a tag_conn transform. */
+    /** Driver IDs this connection contributes sources to. */
+    driverIds: string[];
+    /** True once we've actually emitted any source for this conn. */
     hasSources: boolean;
   }
   const perConn = new Map<string, PerConn>();
   function conn(id: string): PerConn {
     let c = perConn.get(id);
     if (!c) {
-      c = { rawDirectKeys: [], normalizeKinds: [], hasSources: false };
+      c = { rawDirectKeys: [], driverIds: [], hasSources: false };
       perConn.set(id, c);
     }
     return c;
   }
-  // Sources grouped by their (provider, normalizeKind) so we still
-  // emit ONE normalize remap per kind even when 50 sources feed it.
-  const normalizeBuckets = new Map<
+  // Sources grouped by driver id — each driver gets one normalize
+  // transform fanning in every source it emitted.
+  const sourcesByDriver = new Map<
     string,
-    { provider: string; kind: string; inputKeys: string[] }
+    { driverId: string; inputKeys: string[] }
   >();
   const totalSources = resolved.reduce((n, r) => n + r.sources.length, 0);
   if (totalSources === 0) {
@@ -411,60 +413,52 @@ function renderVectorYaml(
           id: block.key,
           role: "source",
           category: "primary",
-          label: `${r.driver.sourceKindLabel(s.sourceKind)} · ${s.displayName}`,
+          label: `${r.driver.sourceLabel} · ${s.displayName}`,
           links: {
             connectionId: r.connectionRef.id,
             sourceId: row.id,
           },
         });
-        if (block.normalizeKind) {
-          const bucketKey = `${r.driver.id}:${block.normalizeKind}`;
-          const bucket = normalizeBuckets.get(bucketKey) ?? {
-            provider: r.driver.id,
-            kind: block.normalizeKind,
-            inputKeys: [],
-          };
-          bucket.inputKeys.push(block.key);
-          normalizeBuckets.set(bucketKey, bucket);
-          if (!c.normalizeKinds.includes(bucketKey)) {
-            c.normalizeKinds.push(bucketKey);
-          }
-        } else {
-          c.rawDirectKeys.push(block.key);
+        const bucket = sourcesByDriver.get(r.driver.id) ?? {
+          driverId: r.driver.id,
+          inputKeys: [],
+        };
+        bucket.inputKeys.push(block.key);
+        sourcesByDriver.set(r.driver.id, bucket);
+        if (!c.driverIds.includes(r.driver.id)) {
+          c.driverIds.push(r.driver.id);
         }
       });
     }
   }
-  // Resolve per-kind normalize blocks. With the one-connection-
-  // per-provider constraint, the representative connection's
-  // driver is uniquely determined by the bucket's `provider`.
+  // Resolve normalize block per driver. With one-driver-per-
+  // transport, a connection's provider uniquely picks the driver.
   const normalizeBlocks: Array<{ key: string; yaml: string }> = [];
-  const normalizeOutputByBucket = new Map<string, string>();
-  for (const [bucketKey, bucket] of normalizeBuckets) {
-    const rep = resolved.find((r) => r.driver.id === bucket.provider);
+  const normalizeOutputByDriver = new Map<string, string>();
+  for (const [driverId, bucket] of sourcesByDriver) {
+    const rep = resolved.find((r) => r.driver.id === driverId);
     if (!rep) continue;
     const block = rep.driver.generateNormalize?.({
-      kind: bucket.kind,
       inputKeys: bucket.inputKeys,
       connection: rep.connectionRef,
     });
     if (block) {
       normalizeBlocks.push(block);
-      normalizeOutputByBucket.set(bucketKey, block.key);
+      normalizeOutputByDriver.set(driverId, block.key);
       componentManifest.push({
         id: block.key,
         role: "normalize",
         category: "plumbing",
-        label: `Normalize · ${rep.driver.sourceKindLabel(bucket.kind)}`,
+        label: `Normalize · ${rep.driver.sourceLabel}`,
         detail: `${bucket.inputKeys.length} source${bucket.inputKeys.length === 1 ? "" : "s"}`,
         links: { connectionId: rep.connectionRef.id },
       });
     } else {
-      // No normalize body for this kind → events flow downstream raw.
-      // Mark the bucket's input keys as direct contributors for each
-      // connection that participates.
+      // Driver has no normalize → events flow downstream raw.
+      // Each connection contributing to this driver gets the raw
+      // source keys as direct inputs to its tag_conn step.
       for (const r of resolved) {
-        if (r.driver.id !== bucket.provider) continue;
+        if (r.driver.id !== driverId) continue;
         const c = conn(r.connectionRef.id);
         for (const k of bucket.inputKeys) {
           if (!c.rawDirectKeys.includes(k)) c.rawDirectKeys.push(k);
@@ -539,8 +533,8 @@ function renderVectorYaml(
     const c = perConn.get(r.connectionRef.id);
     if (!c || !c.hasSources) continue;
     const inputs: string[] = [];
-    for (const bucketKey of c.normalizeKinds) {
-      const out = normalizeOutputByBucket.get(bucketKey);
+    for (const driverId of c.driverIds) {
+      const out = normalizeOutputByDriver.get(driverId);
       if (out) inputs.push(out);
     }
     inputs.push(...c.rawDirectKeys);

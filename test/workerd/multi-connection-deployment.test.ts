@@ -15,7 +15,7 @@ interface ConnSeed {
 
 async function seedConnection(
   userId: string,
-  provider: "cloudflare" | "fly",
+  provider: "cloudflare-worker-tail" | "fly-log-tail",
   externalAccountId: string,
   apiToken: string,
 ): Promise<ConnSeed> {
@@ -47,8 +47,8 @@ async function seedConnection(
 describe("multi-connection deployments (source-derived)", () => {
   it("derives both connections from a sourceIds array spanning two providers", async () => {
     const { userId, sessionCookie } = await seedUser();
-    const cf = await seedConnection(userId, "cloudflare", "acct_xyz", "cf_tok");
-    const fly = await seedConnection(userId, "fly", "personal", "fly_tok");
+    const cf = await seedConnection(userId, "cloudflare-worker-tail", "acct_xyz", "cf_tok");
+    const fly = await seedConnection(userId, "fly-log-tail", "personal", "fly_tok");
     const now = Date.now();
 
     // One CF worker + one Fly app. Each lives under its own
@@ -158,8 +158,8 @@ describe("multi-connection deployments (source-derived)", () => {
 
   it("GET /deployments/:id exposes derived connections matching the selected sources", async () => {
     const { userId, sessionCookie } = await seedUser();
-    const cf = await seedConnection(userId, "cloudflare", "acct_x", "cf_tok");
-    const fly = await seedConnection(userId, "fly", "personal", "fly_tok");
+    const cf = await seedConnection(userId, "cloudflare-worker-tail", "acct_x", "cf_tok");
+    const fly = await seedConnection(userId, "fly-log-tail", "personal", "fly_tok");
     const now = Date.now();
     const cfSrc = newId("src");
     const flySrc = newId("src");
@@ -196,15 +196,15 @@ describe("multi-connection deployments (source-derived)", () => {
       connections: Array<{ id: string; provider: string }>;
     };
     expect(json.connections.map((c) => c.provider).sort()).toEqual([
-      "cloudflare",
-      "fly",
+      "cloudflare-worker-tail",
+      "fly-log-tail",
     ]);
   });
 
   it("bundle assembly fails when selected sources span two connections of the same provider", async () => {
     const { userId, sessionCookie } = await seedUser();
-    const cf1 = await seedConnection(userId, "cloudflare", "acct_a", "tok_a");
-    const cf2 = await seedConnection(userId, "cloudflare", "acct_b", "tok_b");
+    const cf1 = await seedConnection(userId, "cloudflare-worker-tail", "acct_a", "tok_a");
+    const cf2 = await seedConnection(userId, "cloudflare-worker-tail", "acct_b", "tok_b");
     const now = Date.now();
     const s1 = newId("src");
     const s2 = newId("src");

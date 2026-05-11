@@ -1,10 +1,12 @@
-import { cloudflareDriver } from "./cloudflare";
-import { flyDriver } from "./fly";
+import { cloudflareAiGatewayDriver } from "./cloudflare-ai-gateway";
+import { cloudflareWorkerTailDriver } from "./cloudflare-worker-tail";
+import { flyLogTailDriver } from "./fly-log-tail";
 import type { ProviderDriver } from "./types";
 
 const REGISTRY: Record<string, ProviderDriver> = {
-  [cloudflareDriver.id]: cloudflareDriver as ProviderDriver,
-  [flyDriver.id]: flyDriver as ProviderDriver,
+  [cloudflareWorkerTailDriver.id]: cloudflareWorkerTailDriver as ProviderDriver,
+  [cloudflareAiGatewayDriver.id]: cloudflareAiGatewayDriver as ProviderDriver,
+  [flyLogTailDriver.id]: flyLogTailDriver as ProviderDriver,
 };
 
 export function getProvider(id: string): ProviderDriver | null {
