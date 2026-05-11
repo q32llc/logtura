@@ -130,22 +130,32 @@ export const flyDriver: ProviderDriver<FlyCredentials> = {
       throw new Error(`Unknown fly source kind: ${source.sourceKind}`);
     }
     const key = `fly_app_${safeKey(source.externalId)}`;
-    // `flyctl logs --json -a <app>` emits one JSON event per line,
-    // but the app name isn't in the event payload (flyctl knows it
-    // from `-a` and doesn't repeat it). We tag at the source via a
-    // shell pipeline that:
-    //   1. Forces flyctl's stdout to LINE-buffered with `stdbuf -oL`
-    //      — when piped, libc defaults stdout to BLOCK buffering
-    //      (4 KB), which means events stall in flyctl's buffer
-    //      until enough accumulate. Vector then sees latency spikes
-    //      and "no events" gaps. `jq -c --unbuffered` only fixes
-    //      jq's output buffering; flyctl needs its own kick.
-    //   2. Pipes through `jq -c '. + {app: "<app>"}'` to inject the
-    //      app name so the per-kind normalize can set .script
-    //      correctly per-app. jq + stdbuf both ship in our
-    //      kitchen-sink image, same as the wrangler-tail path.
-    const appJq = JSON.stringify(source.externalId).replace(/"/g, '\\"');
-    const command = `stdbuf -oL flyctl logs --json -a ${shellQuote(source.externalId)} | jq -c --unbuffered '. + {app: "${appJq.slice(1, -1)}"}'`;
+    // `flyctl logs --json -a <app>` emits JSON events but in the
+    // pretty-printed multi-line shape (same trap as wrangler tail):
+    // Vector's exec source with `codec: json` + the default
+    // newline_delimited framing tries one line at a time and fails
+    // on every line of a multi-line object. Pipe through `jq -c`
+    // to compact each value onto a single line.
+    //
+    // The pipeline also:
+    //   1. Forces flyctl's stdout LINE-buffered with `stdbuf -oL`.
+    //      libc defaults to BLOCK buffering on a pipe (4 KB), so
+    //      without this, events stall in flyctl's buffer until
+    //      enough accumulate. `jq -c --unbuffered` only handles
+    //      jq's output buffering, not flyctl's.
+    //   2. Injects the app name as a jq VARIABLE via `--arg app`,
+    //      not via shell-string interpolation. Earlier attempts to
+    //      embed it inline tripped over double-escaping and
+    //      produced an invalid jq filter — jq died, Vector then
+    //      read flyctl's raw multi-line output and JSON-parse-
+    //      errored on every line. `--arg` sidesteps the entire
+    //      escaping problem; the app name lives in jq's variable
+    //      space, not in the filter source.
+    //
+    // shellQuote() already restricts externalId to
+    // [a-zA-Z0-9_-]+ so it's safe to interpolate the `-a` arg.
+    const app = shellQuote(source.externalId);
+    const command = `stdbuf -oL flyctl logs --json -a ${app} | jq -c --unbuffered --arg app ${app} '. + {app: $app}'`;
     const yaml = [
       `    type: exec`,
       `    command: ["sh", "-c", ${JSON.stringify(command)}]`,
