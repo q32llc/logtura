@@ -246,11 +246,13 @@ function flyAppNormalizeYaml(inputKeys: string[]): string {
     `level_str = string(.level) ?? "info"`,
     `.level = level_str`,
     `.error = level_str == "error" || level_str == "fatal" || level_str == "panic"`,
-    `msg = string(.message) ?? ""`,
-    `if msg == "" {`,
-    `  msg = "[" + .script + "]"`,
-    `}`,
-    `.message = msg`,
+    `body = string(.message) ?? ""`,
+    `if body == "" { body = "(no message)" }`,
+    // Always prefix with [app] so monitors WITHOUT rollup still
+    // deliver tagged Slack messages. Bare bodies — common when
+    // Fly's runtime emits structured-but-stringified events — lose
+    // their app association otherwise.
+    `.message = "[" + .script + "] " + body`,
   ];
   return [
     "    type: remap",

@@ -150,12 +150,17 @@ function workerNormalizeYaml(inputKeys: string[]): string {
     `}`,
     // Some CF events trip .error via outcome alone (canceled,
     // exceededCpu, scriptNotFound) without logs/exceptions —
-    // parts ends up empty. An empty .message then trips Slack
-    // (400 Bad Request on {"text":""}). Synthesize a fallback.
-    `if length(parts) == 0 {`,
-    `  parts = push(parts, "[" + .script + "] outcome=" + outcome)`,
-    `}`,
-    `.message = join!(parts, " | ")`,
+    // parts ends up empty. Synthesize a body so .message is never
+    // bare. Slack returns 400 on {"text":""} so we also need it
+    // non-empty even after the prefix.
+    `body = if length(parts) == 0 { "outcome=" + outcome } else { join!(parts, " | ") }`,
+    // Prefix with [script] so monitors WITHOUT a rollup step still
+    // deliver tagged messages to Slack. Without this, a console.log
+    // of a structured object lands in Slack as a bare JSON fragment
+    // with no source identifier. Rollup-fmt's outer prefix is
+    // intentionally separate (it labels the rollup summary, not
+    // each sample); the mild redundancy in samples is acceptable.
+    `.message = "[" + .script + "] " + body`,
   ];
   return [
     "    type: remap",

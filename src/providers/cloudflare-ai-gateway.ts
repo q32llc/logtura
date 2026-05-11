@@ -123,7 +123,11 @@ function aiGatewayNormalizeYaml(inputKeys: string[]): string {
     `.error = !success || status >= 500`,
     `.level = if .error { "error" } else { "info" }`,
     `model = string(.model) ?? "?"`,
-    `.message = "ai_gateway " + model + " status=" + to_string(status)`,
+    // Prefix with [.script] (the provider name in our scheme) so
+    // monitors without a rollup step still deliver tagged Slack
+    // messages — bare "ai_gateway openai status=200" lines have
+    // no anchor for the user.
+    `.message = "[" + .script + "] ai_gateway " + model + " status=" + to_string(status)`,
   ];
   return [
     "    type: remap",
