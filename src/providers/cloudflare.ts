@@ -267,9 +267,17 @@ export const cloudflareDriver: ProviderDriver<CloudflareCredentials> = {
         `    type: exec`,
         // wrangler picks up CLOUDFLARE_ACCOUNT_ID from env automatically;
         // recent wrangler versions reject `--account-id` as "Unknown
-        // arguments" and exit immediately, which Vector then tries to
-        // JSON-parse and floods decoder errors. Don't pass the flag.
-        `    command: ["sh", "-c", "wrangler tail ${shellQuote(source.externalId)} --format json"]`,
+        // arguments" and exit immediately. Don't pass the flag.
+        //
+        // wrangler tail --format json emits PRETTY-printed multi-line
+        // JSON. Vector's exec source with codec:json + default
+        // newline_delimited framing tries to parse each line as a
+        // standalone object → "EOF while parsing an object" floods.
+        // Pipe through `jq -c --unbuffered .` to compact each event
+        // onto a single line; Vector then parses them correctly.
+        // jq + stdbuf (for unbuffered output) both ship in our
+        // kitchen-sink image.
+        `    command: ["sh", "-c", "wrangler tail ${shellQuote(source.externalId)} --format json | jq -c --unbuffered ."]`,
         `    mode: streaming`,
         `    decoding:`,
         `      codec: json`,
