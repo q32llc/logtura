@@ -620,39 +620,40 @@ function PerComponentTable({
                   ? fmtN(tCount)
                   : "—"}
             </Text>
-            <Tooltip
-              label={errorsByTypeTooltip(c)}
-              disabled={!c.errorsByType || Object.keys(c.errorsByType).length === 0}
-              multiline
-              w={280}
-              withinPortal
+            <div
+              style={{ flexBasis: 90, flexShrink: 0, textAlign: "right" }}
             >
-              <Text
-                size="xs"
-                c={(c.errors ?? 0) > 0 ? "red.5" : undefined}
-                style={{
-                  flexBasis: 90,
-                  flexShrink: 0,
-                  textAlign: "right",
-                  textDecoration:
-                    c.errorsByType && Object.keys(c.errorsByType).length > 0
-                      ? "underline dotted"
-                      : undefined,
-                  cursor:
-                    c.errorsByType && Object.keys(c.errorsByType).length > 0
-                      ? "help"
-                      : undefined,
-                }}
+              <Tooltip
+                label={errorsByTypeTooltip(c)}
+                disabled={!c.errorsByType || Object.keys(c.errorsByType).length === 0}
+                multiline
+                w={280}
+                withinPortal
               >
-                {mode === "rate"
-                  ? eRate !== null
-                    ? `${fmt1(eRate)}/min`
-                    : "—"
-                  : eCount !== undefined
-                    ? fmtN(eCount)
-                    : "—"}
-              </Text>
-            </Tooltip>
+                <Text
+                  size="xs"
+                  c={(c.errors ?? 0) > 0 ? "red.5" : undefined}
+                  style={{
+                    textDecoration:
+                      c.errorsByType && Object.keys(c.errorsByType).length > 0
+                        ? "underline dotted"
+                        : undefined,
+                    cursor:
+                      c.errorsByType && Object.keys(c.errorsByType).length > 0
+                        ? "help"
+                        : undefined,
+                  }}
+                >
+                  {mode === "rate"
+                    ? eRate !== null
+                      ? `${fmt1(eRate)}/min`
+                      : "—"
+                    : eCount !== undefined
+                      ? fmtN(eCount)
+                      : "—"}
+                </Text>
+              </Tooltip>
+            </div>
             <Text size="xs" c="dimmed" style={{ flex: 1, textAlign: "right" }}>
               {relativeTime(c.lastSeen)} ago
             </Text>
