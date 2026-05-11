@@ -170,6 +170,23 @@ export async function runFlyCreateOrUpdateMachine(
     // Tail API direct (TODO) — until then, this is a cheap seatbelt.
     guest: { cpu_kind: "shared", cpus: 2, memory_mb: 4096 },
     restart: { policy: "always" },
+    // TCP probe on Vector's admin API. A crash-looper that flaps
+    // through state=started for milliseconds at a time still fails
+    // this — the port isn't bound until vector finishes booting its
+    // config, and a crashed process closes it within ms. wait_running
+    // reads `m.checks` and only considers the machine healthy when
+    // this is `passing`. `informational` because there's no LB pool
+    // for a single forwarder; we just want Fly to report status.
+    checks: {
+      vector_api: {
+        type: "tcp",
+        port: 8686,
+        interval: "5s",
+        timeout: "2s",
+        grace_period: "10s",
+        kind: "informational",
+      },
+    },
   };
 
   await ctx.progress({ label: "Updating Fly machine" });
@@ -239,12 +256,32 @@ export async function runFlyWaitRunning(
     throw new Error(`machine ${p.machineId} not found on ${p.appName}`);
   }
 
+  const checks = m.checks ?? [];
+  const checksPassing =
+    checks.length > 0 && checks.every((c) => c.status === "passing");
+  const checkSummary = checks.length
+    ? checks.map((c) => `${c.name}=${c.status}`).join(",")
+    : "no-checks-yet";
+
+  // A `restart: always` machine that's crash-looping will flap through
+  // `state=started` for milliseconds between exits. The state field
+  // alone is therefore not enough to call deploy success. We also
+  // require: (1) checks defined and all passing, and (2) no exit event
+  // observed in the last 30s. The TCP probe on :8686 only passes once
+  // Vector has finished booting its config — a crashed process closes
+  // the port, so this catches the crash-loops that bit us before.
+  const RECENT_EXIT_WINDOW_MS = 30 * 1000;
+  const now = Date.now();
+  const recentExit = (m.events ?? []).find(
+    (e) => e.type === "exit" && now - e.timestamp < RECENT_EXIT_WINDOW_MS,
+  );
+
   await ctx.progress({
     label: "Waiting for machine to start",
-    detail: `state=${m.state}`,
+    detail: `state=${m.state} checks=${checkSummary}${recentExit ? " recent_exit" : ""}`,
   });
 
-  if (m.state === "started") {
+  if (m.state === "started" && checksPassing && !recentExit) {
     await updateDeployment(ctx.env.DB, ctx.job.userId, parent.deploymentId, {
       status: "running",
     });
@@ -260,12 +297,13 @@ export async function runFlyWaitRunning(
     );
     await ctx.events.record({
       kind: "fly_machine.running",
-      message: `Machine ${p.machineId} is running`,
+      message: `Machine ${p.machineId} is running (checks: ${checkSummary})`,
     });
     return {
       appName: p.appName,
       machineId: p.machineId,
       machineState: m.state,
+      checksPassing,
       orgSlug: parent.orgSlug ?? "personal",
       region: parent.region ?? DEFAULT_REGION,
       appUrl: `https://fly.io/apps/${p.appName}`,
@@ -274,7 +312,7 @@ export async function runFlyWaitRunning(
 
   if (Date.now() >= p.pollDeadline) {
     throw new Error(
-      `machine ${p.machineId} did not reach 'started' within ${RUN_TIMEOUT_MS / 1000}s (last state: ${m.state})`,
+      `machine ${p.machineId} did not reach healthy 'started' within ${RUN_TIMEOUT_MS / 1000}s (last state: ${m.state}, checks: ${checkSummary}${recentExit ? `, recent exit at ${new Date(recentExit.timestamp).toISOString()}` : ""})`,
     );
   }
 

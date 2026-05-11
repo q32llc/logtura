@@ -124,6 +124,47 @@ export interface FlyMachineFile {
   raw_value: string;
 }
 
+/** A health probe Fly runs from outside the container. `kind:
+ *  informational` reports status without affecting LB routing — what
+ *  we want for a single-machine forwarder where there's nothing to
+ *  route to anyway. `kind: readiness` would also gate the LB pool. */
+export interface MachineCheck {
+  type: "tcp" | "http";
+  port: number;
+  /** Go duration string, e.g. "5s", "10s". */
+  interval: string;
+  timeout: string;
+  /** Suppress checks for this long after machine start — gives the
+   *  process time to bind its port without flapping critical. */
+  grace_period?: string;
+  kind?: "informational" | "readiness";
+  /** HTTP-only fields. */
+  method?: string;
+  path?: string;
+  protocol?: "http" | "https";
+}
+
+/** Status reported back by Fly on GET /machines/<id>. */
+export interface MachineCheckStatus {
+  name: string;
+  status: "passing" | "warning" | "critical";
+  output?: string;
+  updated_at?: string;
+}
+
+/** Events emitted by the Fly machine state machine. Each entry has a
+ *  `type` (start, exit, restart, launch, etc.) and a `timestamp` in
+ *  unix-ms. We use exit events to detect crash-loops. */
+export interface MachineEvent {
+  id?: string;
+  type: string;
+  status?: string;
+  source?: string;
+  /** Unix milliseconds. */
+  timestamp: number;
+  request?: unknown;
+}
+
 export interface FlyMachineConfig {
   image: string;
   env?: Record<string, string>;
@@ -131,6 +172,7 @@ export interface FlyMachineConfig {
   init?: { cmd?: string[]; entrypoint?: string[] };
   guest?: { cpu_kind?: string; cpus?: number; memory_mb?: number };
   restart?: { policy?: "no" | "always" | "on-failure" };
+  checks?: Record<string, MachineCheck>;
 }
 
 export interface FlyMachine {
@@ -140,6 +182,8 @@ export interface FlyMachine {
   region: string;
   config: FlyMachineConfig;
   private_ip?: string;
+  checks?: MachineCheckStatus[];
+  events?: MachineEvent[];
 }
 
 export async function listFlyMachines(
