@@ -1,97 +1,48 @@
+/**
+ * SaaS-side adapter for @logtura/core. Maps the DB-row shapes
+ * stored in D1 to the plain entity shapes the renderer expects,
+ * then forwards to @logtura/core's `generateBundle`. The
+ * renderer itself lives in `packages/core/`.
+ *
+ * Keeping this thin adapter (rather than rewiring every caller to
+ * use plain shapes directly) means routes, jobs, tests, and the
+ * deploy chain all keep their DB-typed inputs. The plain shapes
+ * are an internal hop — nobody upstream needs to know.
+ */
+import {
+  generateBundle as coreGenerateBundle,
+  type GeneratedBundle,
+} from "@logtura/core";
 import type {
   ConnectionRow,
   DestinationRow,
-  FilterStep,
   LogSourceRow,
   MonitorRow,
   SinkRow,
 } from "./db";
 import { parseFilterSteps } from "./db";
-import {
-  type DestinationDriver,
-  getDestinationDriver,
-} from "./destinations";
-import { getProvider } from "./providers";
-import type {
-  ConnectionRef,
-  DockerfileDep,
-  EnvVarSpec,
-  ProviderDriver,
-  SourceRef,
-} from "./providers";
+import { listDestinationDrivers } from "./destinations";
+import { listProviders } from "./providers";
 
-export interface BundleEnvVar {
-  name: string;
-  description: string;
-  source: "credential" | "external_account_id" | "destination" | "manual";
-  /** When non-null, the bundle UI shows this real value (the user
-   *  already provided it via destinations / connections). When null,
-   *  the user has to fill the value themselves at docker-run time. */
-  value: string | null;
-  /** Optional URL the bundle UI surfaces as "create a new one →" so
-   *  credential rotation is one click. */
-  helpUrl?: string;
-  /** When the stored credential exists but is expired/disabled, value
-   *  is null and this carries the reason so the UI can explain why
-   *  it's not auto-filled. */
-  staleReason?: string;
-  /** ms epoch when the stored credential expires, if the provider
-   *  knows. Surfaced even for fresh credentials so the user can plan
-   *  rotation. null = no expiry / unknown. */
-  credentialExpiresAt?: number | null;
+export type {
+  GeneratedBundle,
+  BundleEnvVar,
+  ComponentManifestEntry,
+} from "@logtura/core";
+
+// SaaS-shaped generator inputs. The renderer in @logtura/core
+// takes plain entity shapes; here we wrap the DB rows so call
+// sites don't have to do the mapping themselves.
+export interface GeneratorConnection {
+  connection: ConnectionRow;
+  selectedSources: LogSourceRow[];
+  credentials?: Record<string, unknown>;
 }
 
-export interface GeneratedBundle {
-  vectorYaml: string;
-  dockerfile: string;
-  runCommand: string;
-  envVars: BundleEnvVar[];
-  selectedCount: number;
-  /** A best-effort summary like "2 monitors → 3 sinks" for the UI. */
-  monitorSummary: string;
-  /** Per-component metadata so the metrics UI can group rows by
-   *  role, hide plumbing by default, and render friendly labels
-   *  with click-through to the originating entity. The generator
-   *  is the only thing that knows for sure which entity each
-   *  Vector component id came from, so it's the source of truth
-   *  rather than UI regex-parsing of the id pattern. */
-  componentManifest: ComponentManifestEntry[];
-}
-
-/** What each Vector component is, in domain terms. `primary` rows
- *  are the user-meaningful ones (sources they picked, sinks they
- *  configured); `plumbing` rows are the internal transforms +
- *  observability sinks the generator emits to wire everything
- *  together. The UI hides plumbing by default behind a checkbox. */
-export interface ComponentManifestEntry {
-  id: string;
-  role:
-    | "source"
-    | "sink"
-    | "normalize"
-    | "tag_source"
-    | "monitor_filter"
-    | "sink_filter"
-    | "sink_format"
-    | "internal_metrics"
-    | "heartbeat"
-    | "metrics"
-    | "prom_exporter"
-    | "stdout";
-  category: "primary" | "plumbing";
-  /** Friendly headline, e.g. "Worker · my-app", "Slack sink · alerts". */
-  label: string;
-  /** Optional secondary text — e.g. a filter chain step kind, or a
-   *  destination kind. */
-  detail?: string;
-  /** Entity ids for click-through to the originating row. */
-  links?: {
-    connectionId?: string;
-    sourceId?: string;
-    monitorId?: string;
-    sinkId?: string;
-    destinationId?: string;
-  };
+export interface GeneratorSink {
+  sink: SinkRow;
+  destination: DestinationRow;
+  destinationConfig: unknown;
 }
 
 export interface GeneratorMonitor {
@@ -99,1046 +50,95 @@ export interface GeneratorMonitor {
   sinks: GeneratorSink[];
 }
 
-export interface GeneratorSink {
-  sink: SinkRow;
-  destination: DestinationRow;
-  /** Pre-decrypted destination config — caller decrypts (so the
-   *  generator stays sync and doesn't depend on env). */
-  destinationConfig: unknown;
-}
-
-export interface GeneratorConnection {
-  connection: ConnectionRow;
-  selectedSources: LogSourceRow[];
-  /**
-   * Decrypted credentials JSON for this connection. Lets the
-   * generator inline credential env-var values (e.g.
-   * CLOUDFLARE_API_TOKEN) into the bundle UI so the user gets a
-   * "Copy value" button instead of a placeholder.
-   */
-  credentials?: Record<string, unknown>;
-}
-
 export interface GenerateInput {
-  /** One or more connections feeding this deployment's forwarder.
-   *  Multi-provider in one Vector config (e.g. Cloudflare + Fly).
-   *  v1 constraint enforced upstream: at most one connection per
-   *  provider per deployment, so env-var names (CLOUDFLARE_API_TOKEN,
-   *  FLY_API_TOKEN, …) never collide. */
   connections: GeneratorConnection[];
   monitors: GeneratorMonitor[];
-  /**
-   * Liveness signal config. When kind="logtura", we emit an exec
-   * source that pulses every 30s into an http sink that POSTs to
-   * logtura's collector with the deployment's bearer token. When
-   * kind="none", we skip.
-   */
   heartbeat?: {
     kind: "logtura" | "none";
     deploymentId: string;
-    /** Public URL the running container reaches for heartbeats. */
     appUrl: string;
   };
-  /**
-   * Where to ship Vector's internal metrics. kind="none" emits no
-   * sink; kind="logtura" posts to /api/metrics/:deploymentId (we
-   * record "last received" only — no time series in D1); kind=
-   * "destination" routes through the named destination's driver
-   * (datadog_metrics, prometheus_remote_write, etc.). The
-   * destination's `flows` must include "metrics".
-   */
   metrics?:
     | { kind: "none" }
     | { kind: "logtura"; deploymentId: string; appUrl: string }
     | {
         kind: "destination";
         destination: DestinationRow;
-        /** Decrypted destination config. Caller decrypts so the
-         *  generator stays sync. */
         destinationConfig: unknown;
       };
 }
 
 export function generateBundle(input: GenerateInput): GeneratedBundle {
-  if (input.connections.length === 0) {
-    throw new Error("generateBundle requires at least one connection");
-  }
-  // Resolve drivers + refs per connection upfront. Helps the
-  // downstream code stay shaped like a simple iteration instead of
-  // a join inside the hot path.
-  const resolved = input.connections.map((c) => {
-    const driver = getProvider(c.connection.provider);
-    if (!driver) {
-      throw new Error(`Unknown provider: ${c.connection.provider}`);
-    }
-    const connectionRef: ConnectionRef = {
-      id: c.connection.id,
-      externalAccountId: c.connection.external_account_id,
-      displayName: c.connection.display_name,
-    };
-    const sources: SourceRef[] = c.selectedSources.map((s) => ({
-      externalId: s.external_id,
-      displayName: s.display_name,
-      sourceKind: s.source_kind,
-      metadata: s.metadata_json ? JSON.parse(s.metadata_json) : null,
-    }));
-    return {
-      raw: c,
-      connectionRef,
-      driver,
-      sources,
-      sourceRows: c.selectedSources,
-    };
+  return coreGenerateBundle({
+    providers: listProviders(),
+    destinations: listDestinationDrivers(),
+    connections: input.connections.map((c) => ({
+      connection: rowToConnection(c.connection),
+      selectedSources: c.selectedSources.map(rowToSource),
+      credentials: c.credentials,
+    })),
+    monitors: input.monitors.map((m) => ({
+      monitor: rowToMonitor(m.monitor),
+      sinks: m.sinks.map((s) => ({
+        sink: rowToSink(s.sink),
+        destination: rowToDestination(s.destination),
+        destinationConfig: s.destinationConfig,
+      })),
+    })),
+    heartbeat: input.heartbeat,
+    metrics:
+      input.metrics?.kind === "destination"
+        ? {
+            kind: "destination",
+            destination: rowToDestination(input.metrics.destination),
+            destinationConfig: input.metrics.destinationConfig,
+          }
+        : input.metrics,
   });
+}
 
-  const { vectorYaml, sinkEnvVars, componentManifest } = renderVectorYaml(
-    resolved,
-    input.monitors,
-    input.heartbeat,
-    input.metrics,
-  );
-
-  // Accumulate Dockerfile install deps + env vars from every
-  // connection's driver. Dedup env vars by name (defensive — the
-  // one-per-provider constraint already prevents collisions, but
-  // identical entries would still double-render in the bundle UI).
-  const dockerDeps = resolved.flatMap((r) =>
-    r.driver.runtimeSpec(r.connectionRef).dockerfileDeps,
-  );
-  const dockerfile = renderDockerfile(dockerDeps);
-
-  const seenEnv = new Set<string>();
-  const envVars: BundleEnvVar[] = [];
-  for (const r of resolved) {
-    const spec = r.driver.runtimeSpec(r.connectionRef);
-    for (const e of spec.envVars) {
-      if (seenEnv.has(e.name)) continue;
-      seenEnv.add(e.name);
-      let value: string | null = null;
-      if (e.source === "external_account_id") {
-        value = r.raw.connection.external_account_id ?? null;
-      } else if (
-        e.source === "credential" &&
-        e.credentialPath &&
-        r.raw.credentials
-      ) {
-        const v = r.raw.credentials[e.credentialPath];
-        if (typeof v === "string") value = v;
-      }
-      envVars.push({
-        name: e.name,
-        description: e.description,
-        source: e.source,
-        value,
-        helpUrl: e.helpUrl,
-      });
-    }
-  }
-  envVars.push(...sinkEnvVars);
-
-  // Heartbeat env vars — we have the values, populate them inline.
-  if (input.heartbeat?.kind === "logtura") {
-    envVars.push({
-      name: "LOGTURA_HEARTBEAT_URL",
-      description:
-        "logtura's heartbeat endpoint for this deployment. Receives pulses to confirm the forwarder is running.",
-      source: "manual",
-      value: `${input.heartbeat.appUrl}/api/heartbeat/${input.heartbeat.deploymentId}`,
-    });
-    envVars.push({
-      name: "LOGTURA_HEARTBEAT_TOKEN",
-      description:
-        "Bearer token authorizing this deployment to post heartbeats. Per-deployment; revokable from the dashboard.",
-      source: "manual",
-      value: null, // populated by caller from deployment.heartbeat_token
-    });
-  }
-
-  // Metrics-to-logtura env var. Same shape as heartbeat — Vector
-  // POSTs internal_metrics here. Logtura's endpoint records "last
-  // received" only, no time series. For graphs the user wires a
-  // metrics destination (datadog_metrics, prometheus_remote_write)
-  // and we route through that driver's sink instead.
-  if (input.metrics?.kind === "logtura") {
-    envVars.push({
-      name: "LOGTURA_METRICS_URL",
-      description:
-        "logtura's metrics endpoint for this deployment. Records last-received timestamp only; for graphs configure a metrics destination.",
-      source: "manual",
-      value: `${input.metrics.appUrl}/api/metrics/${input.metrics.deploymentId}`,
-    });
-    // Reuses the heartbeat token — same auth principle, same row.
-    envVars.push({
-      name: "LOGTURA_METRICS_TOKEN",
-      description:
-        "Bearer token authorizing this deployment to post metrics. Same secret as the heartbeat token.",
-      source: "manual",
-      value: null, // populated by caller from deployment.heartbeat_token
-    });
-  }
-
-  // For metrics-to-a-destination, declare the destination's env vars
-  // up-front so the bundle UI shows them and the deploy job populates
-  // them. The destination driver knows its own env spec.
-  if (input.metrics?.kind === "destination") {
-    const m = input.metrics;
-    const dDriver = getDestinationDriver(m.destination.kind);
-    if (dDriver) {
-      const envName = baseDestEnvName(m.destination.display_name).replace(
-        /_URL$/,
-        "_METRICS",
-      );
-      for (const e of dDriver.runtimeEnvVars({
-        config: m.destinationConfig,
-        envVarName: envName,
-        displayName: m.destination.display_name,
-      })) {
-        envVars.push({
-          name: e.name,
-          description: e.description,
-          source: "destination",
-          value: dDriver.envVarValue(m.destinationConfig, e.name),
-        });
-      }
-    }
-  }
-
-  const runCommand = renderRunCommand(envVars);
-  const sinkCount = input.monitors.reduce(
-    (n, m) => n + m.sinks.length,
-    0,
-  );
-
+function rowToConnection(c: ConnectionRow) {
   return {
-    vectorYaml,
-    dockerfile,
-    runCommand,
-    envVars,
-    selectedCount: resolved.reduce((n, r) => n + r.sources.length, 0),
-    monitorSummary:
-      input.monitors.length === 0
-        ? "no monitors yet"
-        : `${input.monitors.length} monitor${input.monitors.length === 1 ? "" : "s"} → ${sinkCount} sink${sinkCount === 1 ? "" : "s"}`,
-    componentManifest,
+    id: c.id,
+    provider: c.provider,
+    displayName: c.display_name,
+    externalAccountId: c.external_account_id,
   };
 }
 
-interface ResolvedConnection {
-  raw: GeneratorConnection;
-  connectionRef: ConnectionRef;
-  driver: ProviderDriver;
-  sources: SourceRef[];
-  sourceRows: LogSourceRow[];
+function rowToSource(s: LogSourceRow) {
+  return {
+    id: s.id,
+    externalId: s.external_id,
+    displayName: s.display_name,
+    sourceKind: s.source_kind,
+    metadata: s.metadata_json
+      ? (JSON.parse(s.metadata_json) as Record<string, unknown>)
+      : null,
+  };
 }
 
-function renderVectorYaml(
-  resolved: ResolvedConnection[],
-  monitors: GeneratorMonitor[],
-  heartbeat: GenerateInput["heartbeat"],
-  metrics: GenerateInput["metrics"],
-): {
-  vectorYaml: string;
-  sinkEnvVars: BundleEnvVar[];
-  componentManifest: ComponentManifestEntry[];
-} {
-  const lines: string[] = [];
-  const sinkEnvVars: BundleEnvVar[] = [];
-  const componentManifest: ComponentManifestEntry[] = [];
-
-  lines.push("# Generated by logtura — https://logtura.dev");
-  for (const r of resolved) {
-    lines.push(
-      `# Connection: ${r.connectionRef.displayName} (provider: ${r.driver.id}, account: ${r.connectionRef.externalAccountId ?? "unknown"})`,
-    );
-  }
-  lines.push("");
-  lines.push("api:");
-  lines.push("  enabled: true");
-  lines.push('  address: "0.0.0.0:8686"');
-  lines.push("");
-
-  // ---- sources -----------------------------------------------------
-  lines.push("sources:");
-  // Tracked per-connection so each connection's events get tagged
-  // with its OWN `.logtura_connection_id` + `.logtura_provider`
-  // downstream. Without this the multi-connection bundle would
-  // either smush events into one tag_source (wrong) or duplicate
-  // the tag remap per source (wasteful).
-  // One driver = one transport = one normalize. Each driver
-  // contributes a single normalize transform per bundle that fans in
-  // every source it owns. The per-conn structure tracks which
-  // driver(s) each connection uses so we can emit the right
-  // tag_conn_<connId> downstream.
-  interface PerConn {
-    /** Source keys that DON'T have a driver-provided normalize. */
-    rawDirectKeys: string[];
-    /** Driver IDs this connection contributes sources to. */
-    driverIds: string[];
-    /** True once we've actually emitted any source for this conn. */
-    hasSources: boolean;
-  }
-  const perConn = new Map<string, PerConn>();
-  function conn(id: string): PerConn {
-    let c = perConn.get(id);
-    if (!c) {
-      c = { rawDirectKeys: [], driverIds: [], hasSources: false };
-      perConn.set(id, c);
-    }
-    return c;
-  }
-  // Sources grouped by driver id — each driver gets one normalize
-  // transform fanning in every source it emitted.
-  const sourcesByDriver = new Map<
-    string,
-    { driverId: string; inputKeys: string[] }
-  >();
-  const totalSources = resolved.reduce((n, r) => n + r.sources.length, 0);
-  if (totalSources === 0) {
-    lines.push(
-      "  # No sources selected — pipeline runs with heartbeat only.",
-    );
-  } else {
-    for (const r of resolved) {
-      r.sources.forEach((s, idx) => {
-        const row = r.sourceRows[idx]!;
-        const block = r.driver.generateSourceBlock({
-          source: s,
-          connection: r.connectionRef,
-        });
-        lines.push(`  ${block.key}:`);
-        lines.push(block.yaml);
-        const c = conn(r.connectionRef.id);
-        c.hasSources = true;
-        componentManifest.push({
-          id: block.key,
-          role: "source",
-          category: "primary",
-          label: `${r.driver.sourceLabel} · ${s.displayName}`,
-          links: {
-            connectionId: r.connectionRef.id,
-            sourceId: row.id,
-          },
-        });
-        const bucket = sourcesByDriver.get(r.driver.id) ?? {
-          driverId: r.driver.id,
-          inputKeys: [],
-        };
-        bucket.inputKeys.push(block.key);
-        sourcesByDriver.set(r.driver.id, bucket);
-        if (!c.driverIds.includes(r.driver.id)) {
-          c.driverIds.push(r.driver.id);
-        }
-      });
-    }
-  }
-  // Resolve normalize block per driver. With one-driver-per-
-  // transport, a connection's provider uniquely picks the driver.
-  const normalizeBlocks: Array<{ key: string; yaml: string }> = [];
-  const normalizeOutputByDriver = new Map<string, string>();
-  for (const [driverId, bucket] of sourcesByDriver) {
-    const rep = resolved.find((r) => r.driver.id === driverId);
-    if (!rep) continue;
-    const block = rep.driver.generateNormalize?.({
-      inputKeys: bucket.inputKeys,
-      connection: rep.connectionRef,
-    });
-    if (block) {
-      normalizeBlocks.push(block);
-      normalizeOutputByDriver.set(driverId, block.key);
-      componentManifest.push({
-        id: block.key,
-        role: "normalize",
-        category: "plumbing",
-        label: `Normalize · ${rep.driver.sourceLabel}`,
-        detail: `${bucket.inputKeys.length} source${bucket.inputKeys.length === 1 ? "" : "s"}`,
-        links: { connectionId: rep.connectionRef.id },
-      });
-    } else {
-      // Driver has no normalize → events flow downstream raw.
-      // Each connection contributing to this driver gets the raw
-      // source keys as direct inputs to its tag_conn step.
-      for (const r of resolved) {
-        if (r.driver.id !== driverId) continue;
-        const c = conn(r.connectionRef.id);
-        for (const k of bucket.inputKeys) {
-          if (!c.rawDirectKeys.includes(k)) c.rawDirectKeys.push(k);
-        }
-      }
-    }
-  }
-  lines.push("  internal_metrics:");
-  lines.push("    type: internal_metrics");
-  lines.push("    scrape_interval_secs: 30");
-  componentManifest.push({
-    id: "internal_metrics",
-    role: "internal_metrics",
-    category: "plumbing",
-    label: "Vector internal metrics",
-  });
-  // Heartbeat pulse — emitted every 30s. Independent of the log
-  // pipeline so it keeps firing even when no log events are flowing,
-  // which is exactly when we want the dashboard to know the
-  // forwarder is still alive.
-  if (heartbeat?.kind === "logtura") {
-    lines.push("  heartbeat_pulse:");
-    lines.push("    type: exec");
-    // mode: scheduled — Vector spawns the command on an interval,
-    // reads its full stdout, then waits for the next tick. No
-    // long-running shell loop, no stdout buffering to fight: the
-    // process terminates between heartbeats, so all output is
-    // flushed by definition. (mode: streaming with a `while true`
-    // loop hits glibc's fully-buffered-when-piped default — only the
-    // first \n flushes opportunistically; everything after sits in
-    // a 4 KB buffer that never fills.)
-    lines.push(
-      `    command: ["printf", "%s\\\\n", "{\\\"deployment_id\\\":\\\"${heartbeat.deploymentId}\\\"}"]`,
-    );
-    lines.push("    mode: scheduled");
-    lines.push("    scheduled:");
-    lines.push("      exec_interval_secs: 30");
-    lines.push("    decoding:");
-    lines.push("      codec: json");
-    componentManifest.push({
-      id: "heartbeat_pulse",
-      role: "heartbeat",
-      category: "plumbing",
-      label: "Heartbeat pulse",
-      detail: "30s ping generator",
-    });
-  }
-  lines.push("");
-
-  // ---- transforms --------------------------------------------------
-  // Order:
-  //   1. Per-kind normalize remaps (one per provider+kind).
-  //   2. Per-connection tag_conn_<id> — fans in that connection's
-  //      normalize outputs + any raw-direct keys, sets
-  //      .logtura_connection_id + .logtura_provider.
-  //   3. Unified tag_received — fans in every tag_conn output, sets
-  //      .logtura_received_at = now(). Single downstream input for
-  //      monitors.
-  //
-  // Buffered so we can suppress the `transforms:` section entirely
-  // when there's nothing to emit. Vector rejects a bare `transforms:`
-  // with no body.
-  const transformLines: string[] = [];
-  for (const n of normalizeBlocks) {
-    transformLines.push(`  ${n.key}:`);
-    transformLines.push(n.yaml);
-    transformLines.push("");
-  }
-
-  const tagConnOutputKeys: string[] = [];
-  for (const r of resolved) {
-    const c = perConn.get(r.connectionRef.id);
-    if (!c || !c.hasSources) continue;
-    const inputs: string[] = [];
-    for (const driverId of c.driverIds) {
-      const out = normalizeOutputByDriver.get(driverId);
-      if (out) inputs.push(out);
-    }
-    inputs.push(...c.rawDirectKeys);
-    if (inputs.length === 0) continue;
-    const key = `tag_conn_${safeKey(r.connectionRef.id)}`;
-    transformLines.push(`  ${key}:`);
-    transformLines.push("    type: remap");
-    transformLines.push(
-      `    inputs: [${inputs.map((k) => `"${k}"`).join(", ")}]`,
-    );
-    transformLines.push("    source: |-");
-    transformLines.push(`      .logtura_connection_id = "${r.connectionRef.id}"`);
-    transformLines.push(`      .logtura_provider = "${r.driver.id}"`);
-    transformLines.push("");
-    tagConnOutputKeys.push(key);
-    componentManifest.push({
-      id: key,
-      role: "tag_source",
-      category: "plumbing",
-      label: `Tag · ${r.connectionRef.displayName}`,
-      detail: r.driver.id,
-      links: { connectionId: r.connectionRef.id },
-    });
-  }
-
-  if (tagConnOutputKeys.length > 0) {
-    transformLines.push("  tag_received:");
-    transformLines.push("    type: remap");
-    transformLines.push(
-      `    inputs: [${tagConnOutputKeys.map((k) => `"${k}"`).join(", ")}]`,
-    );
-    transformLines.push("    source: |-");
-    transformLines.push("      .logtura_received_at = now()");
-    transformLines.push("");
-    componentManifest.push({
-      id: "tag_received",
-      role: "tag_source",
-      category: "plumbing",
-      label: "Tag received-at",
-      detail: "Cross-connection merge",
-    });
-  }
-
-  const upstreamForSinks =
-    tagConnOutputKeys.length > 0 ? ["tag_received"] : [];
-
-  // Per-monitor filter-step transforms. A monitor with no steps acts
-  // as a passthrough (its sinks see everything from tag_received).
-  const monitorOutputKeys = new Map<string, string>();
-  for (const m of monitors) {
-    if (m.monitor.enabled !== 1) continue;
-    if (upstreamForSinks.length === 0) continue;
-    const steps = parseFilterSteps(m.monitor.filter_steps_json);
-    const { transforms, outputKey } = renderStepTransforms(
-      steps,
-      "tag_received",
-      `monitor_${safeKey(m.monitor.id)}`,
-    );
-    for (const t of transforms) {
-      transformLines.push(`  ${t.key}:`);
-      transformLines.push(t.yaml);
-      transformLines.push("");
-      componentManifest.push({
-        id: t.key,
-        role: "monitor_filter",
-        category: "plumbing",
-        label: `Filter · ${m.monitor.display_name}`,
-        detail: t.stepKind,
-        links: { monitorId: m.monitor.id },
-      });
-    }
-    monitorOutputKeys.set(m.monitor.id, outputKey);
-  }
-
-  // Per-sink filter-step transforms + destination pre-sink transforms.
-  // Env vars are named per *destination* (not per sink): two sinks
-  // routing to the same Slack channel share LOGTURA_DEST_SLACK_*_URL
-  // and we only emit it once. Names come from the destination's
-  // display name so the docker run command is readable.
-  const sinkSinkKeys: Array<{ sinkKey: string; yaml: string }> = [];
-  const destEnvVarByDestId = new Map<string, string>();
-  const usedEnvNames = new Set<string>();
-  for (const m of monitors) {
-    if (m.monitor.enabled !== 1) continue;
-    const monitorOutputKey = monitorOutputKeys.get(m.monitor.id);
-    if (!monitorOutputKey) continue;
-    for (const sinkSpec of m.sinks) {
-      const dDriver = getDestinationDriver(sinkSpec.destination.kind);
-      if (!dDriver) continue;
-
-      // Resolve (or assign) the env var name for this destination.
-      // First sink for a given destination registers + adds the env
-      // var entry; subsequent sinks reuse the name.
-      let envVarName = destEnvVarByDestId.get(sinkSpec.destination.id);
-      if (!envVarName) {
-        const base = baseDestEnvName(sinkSpec.destination.display_name);
-        envVarName = uniquify(base, usedEnvNames);
-        usedEnvNames.add(envVarName);
-        destEnvVarByDestId.set(sinkSpec.destination.id, envVarName);
-        const envSpec = dDriver.runtimeEnvVars({
-          config: sinkSpec.destinationConfig,
-          envVarName,
-          displayName: sinkSpec.destination.display_name,
-        });
-        for (const e of envSpec) {
-          sinkEnvVars.push({
-            name: e.name,
-            description: e.description,
-            source: "destination",
-            value: dDriver.envVarValue(sinkSpec.destinationConfig, e.name),
-          });
-        }
-      }
-
-      const sinkSteps = parseFilterSteps(sinkSpec.sink.filter_steps_json);
-      const { transforms, outputKey } = renderStepTransforms(
-        sinkSteps,
-        monitorOutputKey,
-        `sink_${safeKey(sinkSpec.sink.id)}`,
-      );
-      for (const t of transforms) {
-        transformLines.push(`  ${t.key}:`);
-        transformLines.push(t.yaml);
-        transformLines.push("");
-        componentManifest.push({
-          id: t.key,
-          role: "sink_filter",
-          category: "plumbing",
-          label: `Pre-sink filter · ${sinkSpec.destination.display_name}`,
-          detail: t.stepKind,
-          links: {
-            sinkId: sinkSpec.sink.id,
-            destinationId: sinkSpec.destination.id,
-            monitorId: m.monitor.id,
-          },
-        });
-      }
-      const sinkKey = `sink_${safeKey(sinkSpec.sink.id)}`;
-      const bundle = dDriver.generateSinkBundle({
-        config: sinkSpec.destinationConfig,
-        inputs: [outputKey],
-        sinkKey,
-        envVarName,
-      });
-      for (const t of bundle.preSinkTransforms ?? []) {
-        transformLines.push(`  ${t.key}:`);
-        transformLines.push(t.yaml);
-        transformLines.push("");
-        componentManifest.push({
-          id: t.key,
-          role: "sink_format",
-          category: "plumbing",
-          label: `Format · ${sinkSpec.destination.display_name}`,
-          detail: dDriver.id,
-          links: {
-            sinkId: sinkSpec.sink.id,
-            destinationId: sinkSpec.destination.id,
-          },
-        });
-      }
-      sinkSinkKeys.push({ sinkKey: bundle.sink.key, yaml: bundle.sink.yaml });
-      componentManifest.push({
-        id: bundle.sink.key,
-        role: "sink",
-        category: "primary",
-        label: `${dDriver.displayName} · ${sinkSpec.destination.display_name}`,
-        links: {
-          sinkId: sinkSpec.sink.id,
-          destinationId: sinkSpec.destination.id,
-          monitorId: m.monitor.id,
-        },
-      });
-    }
-  }
-
-  // Only emit the transforms section if we actually have transforms.
-  // Bare `transforms:` is invalid YAML in Vector's eyes.
-  if (transformLines.length > 0) {
-    lines.push("transforms:");
-    for (const line of transformLines) lines.push(line);
-  }
-
-  // ---- sinks --------------------------------------------------------
-  lines.push("sinks:");
-  for (const ss of sinkSinkKeys) {
-    lines.push(`  ${ss.sinkKey}:`);
-    lines.push(ss.yaml);
-    lines.push("");
-  }
-  if (sinkSinkKeys.length === 0 && totalSources > 0) {
-    // No destinations configured yet — emit stdout so the pipeline
-    // is still valid. The user gets unstructured output until they
-    // wire up a destination.
-    lines.push("  stdout:");
-    lines.push("    type: console");
-    lines.push('    inputs: ["tag_received"]');
-    lines.push("    encoding:");
-    lines.push("      codec: json");
-    lines.push("");
-    componentManifest.push({
-      id: "stdout",
-      role: "stdout",
-      category: "plumbing",
-      label: "stdout fallback",
-      detail: "no destination configured",
-    });
-  }
-  lines.push("  prom_heartbeat:");
-  lines.push("    type: prometheus_exporter");
-  lines.push('    inputs: ["internal_metrics"]');
-  lines.push('    address: "0.0.0.0:9598"');
-  lines.push("");
-  componentManifest.push({
-    id: "prom_heartbeat",
-    role: "prom_exporter",
-    category: "plumbing",
-    label: "Prometheus exporter",
-    detail: ":9598/metrics",
-  });
-
-  if (heartbeat?.kind === "logtura") {
-    lines.push("  heartbeat_logtura:");
-    lines.push("    type: http");
-    lines.push('    inputs: ["heartbeat_pulse"]');
-    lines.push('    uri: "${LOGTURA_HEARTBEAT_URL}"');
-    lines.push("    method: post");
-    lines.push("    encoding:");
-    lines.push("      codec: json");
-    lines.push("    request:");
-    lines.push("      headers:");
-    lines.push('        authorization: "Bearer ${LOGTURA_HEARTBEAT_TOKEN}"');
-    lines.push("        content-type: application/json");
-    lines.push("    batch:");
-    lines.push("      max_events: 1");
-    lines.push("      timeout_secs: 30");
-    lines.push("    healthcheck:");
-    lines.push("      enabled: false");
-    lines.push("");
-    componentManifest.push({
-      id: "heartbeat_logtura",
-      role: "heartbeat",
-      category: "plumbing",
-      label: "Heartbeat sink",
-      detail: "POSTs to logtura",
-    });
-  }
-
-  // ---- metrics sink (optional) -------------------------------------
-  // metrics: logtura → http POST to /api/metrics/:deploymentId.
-  // metrics: destination → route internal_metrics through the named
-  //   destination's sink driver (datadog_metrics, prometheus_remote_write).
-  if (metrics?.kind === "logtura") {
-    lines.push("  metrics_logtura:");
-    lines.push("    type: http");
-    lines.push('    inputs: ["internal_metrics"]');
-    lines.push('    uri: "${LOGTURA_METRICS_URL}"');
-    lines.push("    method: post");
-    lines.push("    encoding:");
-    lines.push("      codec: json");
-    lines.push("    request:");
-    lines.push("      headers:");
-    lines.push('        authorization: "Bearer ${LOGTURA_METRICS_TOKEN}"');
-    lines.push("        content-type: application/json");
-    lines.push("    batch:");
-    lines.push("      max_events: 100");
-    lines.push("      timeout_secs: 30");
-    lines.push("    healthcheck:");
-    lines.push("      enabled: false");
-    lines.push("");
-    componentManifest.push({
-      id: "metrics_logtura",
-      role: "metrics",
-      category: "plumbing",
-      label: "Metrics sink",
-      detail: "POSTs to logtura",
-    });
-  }
-
-  if (metrics?.kind === "destination") {
-    const m = metrics;
-    const dDriver = getDestinationDriver(m.destination.kind);
-    if (dDriver && dDriver.flows.includes("metrics")) {
-      const envName = baseDestEnvName(m.destination.display_name).replace(
-        /_URL$/,
-        "_METRICS",
-      );
-      const sinkKey = `metrics_${safeKey(m.destination.id)}`;
-      const bundle = dDriver.generateSinkBundle({
-        config: m.destinationConfig,
-        inputs: ["internal_metrics"],
-        sinkKey,
-        envVarName: envName,
-      });
-      for (const t of bundle.preSinkTransforms ?? []) {
-        lines.push(`  ${t.key}:`);
-        lines.push(t.yaml);
-        lines.push("");
-      }
-      lines.push(`  ${bundle.sink.key}:`);
-      lines.push(bundle.sink.yaml);
-      lines.push("");
-      componentManifest.push({
-        id: bundle.sink.key,
-        role: "metrics",
-        category: "plumbing",
-        label: `Metrics · ${m.destination.display_name}`,
-        detail: dDriver.displayName,
-        links: { destinationId: m.destination.id },
-      });
-    }
-  }
-
-  return { vectorYaml: lines.join("\n"), sinkEnvVars, componentManifest };
+function rowToMonitor(m: MonitorRow) {
+  return {
+    id: m.id,
+    connectionId: m.connection_id,
+    displayName: m.display_name,
+    filterSteps: parseFilterSteps(m.filter_steps_json),
+    enabled: m.enabled === 1,
+  };
 }
 
-/**
- * Render Vector transforms for a chain of filter steps. Each step
- * becomes a transform that takes the previous one's output as input;
- * an empty step list is a pass-through (the inputKey is returned
- * unchanged with no transforms emitted).
- */
-/** A single emitted transform, plus a discriminator describing
- *  which filter step (or rollup stage) it represents — used by the
- *  caller to label component-manifest entries. */
-interface RenderedStepTransform {
-  key: string;
-  yaml: string;
-  /** "errors" / "level" / "match" / etc, OR "rollup_pre|reduce|fmt". */
-  stepKind: string;
+function rowToSink(s: SinkRow) {
+  return {
+    id: s.id,
+    filterSteps: parseFilterSteps(s.filter_steps_json),
+  };
 }
 
-function renderStepTransforms(
-  steps: FilterStep[],
-  inputKey: string,
-  prefix: string,
-): { transforms: RenderedStepTransform[]; outputKey: string } {
-  const transforms: RenderedStepTransform[] = [];
-  let current = inputKey;
-  steps.forEach((step, idx) => {
-    // Rollup is special: needs 3 chained transforms (pre-remap +
-    // reduce + post-remap) instead of one. All other step kinds
-    // collapse to a single transform via renderStepYaml.
-    if (step.kind === "rollup") {
-      const stages = renderRollupStages(step, current, `${prefix}_${idx}`);
-      for (const s of stages) {
-        // Stage key is `${prefix}_${idx}_rollup_<pre|reduce|fmt>`;
-        // pull the trailing tag for the manifest.
-        const stage = s.key.slice(s.key.lastIndexOf("rollup_"));
-        transforms.push({ ...s, stepKind: stage });
-        current = s.key;
-      }
-      return;
-    }
-    const key = `${prefix}_${idx}_${step.kind}`;
-    const yaml = renderStepYaml(step, current);
-    if (!yaml) return;
-    transforms.push({ key, yaml, stepKind: step.kind });
-    current = key;
-  });
-  return { transforms, outputKey: current };
-}
-
-/** Emit the three transforms a "rollup" step compiles to:
- *
- *   prefix_idx_rollup_pre   — remap: add count=1 and sample=.message
- *   prefix_idx_rollup_reduce — reduce: group + sum count +
- *                              flat_unique sample (so 140k identical
- *                              messages collapse to one in the array
- *                              before we render the summary, not
- *                              after — memory-bounded by unique
- *                              message count, not by event count)
- *   prefix_idx_rollup_fmt    — remap: render `.message` as a human
- *                              summary "N events in Ws; M unique
- *                              samples: a | b | c"
- *
- * Post-rollup events have .error=true / .level=error so an upstream
- * Errors filter further downstream still routes them.
- */
-function renderRollupStages(
-  step: { window_secs: number; group_by?: string[]; max_samples?: number },
-  input: string,
-  prefix: string,
-): Array<{ key: string; yaml: string }> {
-  const windowSecs = Math.max(1, Math.floor(step.window_secs));
-  const windowMs = windowSecs * 1000;
-  const groupBy = step.group_by ?? [];
-  const maxSamples = Math.max(1, Math.min(50, step.max_samples ?? 5));
-
-  const preKey = `${prefix}_rollup_pre`;
-  const reduceKey = `${prefix}_rollup_reduce`;
-  const fmtKey = `${prefix}_rollup_fmt`;
-
-  const preYaml = [
-    "    type: remap",
-    `    inputs: ["${input}"]`,
-    "    source: |-",
-    `      .count = 1`,
-    `      .sample = string(.message) ?? encode_json(.)`,
-  ].join("\n");
-
-  const groupByYaml =
-    groupBy.length > 0
-      ? `    group_by: [${groupBy.map((g) => `"${g}"`).join(", ")}]`
-      : `    group_by: []`;
-  const reduceYaml = [
-    "    type: reduce",
-    `    inputs: ["${preKey}"]`,
-    `    expire_after_ms: ${windowMs}`,
-    `    flush_period_ms: ${windowMs}`,
-    groupByYaml,
-    "    merge_strategies:",
-    "      count: sum",
-    "      sample: flat_unique",
-  ].join("\n");
-
-  // NOTE: VRL's `string(x)` is a type-assertion (errors if x isn't
-  // string), not a converter. For ints we use `to_string(x)`, which
-  // is infallible for primitive types. Getting this wrong yields
-  // E103 unhandled-fallible-assignment at runtime and the whole
-  // config refuses to load. (vector validate doesn't catch it when
-  // run with --no-environment — see scripts/test-vector-config.mjs.)
-  // Prefix the rendered message with the group-by key values
-  // ("[my-worker]", "[my-worker/iad]", etc.) so the user can tell
-  // which source the sample came from. Without this the message is
-  // just "14 events in 30s — <sample>" and the recipient has no
-  // anchor for "which of my 50 workers is this from."
-  //
-  // We read each configured group_by field with the same fallibility
-  // discipline as the rest of the normalize VRL: string(x) ?? "?"
-  // because the field might be a non-string or missing.
-  const groupKeyLines =
-    groupBy.length === 0
-      ? [`      key_label = ""`]
-      : [
-          `      key_parts = []`,
-          ...groupBy.map(
-            (f) =>
-              `      key_parts = push(key_parts, string(.${f}) ?? "?")`,
-          ),
-          `      key_label = "[" + join!(key_parts, "/") + "] "`,
-        ];
-  const fmtYaml = [
-    "    type: remap",
-    `    inputs: ["${reduceKey}"]`,
-    "    source: |-",
-    `      samples = array(.sample) ?? []`,
-    `      unique_count = length(samples)`,
-    `      top = slice!(samples, 0, ${maxSamples})`,
-    `      top_str = join!(top, " | ")`,
-    `      n = int(.count) ?? 0`,
-    `      window_label = "${windowSecs}s"`,
-    ...groupKeyLines,
-    `      header = key_label + to_string(n) + " events in " + window_label`,
-    `      tail = if unique_count > length(top) { " (" + to_string(unique_count) + " unique, top " + to_string(length(top)) + ")" } else { "" }`,
-    `      .message = header + tail + " — " + top_str`,
-    `      .error = true`,
-    `      .level = "error"`,
-    `      del(.sample)`,
-    `      del(.count)`,
-  ].join("\n");
-
-  return [
-    { key: preKey, yaml: preYaml },
-    { key: reduceKey, yaml: reduceYaml },
-    { key: fmtKey, yaml: fmtYaml },
-  ];
-}
-
-function renderStepYaml(step: FilterStep, input: string): string | null {
-  switch (step.kind) {
-    case "errors":
-      return [
-        "    type: filter",
-        `    inputs: ["${input}"]`,
-        "    condition: |-",
-        `      (bool(.error) ?? false) || (string(.level) ?? "") == "error"`,
-      ].join("\n");
-    case "level": {
-      const op = step.mode === "exclude" ? "!=" : "==";
-      return [
-        "    type: filter",
-        `    inputs: ["${input}"]`,
-        "    condition: |-",
-        `      (string(.level) ?? "") ${op} ${JSON.stringify(step.level)}`,
-      ].join("\n");
-    }
-    case "match": {
-      const field = step.field ?? "message";
-      const safePattern = step.pattern.replace(/'/g, "");
-      // match() is infallible (returns boolean); the inner string()
-      // *is* fallible, so its ?? stays. Adding a trailing ?? on the
-      // match expression itself trips E651 unnecessary-coalescing.
-      const matches = `match(string(.${field}) ?? "", r'${safePattern}')`;
-      const cond = step.mode === "exclude" ? `!(${matches})` : matches;
-      return [
-        "    type: filter",
-        `    inputs: ["${input}"]`,
-        "    condition: |-",
-        `      ${cond}`,
-      ].join("\n");
-    }
-    case "rate_limit":
-      return [
-        "    type: throttle",
-        `    inputs: ["${input}"]`,
-        `    threshold: ${step.per_minute}`,
-        `    window_secs: 60`,
-      ].join("\n");
-    case "dedup": {
-      const fields = step.fields ?? ["message"];
-      return [
-        "    type: dedupe",
-        `    inputs: ["${input}"]`,
-        "    cache:",
-        "      num_events: 5000",
-        "    fields:",
-        "      match:",
-        ...fields.map((f) => `        - "${f}"`),
-      ].join("\n");
-    }
-    case "sample": {
-      // Vector sample.rate keeps 1 in N. Convert fraction → N.
-      const rate = Math.max(1, Math.round(1 / Math.max(0.0001, step.rate)));
-      return [
-        "    type: sample",
-        `    inputs: ["${input}"]`,
-        `    rate: ${rate}`,
-      ].join("\n");
-    }
-  }
-  return null;
-}
-
-function renderDockerfile(deps: DockerfileDep[]): string {
-  const aptPackages = new Set<string>();
-  for (const d of deps) {
-    for (const p of d.aptPackages ?? []) aptPackages.add(p);
-  }
-  const aptList = [...aptPackages].sort().join(" ");
-  const installSteps = deps.map((d) => `RUN ${d.install}`).join("\n");
-
-  return `# Generated by logtura — https://logtura.dev
-# Vector-based forwarder. Tails selected log sources and routes them
-# through monitors to your configured destinations.
-
-FROM timberio/vector:latest-debian
-
-${aptList ? `RUN apt-get update && apt-get install -y --no-install-recommends ${aptList} && rm -rf /var/lib/apt/lists/*` : ""}
-${installSteps}
-
-COPY vector.yaml /etc/vector/vector.yaml
-
-# Heartbeat (Prometheus exporter) — scrape from your monitoring stack.
-EXPOSE 9598
-# Vector API (vector top, debugging).
-EXPOSE 8686
-
-CMD ["vector", "--config", "/etc/vector/vector.yaml"]
-`;
-}
-
-function renderRunCommand(envVars: BundleEnvVar[]): string {
-  const flags = envVars.map((v) => {
-    const placeholder =
-      v.value !== null ? v.value : `<${v.name.toLowerCase()}>`;
-    return `  -e ${v.name}="${placeholder}"`;
-  });
-  return [
-    "docker build -t logtura-forwarder .",
-    "",
-    "docker run --rm \\",
-    `${flags.join(" \\\n")} \\`,
-    "  logtura-forwarder",
-  ].join("\n");
-}
-
-// --- helpers ------------------------------------------------------
-
-function safeKey(s: string): string {
-  return s.replace(/[^a-zA-Z0-9_]/g, "_");
-}
-
-/** Build the readable env-var name for a destination from its display
- *  name. "Slack #alerts" → "LOGTURA_DEST_SLACK_ALERTS_URL". Falls back
- *  to "LOGTURA_DEST_DEST_URL" if the display name has no usable
- *  characters. */
-function baseDestEnvName(displayName: string): string {
-  const core = displayName
-    .normalize("NFKD")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 40);
-  return `LOGTURA_DEST_${core || "DEST"}_URL`;
-}
-
-/** Append a numeric suffix if a name is already taken, so two
- *  destinations sharing a sanitized display name still get unique
- *  env vars. */
-function uniquify(name: string, used: Set<string>): string {
-  if (!used.has(name)) return name;
-  for (let i = 2; i < 1000; i++) {
-    const candidate = name.replace(/_URL$/, `_${i}_URL`);
-    if (!used.has(candidate)) return candidate;
-  }
-  return `${name}_${Date.now()}`;
+function rowToDestination(d: DestinationRow) {
+  return {
+    id: d.id,
+    kind: d.kind,
+    displayName: d.display_name,
+  };
 }

@@ -20,6 +20,7 @@
     "test": "pnpm typecheck && pnpm test:workerd && pnpm test:vector"
   },
   "dependencies": {
+    "@logtura/core": "workspace:*",
     "@mantine/core": "^8.0.0",
     "@mantine/form": "^8.0.0",
     "@mantine/hooks": "^8.0.0",

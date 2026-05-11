@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@logtura/core':
+        specifier: workspace:*
+        version: link:packages/core
       '@mantine/core':
         specifier: ^8.0.0
         version: 8.3.18(@mantine/hooks@8.3.18(react@18.3.1))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -87,6 +90,12 @@ importers:
       wrangler:
         specifier: ^3.99.0
         version: 3.114.17(@cloudflare/workers-types@4.20260509.1)
+
+  packages/core:
+    devDependencies:
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
 
 packages:
 
