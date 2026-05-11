@@ -25,7 +25,11 @@
 - [ ] GCP Cloud Run — driver exists; no managed deploy yet.
 
 ### Memory / sources
-- [ ] **Drop `wrangler tail` for direct Cloudflare WebSocket Tail API** (C-style optimization). Each `wrangler tail` invocation spawns a full node process (~40 MB resident); a 24-worker deploy needs ~1 GB just for the tails. A single Vector source consuming the WebSocket directly is ~30× cheaper and removes the entire node dependency from the forwarder image's hot path. Currently we paper over this with `memory_mb: 4096` on the Fly machine — see `containers/forwarder/Dockerfile` + `src/providers/cloudflare.ts` source block.
+- [ ] **CF tail bridge** (replaces `wrangler tail` subprocess-per-worker). A small Node/Go binary in `containers/cf-tail-bridge/` that:
+    - calls `POST /accounts/<id>/workers/scripts/<script>/tails` per selected worker, holds N WebSockets in one process, streams the merged event stream to stdout in `wrangler tail --format json` shape
+    - handles tail TTL refresh (CF tails expire ~10min) — call create-tail again before TTL, hand-off cleanly
+    - block-on-write backpressure so a burst worker pushes the CF WebSocket into backpressure instead of dropping events client-side
+    The OSS CF worker-tail driver consolidates to ONE source per connection (same pattern Supabase ships now — emit identical block.key per connection, renderer dedupes). Forwarder image drops the `wrangler@latest` Dockerfile install and the per-worker subprocess pile-up. Logpush is **not** an acceptable substitute — see memory `feedback_logpush_is_a_checkbox.md`; Logpush ships only request envelopes, no console output or stack traces, which is the data this product is built around.
 - [ ] Per-source memory budgeting and source-count cap on managed deploys, so a wildcard-selecting user can't OOM regardless of memory size.
 
 ### Providers
