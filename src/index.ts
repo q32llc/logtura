@@ -531,15 +531,21 @@ apiAuth.get("/deployments/:id", async (c) => {
   const deployment = await getDeployment(c.env.DB, user.id, id);
   if (!deployment) return c.json({ error: "not_found" }, 404);
   // Rehydrate any in-flight deploy job by lock key so a page reload
-  // mid-deploy can resume polling instead of forgetting the job. We
-  // only return queued/running (activeForLockKey) — surfacing a
-  // long-ago failed job here would make the deploy banner sticky
-  // until a successful re-deploy clears it.
+  // mid-deploy can resume polling instead of forgetting the job.
+  // `activeForLockKey` considers the chain (parent + kids), and we
+  // run the same kid-aggregation `/jobs/:id` does so the front-end
+  // sees status=running and the latest progress label — not the raw
+  // parent row, which goes to succeeded within ms of spawning kid 1.
   const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
-  const activeJob = await jobs.activeForLockKey(lockKeyForFlyDeploy(id));
+  const activeParent = await jobs.activeForLockKey(lockKeyForFlyDeploy(id));
+  let latestDeployJob = null;
+  if (activeParent) {
+    const { job } = await aggregateJobWithKids(jobs, activeParent);
+    latestDeployJob = toApiJob(job);
+  }
   return c.json({
     deployment: toApiDeployment(deployment),
-    latestDeployJob: activeJob ? toApiJob(activeJob) : null,
+    latestDeployJob,
   });
 });
 
@@ -1133,6 +1139,40 @@ apiAuth.delete("/sinks/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+/** Roll up a parent job's view from its kids without writing to the
+ *  parent row. The kid that "really did the work" (the last
+ *  succeeded one) is the source of truth for `result`; the first
+ *  failed kid's error wins for `lastError`. Progress comes from
+ *  whichever kid is currently in-flight, falling back to the latest
+ *  kid that set progress at all so the UI never goes blank. Used by
+ *  `/jobs/:id` and any rehydration path that returns an in-flight
+ *  job alongside a resource. */
+async function aggregateJobWithKids(
+  jobs: JobDriver,
+  parent: JobRecord,
+): Promise<{ job: JobRecord; kids: JobRecord[] }> {
+  const kids = await jobs.listChildren(parent.id);
+  if (!kids.length) return { job: parent, kids };
+  const aggregated: JobRecord = {
+    ...parent,
+    status: aggregateStatus(parent, kids),
+  };
+  const failed = kids.find((k) => k.status === "failed");
+  const lastSucceeded = [...kids]
+    .reverse()
+    .find((k) => k.status === "succeeded");
+  aggregated.lastError = failed?.lastError ?? null;
+  aggregated.result = lastSucceeded?.result ?? null;
+
+  const running = kids.find((k) => k.status === "running");
+  const latestWithProgress = [...kids]
+    .reverse()
+    .find((k) => k.uxProgress !== null);
+  aggregated.uxProgress =
+    running?.uxProgress ?? latestWithProgress?.uxProgress ?? null;
+  return { job: aggregated, kids };
+}
+
 apiAuth.get("/jobs/:id", async (c) => {
   const user = c.get("user")!;
   const id = c.req.param("id");
@@ -1141,31 +1181,7 @@ apiAuth.get("/jobs/:id", async (c) => {
   if (!job || job.userId !== user.id) {
     return c.json({ error: "not_found" }, 404);
   }
-  // Aggregate a parent's view from its kids without writing to the
-  // parent row. The kid that "really did the work" (the last
-  // succeeded one) is the source of truth for `result`; the first
-  // failed kid's error wins for `lastError`. Progress comes from
-  // whichever kid is currently in-flight, falling back to the latest
-  // kid that set progress at all so the UI never goes blank.
-  const kids = await jobs.listChildren(id);
-  const aggregated: JobRecord = kids.length
-    ? { ...job, status: aggregateStatus(job, kids) }
-    : job;
-  if (kids.length) {
-    const failed = kids.find((k) => k.status === "failed");
-    const lastSucceeded = [...kids]
-      .reverse()
-      .find((k) => k.status === "succeeded");
-    aggregated.lastError = failed?.lastError ?? null;
-    aggregated.result = lastSucceeded?.result ?? null;
-
-    const running = kids.find((k) => k.status === "running");
-    const latestWithProgress = [...kids]
-      .reverse()
-      .find((k) => k.uxProgress !== null);
-    aggregated.uxProgress =
-      running?.uxProgress ?? latestWithProgress?.uxProgress ?? null;
-  }
+  const { job: aggregated, kids } = await aggregateJobWithKids(jobs, job);
   return c.json({ job: toApiJob(aggregated), kids: kids.map(toApiJob) });
 });
 

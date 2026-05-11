@@ -147,12 +147,29 @@ export class JobDriver {
     return row ? jobRowToRecord(row) : null;
   }
 
+  /** Latest job for a lock_key whose CHAIN is still in flight.
+   *
+   *  In our model a "parent" handler typically spawns a kid and
+   *  returns, so the parent row goes to status=succeeded within
+   *  milliseconds even though the deploy is still working. A naive
+   *  `status IN (queued, running)` filter on the parent row would
+   *  therefore say "no active job" while children are mid-flight —
+   *  which breaks both enqueue dedup (clicks during a deploy spawn
+   *  a duplicate) and UI rehydration (new tabs don't see it
+   *  running). We instead consider the chain active if the parent
+   *  itself OR any descendant is non-terminal. */
   async activeForLockKey(key: string): Promise<JobRecord | null> {
     const row = await this.db
       .prepare(
-        `SELECT * FROM jobs
-         WHERE lock_key = ? AND status IN ('queued', 'running')
-         ORDER BY created_at DESC LIMIT 1`,
+        `SELECT * FROM jobs j
+         WHERE j.lock_key = ?
+           AND (j.status IN ('queued', 'running')
+                OR EXISTS (
+                  SELECT 1 FROM jobs k
+                  WHERE k.parent_job_id = j.id
+                    AND k.status IN ('queued', 'running')
+                ))
+         ORDER BY j.created_at DESC LIMIT 1`,
       )
       .bind(key)
       .first<JobRow>();

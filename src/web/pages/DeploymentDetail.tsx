@@ -1560,9 +1560,23 @@ function FlyDeployRunner({
           color={deployJob.status === "failed" ? "red" : "blue"}
           variant="light"
         >
-          {deployJob.status === "failed"
-            ? `Deploy failed: ${deployJob.error ?? "unknown"}`
-            : `Deploying… (${deployJob.status})`}
+          {deployJob.status === "failed" ? (
+            `Deploy failed: ${deployJob.error ?? "unknown"}`
+          ) : (
+            <Stack gap={2}>
+              <Text size="sm" fw={600}>
+                {deployJob.progress?.label ??
+                  (deployJob.status === "queued"
+                    ? "Queued"
+                    : "Deploying…")}
+              </Text>
+              {deployJob.progress?.detail && (
+                <Text size="xs" c="dimmed">
+                  {deployJob.progress.detail}
+                </Text>
+              )}
+            </Stack>
+          )}
         </Alert>
       )}
 
