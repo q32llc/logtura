@@ -1,0 +1,36 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: typecheck
+        run: pnpm typecheck
+
+      - name: vector config validation
+        # Pulls the same forwarder image the deploy uses and runs
+        # `vector validate` against bundles the generator produces.
+        # Catches every kind of error Vector itself would catch at
+        # container start — VRL syntax (E651, type errors), wrong
+        # field types (http_client headers must be array<string>),
+        # missing transforms/sinks, etc. Last line of defense
+        # before a deploy bricks the running container.
+        run: pnpm test:vector

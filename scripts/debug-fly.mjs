@@ -316,7 +316,7 @@ async function probeDumpYaml() {
 
 async function probeExec() {
   const cmdIdx = args.indexOf("--cmd");
-  const cmd = cmdIdx > 0 ? args[cmdIdx + 1] : "ps auxf; echo '---curl test---'; curl -sS -o /dev/null -w 'http_code=%{http_code}\\n' -X POST \"$LOGTURA_HEARTBEAT_URL\" -H \"authorization: Bearer $LOGTURA_HEARTBEAT_TOKEN\" -H \"content-type: application/json\" -d '{\"deployment_id\":\"dep_Zs5ETbGsU1hiKHGoKczrJw\"}'";
+  const cmd = cmdIdx > 0 ? args[cmdIdx + 1] : "curl -sS http://localhost:9598/metrics | grep '^vector_component_errors_total' | head -40";
   const { dischargeBundle } = await import("../src/deploy-targets/fly-macaroon.ts");
   const auth = await dischargeBundle(authHeader);
   const APP = "logtura-zs5etbgsu1hikhgokczr";

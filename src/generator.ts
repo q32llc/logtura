@@ -325,25 +325,29 @@ function renderVectorYaml(
   lines.push("");
 
   // ---- transforms --------------------------------------------------
-  lines.push("transforms:");
+  // Buffer here so we can suppress the `transforms:` section
+  // entirely when there's nothing to emit (no sources → no normalize
+  // / tag_source / monitor filters). Vector rejects a bare
+  // `transforms:` with no body as "expected any valid TOML value".
+  const transformLines: string[] = [];
   // Normalize transforms (per-source) come first so tag_source reads
   // from the post-normalize keys.
   for (const n of normalizeBlocks) {
-    lines.push(`  ${n.key}:`);
-    lines.push(n.yaml);
-    lines.push("");
+    transformLines.push(`  ${n.key}:`);
+    transformLines.push(n.yaml);
+    transformLines.push("");
   }
   if (downstreamInputKeys.length > 0) {
-    lines.push("  tag_source:");
-    lines.push("    type: remap");
-    lines.push(
+    transformLines.push("  tag_source:");
+    transformLines.push("    type: remap");
+    transformLines.push(
       `    inputs: [${downstreamInputKeys.map((k) => `"${k}"`).join(", ")}]`,
     );
-    lines.push("    source: |-");
-    lines.push(`      .logtura_connection_id = "${connection.id}"`);
-    lines.push(`      .logtura_provider = "${driver.id}"`);
-    lines.push("      .logtura_received_at = now()");
-    lines.push("");
+    transformLines.push("    source: |-");
+    transformLines.push(`      .logtura_connection_id = "${connection.id}"`);
+    transformLines.push(`      .logtura_provider = "${driver.id}"`);
+    transformLines.push("      .logtura_received_at = now()");
+    transformLines.push("");
   }
 
   const upstreamForSinks =
@@ -362,9 +366,9 @@ function renderVectorYaml(
       `monitor_${safeKey(m.monitor.id)}`,
     );
     for (const t of transforms) {
-      lines.push(`  ${t.key}:`);
-      lines.push(t.yaml);
-      lines.push("");
+      transformLines.push(`  ${t.key}:`);
+      transformLines.push(t.yaml);
+      transformLines.push("");
     }
     monitorOutputKeys.set(m.monitor.id, outputKey);
   }
@@ -416,9 +420,9 @@ function renderVectorYaml(
         `sink_${safeKey(sinkSpec.sink.id)}`,
       );
       for (const t of transforms) {
-        lines.push(`  ${t.key}:`);
-        lines.push(t.yaml);
-        lines.push("");
+        transformLines.push(`  ${t.key}:`);
+        transformLines.push(t.yaml);
+        transformLines.push("");
       }
       const sinkKey = `sink_${safeKey(sinkSpec.sink.id)}`;
       const bundle = dDriver.generateSinkBundle({
@@ -428,12 +432,19 @@ function renderVectorYaml(
         envVarName,
       });
       for (const t of bundle.preSinkTransforms ?? []) {
-        lines.push(`  ${t.key}:`);
-        lines.push(t.yaml);
-        lines.push("");
+        transformLines.push(`  ${t.key}:`);
+        transformLines.push(t.yaml);
+        transformLines.push("");
       }
       sinkSinkKeys.push({ sinkKey: bundle.sink.key, yaml: bundle.sink.yaml });
     }
+  }
+
+  // Only emit the transforms section if we actually have transforms.
+  // Bare `transforms:` is invalid YAML in Vector's eyes.
+  if (transformLines.length > 0) {
+    lines.push("transforms:");
+    for (const line of transformLines) lines.push(line);
   }
 
   // ---- sinks --------------------------------------------------------

@@ -295,7 +295,10 @@ export const cloudflareDriver: ProviderDriver<CloudflareCredentials> = {
         `    method: GET`,
         `    interval_secs: 30`,
         `    headers:`,
-        `      authorization: "Bearer \${CLOUDFLARE_API_TOKEN}"`,
+        // Vector's http_client `headers` is a map<string, array<string>>
+        // — each value must be a sequence, even with one entry, or
+        // Vector rejects the config with "expected a sequence."
+        `      authorization: ["Bearer \${CLOUDFLARE_API_TOKEN}"]`,
         `    decoding:`,
         `      codec: json`,
       ].join("\n");
@@ -399,10 +402,11 @@ function workerNormalizeYaml(sourceKey: string): string {
     // sinks: Slack returns 400 Bad Request on `{"text": ""}`, etc.
     // Fall back to a descriptive synthetic message so the user
     // sees what happened, and so destinations don't reject the
-    // event silently.
+    // event silently. .script is already string-typed from the
+    // top of this block; calling string() on it again would be
+    // "unnecessary error coalescing" (VRL E651).
     `if length(parts) == 0 {`,
-    `  script_name = string(.script) ?? "worker"`,
-    `  parts = push(parts, "[" + script_name + "] outcome=" + outcome)`,
+    `  parts = push(parts, "[" + .script + "] outcome=" + outcome)`,
     `}`,
     `.message = join!(parts, " | ")`,
   ];
