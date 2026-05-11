@@ -530,7 +530,17 @@ apiAuth.get("/deployments/:id", async (c) => {
   const id = c.req.param("id");
   const deployment = await getDeployment(c.env.DB, user.id, id);
   if (!deployment) return c.json({ error: "not_found" }, 404);
-  return c.json({ deployment: toApiDeployment(deployment) });
+  // Rehydrate any in-flight deploy job by lock key so a page reload
+  // mid-deploy can resume polling instead of forgetting the job. We
+  // only return queued/running (activeForLockKey) — surfacing a
+  // long-ago failed job here would make the deploy banner sticky
+  // until a successful re-deploy clears it.
+  const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
+  const activeJob = await jobs.activeForLockKey(lockKeyForFlyDeploy(id));
+  return c.json({
+    deployment: toApiDeployment(deployment),
+    latestDeployJob: activeJob ? toApiJob(activeJob) : null,
+  });
 });
 
 apiAuth.put("/deployments/:id", async (c) => {

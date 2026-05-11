@@ -72,6 +72,12 @@ export function DeploymentDetail() {
   const [bundle, setBundle] = useState<ApiTargetBundle | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"delete" | null>(null);
+  // Server returns any queued/running deploy job for this deployment so
+  // a hard refresh mid-deploy can pick polling back up. We seed
+  // ManagedDeployCard with this once, then it owns the state.
+  const [initialDeployJob, setInitialDeployJob] = useState<ApiJob | null>(
+    null,
+  );
 
   async function refetch() {
     if (!id) return;
@@ -82,6 +88,7 @@ export function DeploymentDetail() {
       ]);
       setDeployment(dep.deployment);
       setBundle(bun);
+      setInitialDeployJob(dep.latestDeployJob);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load");
     }
@@ -188,7 +195,11 @@ export function DeploymentDetail() {
         </Tabs.Panel>
 
         <Tabs.Panel value="run" pt="md">
-          <RunPanel deployment={deployment} bundle={bundle} />
+          <RunPanel
+            deployment={deployment}
+            bundle={bundle}
+            initialDeployJob={initialDeployJob}
+          />
         </Tabs.Panel>
       </Tabs>
     </Container>
@@ -1055,13 +1066,18 @@ function relativeTime(ms: number): string {
 function RunPanel({
   deployment,
   bundle,
+  initialDeployJob,
 }: {
   deployment: ApiDeployment;
   bundle: ApiTargetBundle | null;
+  initialDeployJob: ApiJob | null;
 }) {
   return (
     <Stack gap="lg">
-      <ManagedDeployCard deployment={deployment} />
+      <ManagedDeployCard
+        deployment={deployment}
+        initialDeployJob={initialDeployJob}
+      />
 
       <SelfDeployCard deployment={deployment} />
 
@@ -1222,7 +1238,13 @@ function shellEscape(s: string): string {
   return `'${s}'`;
 }
 
-function ManagedDeployCard({ deployment }: { deployment: ApiDeployment }) {
+function ManagedDeployCard({
+  deployment,
+  initialDeployJob,
+}: {
+  deployment: ApiDeployment;
+  initialDeployJob: ApiJob | null;
+}) {
   const [targets, setTargets] = useState<ApiDeployTarget[] | null>(null);
   const [connecting, setConnecting] = useState<{
     sessionId: string;
@@ -1230,7 +1252,13 @@ function ManagedDeployCard({ deployment }: { deployment: ApiDeployment }) {
   } | null>(null);
   const [pollMessage, setPollMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [deployJob, setDeployJob] = useState<ApiJob | null>(null);
+  // Seed from the server-side active-job-by-lock-key lookup so a hard
+  // reload mid-deploy reattaches to the running job instead of
+  // forgetting it. Repo rule: UX-submitted jobs must rehydrate from
+  // the server on page mount (see CLAUDE.md).
+  const [deployJob, setDeployJob] = useState<ApiJob | null>(
+    initialDeployJob,
+  );
   const [deploying, setDeploying] = useState(false);
   const [autoTriggered, setAutoTriggered] = useState(false);
 
@@ -1256,6 +1284,17 @@ function ManagedDeployCard({ deployment }: { deployment: ApiDeployment }) {
     const params = new URLSearchParams(window.location.search);
     if (params.get("action") !== "deploy") return;
     if (targets === null) return; // wait for targets to load
+    // If a deploy is already in flight (just rehydrated by the
+    // server-side latestDeployJob lookup), don't fire another — the
+    // dedup would no-op it anyway, but skipping avoids a confusing
+    // POST in the network panel.
+    if (
+      deployJob &&
+      (deployJob.status === "queued" || deployJob.status === "running")
+    ) {
+      setAutoTriggered(true);
+      return;
+    }
     const flyTarget = targets.find(
       (t) => t.kind === "fly" && t.externalAccountId === "personal",
     );

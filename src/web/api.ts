@@ -181,7 +181,10 @@ export const api = {
       `/connections/${connectionId}/deployments`,
     ),
   getDeployment: (id: string) =>
-    request<{ deployment: ApiDeployment }>(`/deployments/${id}`),
+    request<{
+      deployment: ApiDeployment;
+      latestDeployJob: ApiJob | null;
+    }>(`/deployments/${id}`),
   createDeployment: (body: {
     connectionId: string;
     displayName: string;
