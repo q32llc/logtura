@@ -1,0 +1,41 @@
+# Test-only wrangler config. Strips:
+#   - [assets] (requires a built ./dist; not used in API tests)
+#   - [triggers] cron (we don't want scheduled handlers firing during
+#     a test run; we exercise routes directly)
+# Keeps D1 + Queues bindings so workerd-pool tests still get real
+# storage and a working queue runtime — matches the user's "no DB
+# mocks, only mock external HTTP" rule.
+name = "logtura"
+main = "src/index.ts"
+compatibility_date = "2025-05-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+APP_URL = "http://localhost"
+# Deterministic test secrets — never used outside the test pool.
+# CREDENTIAL_ENCRYPTION_KEY is 32 bytes of zero, base64url-encoded.
+SESSION_SECRET = "test-session-secret-do-not-use-in-prod"
+CREDENTIAL_ENCRYPTION_KEY = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+GITHUB_CLIENT_ID = "test"
+GITHUB_CLIENT_SECRET = "test"
+SLACK_CLIENT_ID = "test"
+SLACK_CLIENT_SECRET = "test"
+POSTMARK_API_KEY = "test"
+FROM_EMAIL = "test@example.com"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "logtura"
+database_id = "00000000-0000-0000-0000-000000000000"
+preview_database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[[queues.producers]]
+binding = "JOBS_QUEUE"
+queue = "logtura-jobs"
+
+[[queues.consumers]]
+queue = "logtura-jobs"
+max_batch_size = 5
+max_batch_timeout = 1
+max_retries = 3

@@ -25,6 +25,13 @@ jobs:
       - name: typecheck
         run: pnpm typecheck
 
+      - name: workerd integration tests
+        # Real worker in a workerd pool with seeded D1 + Queues; only
+        # external HTTP is mocked. Catches things type-check can't —
+        # routes wired wrong, middleware order, encryption round-trips,
+        # the macaroon HMAC chain we just shipped.
+        run: pnpm test:workerd
+
       - name: vector config validation
         # Pulls the same forwarder image the deploy uses and runs
         # `vector validate` against bundles the generator produces.
