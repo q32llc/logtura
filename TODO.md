@@ -41,6 +41,9 @@
 - [ ] Publish a paper/blog with logtura attribution if the result is novel.
 
 ### Reliability / ops
+- [ ] **Post-deploy SaaS smoke script** — `scripts/smoke.mjs` that hits `/api/providers` + `/api/destinations/drivers`, asserts the expected ids are present and each has a non-null connectFlow. Run after `pnpm run deploy`. Would have caught "Supabase didn't deploy" on 2026-05-11 where the registry shipped with only 3 providers. ~15 lines.
+- [ ] **Forwarder healthcheck endpoint** — `/api/deployments/:id/health` that hits Fly Machines API for the deployment's app + Vector's `/health` over Fly internal network, returns `{ status: "healthy" | "oom_looping" | "vector_unhealthy" | "stopped", details }`. Would have surfaced the wrangler-OOM loop on the cf-errors-to-slack deployment without needing to manually tail Fly logs.
+- [ ] **End-to-end event probe** — push a synthetic event through an `internal_logs`-shaped source after deploy, wait 60s, assert it arrived at the configured sink. Requires a "probe sink" abstraction we don't have today. Most expensive option, only build if (1) and (2) prove insufficient.
 - [ ] Stale deployment alerter is wired but unverified end-to-end. Smoke test: stop a forwarder, confirm Postmark email fires within a cron tick.
 - [ ] Heartbeat token rotation — currently lifetime token per deployment. Design a rotation flow.
 - [ ] Job dead-letter visibility — failed jobs stay in `jobs` table but no UI surfaces them.
