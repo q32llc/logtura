@@ -28,7 +28,7 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApiError, api } from "../api";
 import { SelectionEditor } from "../components/SelectionEditor";
 import type {
@@ -47,6 +47,26 @@ import type {
 export function DeploymentDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  // URL-bound tab state so a refresh keeps you on the tab you were on.
+  // ?action=deploy is the older link-in style — preserved for inbound
+  // links from the deployments list / banner.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab =
+    searchParams.get("tab") ??
+    (searchParams.get("action") === "deploy" ? "run" : "overview");
+  const setActiveTab = (v: string | null) => {
+    if (!v) return;
+    setSearchParams(
+      (prev) => {
+        prev.set("tab", v);
+        // action=deploy is consumed once on landing; drop it so
+        // subsequent reloads don't keep auto-firing the deploy.
+        if (v !== "run") prev.delete("action");
+        return prev;
+      },
+      { replace: true },
+    );
+  };
   const [deployment, setDeployment] = useState<ApiDeployment | null>(null);
   const [bundle, setBundle] = useState<ApiTargetBundle | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -151,14 +171,7 @@ export function DeploymentDetail() {
         <OutdatedBanner deployment={deployment} onRefresh={refetch} />
       )}
 
-      <Tabs
-        defaultValue={
-          new URLSearchParams(window.location.search).get("action") ===
-          "deploy"
-            ? "run"
-            : "overview"
-        }
-      >
+      <Tabs value={activeTab} onChange={setActiveTab}>
         <Tabs.List>
           <Tabs.Tab value="overview">Overview</Tabs.Tab>
           <Tabs.Tab value="configure">Configure</Tabs.Tab>
