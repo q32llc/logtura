@@ -5,10 +5,6 @@ export const mockProvider: ProviderDriver<{ apiToken: string }> = {
   id: "mock-source",
   displayName: "Mock source",
   sourceLabel: "Thing",
-  formFields: [],
-  parseFormData() {
-    return { credentials: { apiToken: "" }, explicitAccountId: null };
-  },
   async verifyCredentials() {
     return [{ id: "acct_x", name: "Test" }];
   },

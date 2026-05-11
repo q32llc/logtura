@@ -32,10 +32,6 @@ const blackholeDestination: DestinationDriver<Record<string, never>> = {
   displayName: "Blackhole",
   description: "Test-only no-op sink",
   flows: ["logs"],
-  formFields: [],
-  parseFormData() {
-    return { config: {} };
-  },
   generateSinkBundle({ inputs, sinkKey }) {
     return {
       sink: {

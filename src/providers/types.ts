@@ -1,20 +1,14 @@
 /**
  * Re-exports the provider-driver contract from @logtura/core so
- * SaaS-side modules (drivers, routes, the generator adapter) can
- * keep importing from "../providers/types" without knowing the
- * package boundary moved.
- *
- * When you want to add a new provider driver, the canonical types
- * live in @logtura/core/types — these re-exports just spare every
- * call site from a churn rename.
+ * existing SaaS imports keep compiling. ConnectFlow + FormField are
+ * SaaS-side now (src/providers/connect/types.ts) and are re-exported
+ * from src/providers/index.ts.
  */
 export type {
-  ConnectFlow,
   ConnectionRef,
   DiscoveredSource,
   DockerfileDep,
   EnvVarSpec,
-  FormField,
   ProviderAccount,
   ProviderDriver,
   SourceBlock,

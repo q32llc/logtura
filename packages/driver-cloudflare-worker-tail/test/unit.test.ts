@@ -12,32 +12,9 @@ const dummyConnection = {
   externalAccountId: "acct_x",
 };
 
-describe("parseFormData", () => {
-  it("trims api_token and returns credentials", () => {
-    const f = new FormData();
-    f.set("api_token", "  cfat_abc  ");
-    f.set("account_id", "");
-    const out = cloudflareWorkerTailDriver.parseFormData(f);
-    expect(out.credentials).toEqual({ apiToken: "cfat_abc" });
-    expect(out.explicitAccountId).toBeNull();
-  });
-
-  it("rejects when api_token is missing", () => {
-    const f = new FormData();
-    f.set("api_token", "");
-    expect(() => cloudflareWorkerTailDriver.parseFormData(f)).toThrow(
-      /Missing api_token/,
-    );
-  });
-
-  it("returns explicitAccountId when provided", () => {
-    const f = new FormData();
-    f.set("api_token", "cfat_z");
-    f.set("account_id", "f0c6ed442ab8c6bf9d102678d9421dd8");
-    const out = cloudflareWorkerTailDriver.parseFormData(f);
-    expect(out.explicitAccountId).toBe("f0c6ed442ab8c6bf9d102678d9421dd8");
-  });
-});
+// parseFormData + connectFlow + formFields moved to the SaaS-side
+// connect adapter (src/providers/connect/cloudflare-worker-tail.ts);
+// see test/workerd/connect-adapters.test.ts for those tests.
 
 describe("generateSourceBlock", () => {
   it("emits a wrangler tail exec command with json + jq pipeline", () => {

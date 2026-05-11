@@ -1,14 +1,10 @@
-import {
-  type DestinationDriver,
-  DestinationError,
-  type SinkBundle,
-} from "@logtura/core";
+import { type DestinationDriver, type SinkBundle } from "@logtura/core";
 
 /**
  * Prometheus remote-write — Vector's native sink for any Prometheus-
  * compatible TSDB: Mimir, VictoriaMetrics, Thanos, Cortex, self-hosted
  * Prometheus with the remote_write receiver enabled, Grafana Cloud,
- * etc. Two-field config: the endpoint URL and an optional bearer token.
+ * etc.
  */
 export interface PrometheusRemoteWriteConfig {
   endpoint: string;
@@ -24,39 +20,6 @@ export const prometheusRemoteWriteDriver: DestinationDriver<PrometheusRemoteWrit
     description:
       "Push Vector internal metrics to any Prometheus-compatible TSDB (Mimir, VictoriaMetrics, Thanos, Grafana Cloud, self-hosted Prom with remote_write enabled).",
     flows: ["metrics"],
-    formFields: [
-      {
-        name: "endpoint",
-        label: "Remote-write endpoint",
-        type: "text",
-        placeholder: "https://prometheus.example.com/api/v1/write",
-        description:
-          "Full URL to the receiver's remote-write endpoint. HTTPS only.",
-        required: true,
-      },
-      {
-        name: "bearerToken",
-        label: "Bearer token (optional)",
-        type: "password",
-        placeholder: "(leave empty if the endpoint is open)",
-        description:
-          "If the receiver requires authentication, paste the bearer token. Grafana Cloud's remote_write needs this; self-hosted Prom often doesn't.",
-        required: false,
-      },
-    ],
-
-    parseFormData(form) {
-      const endpoint = String(form.get("endpoint") ?? "").trim();
-      if (!endpoint) {
-        throw new DestinationError("Missing remote-write endpoint", 400);
-      }
-      if (!/^https:\/\//.test(endpoint)) {
-        throw new DestinationError("Endpoint must start with https://", 400);
-      }
-      const bearerToken =
-        String(form.get("bearerToken") ?? "").trim() || null;
-      return { config: { endpoint, bearerToken } };
-    },
 
     generateSinkBundle({ config, inputs, sinkKey, envVarName }): SinkBundle {
       const tokenEnv = `${envVarName}_TOKEN`;

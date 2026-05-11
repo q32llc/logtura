@@ -16,22 +16,9 @@ const dummySource = {
   metadata: { function_id: "6eda78cc-fc80-40f0-bd85-05ab0388842c" },
 };
 
-describe("parseFormData", () => {
-  it("trims pat and project_ref", () => {
-    const f = new FormData();
-    f.set("pat", "  sbp_abc  ");
-    f.set("project_ref", " edzvfyvdtvwrnaoyupqq ");
-    const out = supabaseEdgeLogsDriver.parseFormData(f);
-    expect(out.credentials).toEqual({ pat: "sbp_abc" });
-    expect(out.explicitAccountId).toBe("edzvfyvdtvwrnaoyupqq");
-  });
-
-  it("rejects when pat is missing", () => {
-    const f = new FormData();
-    f.set("pat", "");
-    expect(() => supabaseEdgeLogsDriver.parseFormData(f)).toThrow(/Missing pat/);
-  });
-});
+// parseFormData + connectFlow + formFields moved to the SaaS-side
+// connect adapter (src/providers/connect/supabase-edge-logs.ts);
+// see test/workerd/connect-adapters.test.ts for those tests.
 
 describe("generateSourceBlock", () => {
   it("emits http_client poll with SQL filter on function_id", () => {

@@ -17,11 +17,9 @@ import {
 } from "@logtura/core";
 import {
   cfFetch,
-  CF_FORM_FIELDS,
   checkCfCredentialFreshness,
   type CloudflareCredentials,
   cfRuntimeSpec,
-  parseCfFormData,
   safeKey,
   shellQuoteCfWorkerName,
   verifyCfCredentials,
@@ -32,38 +30,16 @@ interface CfWorkerScript {
   modified_on?: string;
 }
 
-const PERMISSION_GROUPS = [
-  { key: "workers_scripts", type: "read" },
-  { key: "workers_tail", type: "read" },
-];
-
-const TOKEN_TEMPLATE_URL = (() => {
-  const base = "https://dash.cloudflare.com/profile/api-tokens";
-  const params = new URLSearchParams({
-    permissionGroupKeys: JSON.stringify(PERMISSION_GROUPS),
-    accountId: "*",
-    zoneId: "all",
-    name: "logtura-worker-tail",
-  });
-  return `${base}?${params.toString()}`;
-})();
+// Token-page URL with permissionGroupKeys pre-checked, the OAuth
+// button labels, and the FormData parser all live in the SaaS-side
+// connect adapter (src/providers/connect/cloudflare-worker-tail.ts).
+// This package only carries what the renderer + a self-hoster CLI
+// would consume: id, discovery, codegen, runtime spec.
 
 export const cloudflareWorkerTailDriver: ProviderDriver<CloudflareCredentials> = {
   id: "cloudflare-worker-tail",
   displayName: "Cloudflare worker tail",
   sourceLabel: "Worker",
-  connectFlow: {
-    kind: "external_token",
-    url: TOKEN_TEMPLATE_URL,
-    buttonLabel: "Connect Cloudflare (worker tail)",
-    buttonDescription:
-      "Opens Cloudflare with Workers Scripts:Read + Workers Tail:Read pre-selected. Click Continue → Create Token and paste it below.",
-    pasteFieldName: "api_token",
-    manualInstructions:
-      "Or create one manually at dash.cloudflare.com/profile/api-tokens with Workers Scripts:Read and Workers Tail:Read.",
-  },
-  formFields: CF_FORM_FIELDS,
-  parseFormData: parseCfFormData,
   verifyCredentials: verifyCfCredentials,
   checkCredentialFreshness: checkCfCredentialFreshness,
 
@@ -117,7 +93,11 @@ export const cloudflareWorkerTailDriver: ProviderDriver<CloudflareCredentials> =
 
   runtimeSpec(_connection: ConnectionRef) {
     return cfRuntimeSpec({
-      helpUrl: TOKEN_TEMPLATE_URL,
+      // Bare token-page URL; the connect-time pre-checked scopes URL
+      // lives in the host's connect adapter. helpUrl is rendered next
+      // to the env var on a deploy's "missing creds" view, where we
+      // can't assume the user wants the worker-tail scope set.
+      helpUrl: "https://dash.cloudflare.com/profile/api-tokens",
       extraDockerInstall:
         "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y --no-install-recommends nodejs && npm install -g wrangler@latest",
     });

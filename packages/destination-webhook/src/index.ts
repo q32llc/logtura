@@ -1,8 +1,4 @@
-import {
-  type DestinationDriver,
-  DestinationError,
-  type SinkBundle,
-} from "@logtura/core";
+import { type DestinationDriver, type SinkBundle } from "@logtura/core";
 
 export interface WebhookConfig {
   url: string;
@@ -14,26 +10,6 @@ export const webhookDriver: DestinationDriver<WebhookConfig> = {
   description:
     "Send each matched log line as JSON to any HTTPS endpoint. Works with Discord, custom services, n8n, Better Stack's HTTP source, anything that accepts a POST.",
   flows: ["logs"],
-  formFields: [
-    {
-      name: "url",
-      label: "Webhook URL",
-      type: "text",
-      placeholder: "https://hooks.example.com/...",
-      description:
-        "logtura POSTs JSON-encoded log lines here. Use HTTPS only.",
-      required: true,
-    },
-  ],
-
-  parseFormData(form) {
-    const url = String(form.get("url") ?? "").trim();
-    if (!url) throw new DestinationError("Missing webhook URL", 400);
-    if (!/^https:\/\//.test(url)) {
-      throw new DestinationError("URL must start with https://", 400);
-    }
-    return { config: { url } };
-  },
 
   generateSinkBundle({ inputs, sinkKey, envVarName }): SinkBundle {
     const yaml = [

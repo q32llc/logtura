@@ -22,8 +22,6 @@ export type {
   // Driver contracts.
   ProviderDriver,
   DestinationDriver,
-  ConnectFlow,
-  FormField,
   ConnectionRef,
   SourceRef,
   DiscoveredSource,

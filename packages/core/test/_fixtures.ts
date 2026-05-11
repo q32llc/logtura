@@ -11,20 +11,6 @@ export const mockProvider: ProviderDriver<{ apiToken: string }> = {
   id: "mock-source",
   displayName: "Mock source",
   sourceLabel: "Thing",
-  formFields: [
-    {
-      name: "api_token",
-      label: "API token",
-      type: "password",
-      required: true,
-    },
-  ],
-  parseFormData(form) {
-    return {
-      credentials: { apiToken: String(form.get("api_token") ?? "") },
-      explicitAccountId: null,
-    };
-  },
   async verifyCredentials() {
     return [{ id: "acct_x", name: "Test" }];
   },
@@ -78,12 +64,6 @@ export const mockDestination: DestinationDriver<{ url: string }> = {
   displayName: "Mock sink",
   description: "test",
   flows: ["logs"],
-  formFields: [
-    { name: "url", label: "URL", type: "text", required: true },
-  ],
-  parseFormData(form) {
-    return { config: { url: String(form.get("url") ?? "") } };
-  },
   generateSinkBundle({ inputs, sinkKey, envVarName }) {
     const remapKey = `${sinkKey}_format`;
     return {

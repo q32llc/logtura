@@ -20,29 +20,9 @@ describe("flyAuthHeader", () => {
   });
 });
 
-describe("parseFormData", () => {
-  it("trims api_token and returns credentials", () => {
-    const f = new FormData();
-    f.set("api_token", "  FlyV1 fm2_abc  ");
-    f.set("org_slug", "");
-    const out = flyLogTailDriver.parseFormData(f);
-    expect(out.credentials).toEqual({ apiToken: "FlyV1 fm2_abc" });
-    expect(out.explicitAccountId).toBeNull();
-  });
-
-  it("rejects when api_token is missing", () => {
-    const f = new FormData();
-    f.set("api_token", "");
-    expect(() => flyLogTailDriver.parseFormData(f)).toThrow(/Missing api_token/);
-  });
-
-  it("returns org_slug when provided", () => {
-    const f = new FormData();
-    f.set("api_token", "fm2_x");
-    f.set("org_slug", "my-org");
-    expect(flyLogTailDriver.parseFormData(f).explicitAccountId).toBe("my-org");
-  });
-});
+// parseFormData + connectFlow + formFields moved to the SaaS-side
+// connect adapter (src/providers/connect/fly-log-tail.ts); see
+// test/workerd/connect-adapters.test.ts for those tests.
 
 describe("generateSourceBlock", () => {
   it("emits exec with stdbuf + jq pipeline + $$app escape", () => {

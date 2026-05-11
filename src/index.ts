@@ -62,6 +62,7 @@ import {
 } from "./db";
 import {
   DestinationError,
+  getDestinationConnect,
   getDestinationDriver,
   listDestinationDrivers,
 } from "./destinations";
@@ -96,7 +97,12 @@ import {
   lockKeyForFlyDeploy,
   type QueueEnvelope,
 } from "./jobs/types";
-import { getProvider, listProviders, ProviderError } from "./providers";
+import {
+  getProvider,
+  getProviderConnect,
+  listProviders,
+  ProviderError,
+} from "./providers";
 
 const app = new Hono<AppContext>();
 
@@ -127,12 +133,17 @@ api.get("/me", (c) => {
 });
 
 api.get("/providers", (c) => {
-  const providers = listProviders().map((p) => ({
-    id: p.id,
-    displayName: p.displayName,
-    connectFlow: p.connectFlow ?? null,
-    formFields: p.formFields,
-  }));
+  const providers = listProviders().map((p) => {
+    // Pair each OSS driver with its SaaS-side connect adapter so the
+    // UI gets form/OAuth metadata alongside the driver identity.
+    const connect = getProviderConnect(p.id);
+    return {
+      id: p.id,
+      displayName: p.displayName,
+      connectFlow: connect?.connectFlow ?? null,
+      formFields: connect?.formFields ?? [],
+    };
+  });
   return c.json({ providers });
 });
 
@@ -190,11 +201,13 @@ apiAuth.post("/connections", async (c) => {
 
   const driver = getProvider(providerId);
   if (!driver) return c.json({ error: "unknown_provider" }, 400);
+  const connect = getProviderConnect(providerId);
+  if (!connect) return c.json({ error: "no_connect_adapter" }, 500);
 
   let credentials: unknown;
   let explicitAccountId: string | null;
   try {
-    const parsed = driver.parseFormData(form);
+    const parsed = connect.parseFormData(form);
     credentials = parsed.credentials;
     explicitAccountId = parsed.explicitAccountId;
   } catch (err) {
@@ -423,12 +436,14 @@ apiAuth.post("/connections/:id/reconnect", async (c) => {
 
   const driver = getProvider(existing.provider);
   if (!driver) return c.json({ error: "unknown_provider" }, 400);
+  const connect = getProviderConnect(existing.provider);
+  if (!connect) return c.json({ error: "no_connect_adapter" }, 500);
 
   const form = await c.req.formData();
   let credentials: unknown;
   let explicitAccountId: string | null;
   try {
-    const parsed = driver.parseFormData(form);
+    const parsed = connect.parseFormData(form);
     credentials = parsed.credentials;
     explicitAccountId = parsed.explicitAccountId;
   } catch (err) {
@@ -1070,13 +1085,16 @@ apiAuth.get("/destinations", async (c) => {
 });
 
 apiAuth.get("/destinations/drivers", (c) => {
-  const drivers = listDestinationDrivers().map((d) => ({
-    id: d.id,
-    displayName: d.displayName,
-    description: d.description,
-    connectFlow: d.connectFlow ?? null,
-    formFields: d.formFields,
-  }));
+  const drivers = listDestinationDrivers().map((d) => {
+    const connect = getDestinationConnect(d.id);
+    return {
+      id: d.id,
+      displayName: d.displayName,
+      description: d.description,
+      connectFlow: connect?.connectFlow ?? null,
+      formFields: connect?.formFields ?? [],
+    };
+  });
   return c.json({ drivers });
 });
 
@@ -1090,9 +1108,11 @@ apiAuth.post("/destinations", async (c) => {
   }
   const driver = getDestinationDriver(kind);
   if (!driver) return c.json({ error: "unknown_driver" }, 400);
+  const connect = getDestinationConnect(kind);
+  if (!connect) return c.json({ error: "no_connect_adapter" }, 500);
   let parsed;
   try {
-    parsed = driver.parseFormData(form);
+    parsed = connect.parseFormData(form);
   } catch (err) {
     if (err instanceof DestinationError) {
       return c.json({ error: "invalid_form", message: err.message }, 400);

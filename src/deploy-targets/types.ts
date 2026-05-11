@@ -14,11 +14,8 @@
 // CF Containers is intentionally not on the list — its Worker-coupled
 // request-driven lifecycle doesn't fit our always-on Vector tail.
 
-import type {
-  ConnectFlow,
-  FormField,
-  ProviderAccount,
-} from "../providers/types";
+import type { ProviderAccount } from "../providers/types";
+import type { ConnectFlow, FormField } from "../providers/connect/types";
 import type { GeneratedBundle } from "../generator";
 
 export interface BundleFile {

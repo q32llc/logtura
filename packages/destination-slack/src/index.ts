@@ -1,17 +1,16 @@
 import {
   type DestinationDriver,
-  DestinationError,
   type SinkBundle,
 } from "@logtura/core";
 
 /**
  * Slack incoming-webhook destination.
  *
- * Host-side OAuth flow (the standard
- * slack.com/oauth/v2/authorize redirect dance) plants the
- * `webhook_url`, `team_name`, `channel` fields into the form; this
- * driver just parses them and emits the http sink. The
- * `incoming-webhook` scope is the only Slack scope needed.
+ * Host-side OAuth flow (slack.com/oauth/v2/authorize redirect)
+ * plants the `webhookUrl`, `teamName`, `channel` into a SlackConfig;
+ * this driver just renders the http sink. OAuth UX + form parsing
+ * live in the SaaS-side connect adapter
+ * (src/destinations/connect/slack.ts).
  */
 export interface SlackConfig {
   webhookUrl: string;
@@ -25,35 +24,6 @@ export const slackDriver: DestinationDriver<SlackConfig> = {
   description:
     "Post matched log lines to a Slack channel. OAuth into your workspace and pick a channel; we never see your messages, just the webhook URL Slack hands out.",
   flows: ["logs"],
-  connectFlow: {
-    kind: "oauth_redirect",
-    startPath: "/api/destinations/slack/start",
-    buttonLabel: "Connect Slack",
-    buttonDescription:
-      "Sign in to your Slack workspace and pick a channel. We get a webhook URL for that channel; you can revoke it from Slack at any time.",
-  },
-  // formFields is empty because the OAuth flow does the work.
-  // The connect-flow handler plants the resulting config into a
-  // hidden form for the create-destination step. Listed here so the
-  // generic destination form can render `display_name` plus zero
-  // driver fields.
-  formFields: [],
-
-  parseFormData(form) {
-    // The OAuth callback POSTs here with hidden fields populated from
-    // the token exchange. Used only by the OAuth path; direct form
-    // submission isn't supported (formFields is empty).
-    const webhookUrl = String(form.get("webhook_url") ?? "").trim();
-    const teamName = String(form.get("team_name") ?? "").trim() || null;
-    const channel = String(form.get("channel") ?? "").trim() || null;
-    if (!webhookUrl) {
-      throw new DestinationError(
-        "Slack OAuth did not return a webhook URL",
-        400,
-      );
-    }
-    return { config: { webhookUrl, teamName, channel } };
-  },
 
   generateSinkBundle({ inputs, sinkKey, envVarName }): SinkBundle {
     // Slack incoming-webhooks expect {text: "..."} JSON. We insert a

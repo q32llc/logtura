@@ -103,42 +103,6 @@ export interface ProviderAccount {
   name: string;
 }
 
-/** UI form field declaration. Drivers ship the form shape so the
- *  hosting app can render a stock connect screen for them. */
-export interface FormField {
-  name: string;
-  label: string;
-  type: "text" | "password";
-  placeholder?: string;
-  description?: string;
-  required?: boolean;
-}
-
-/** Connect-flow shape. Discriminated union so hosts can render
- *  paste-token / cli_session / OAuth flows generically. */
-export type ConnectFlow =
-  | {
-      kind: "external_token";
-      url: string;
-      buttonLabel: string;
-      buttonDescription: string;
-      pasteFieldName: string;
-      manualInstructions?: string;
-    }
-  | {
-      kind: "cli_session";
-      startPath: string;
-      pollPath: string;
-      buttonLabel: string;
-      buttonDescription: string;
-    }
-  | {
-      kind: "oauth_redirect";
-      startPath: string;
-      buttonLabel: string;
-      buttonDescription: string;
-    };
-
 /** Env-var the bundle expects at runtime. The host fills `value`
  *  from stored credentials / external account / user input. */
 export interface EnvVarSpec {
@@ -165,21 +129,18 @@ export interface SourceBlock {
 }
 
 /** The provider-driver contract. One driver = one transport (e.g.
- *  cloudflare-worker-tail, fly-log-tail). */
+ *  cloudflare-worker-tail, fly-log-tail).
+ *
+ *  This is the OSS surface — pure renderer + API client. Anything
+ *  web-shaped (form schemas, OAuth start paths, paste button copy)
+ *  lives in a host-side adapter, not here. That keeps the
+ *  @logtura/driver-* packages narrow enough for outside
+ *  contributors to ship driver PRs without touching SaaS routing. */
 export interface ProviderDriver<TCreds = unknown> {
   readonly id: string;
   readonly displayName: string;
   /** Friendly noun used in UI labels ("Worker", "App"). */
   readonly sourceLabel: string;
-
-  readonly connectFlow?: ConnectFlow;
-  readonly formFields: readonly FormField[];
-
-  /** Parse host-rendered form data into the credential shape. */
-  parseFormData(form: FormData): {
-    credentials: TCreds;
-    explicitAccountId: string | null;
-  };
 
   /** Verify credentials, return accessible accounts. */
   verifyCredentials(credentials: TCreds): Promise<ProviderAccount[]>;
@@ -257,15 +218,15 @@ export interface SinkBundle {
   sink: { key: string; yaml: string };
 }
 
+/** The destination-driver contract. Pure renderer + (optional)
+ *  config verifier; form schemas + OAuth flows live in a
+ *  host-side adapter (see DestinationConnectAdapter SaaS-side). */
 export interface DestinationDriver<TConfig = unknown> {
   readonly id: string;
   readonly displayName: string;
   readonly description: string;
   readonly flows: readonly DestinationFlow[];
-  readonly connectFlow?: ConnectFlow;
-  readonly formFields: readonly FormField[];
 
-  parseFormData(form: FormData): { config: TConfig };
   verifyConfig?(config: TConfig): Promise<void>;
 
   generateSinkBundle(input: {

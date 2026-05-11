@@ -1,27 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { webhookDriver } from "../src/index";
 
-describe("parseFormData", () => {
-  it("accepts an https URL", () => {
-    const f = new FormData();
-    f.set("url", "https://hooks.example.com/x");
-    expect(webhookDriver.parseFormData(f).config).toEqual({
-      url: "https://hooks.example.com/x",
-    });
-  });
-
-  it("rejects empty URLs", () => {
-    const f = new FormData();
-    f.set("url", "");
-    expect(() => webhookDriver.parseFormData(f)).toThrow(/Missing webhook URL/);
-  });
-
-  it("rejects non-https URLs", () => {
-    const f = new FormData();
-    f.set("url", "http://example.com/x");
-    expect(() => webhookDriver.parseFormData(f)).toThrow(/must start with https/);
-  });
-});
+// parseFormData moved to the SaaS-side connect adapter.
 
 describe("generateSinkBundle", () => {
   it("emits http sink fed directly from upstream inputs", () => {

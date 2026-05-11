@@ -1,33 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { prometheusRemoteWriteDriver } from "../src/index";
 
-describe("parseFormData", () => {
-  it("accepts endpoint without a bearer", () => {
-    const f = new FormData();
-    f.set("endpoint", "https://prom.example.com/api/v1/write");
-    expect(prometheusRemoteWriteDriver.parseFormData(f).config).toEqual({
-      endpoint: "https://prom.example.com/api/v1/write",
-      bearerToken: null,
-    });
-  });
-
-  it("accepts endpoint + bearer", () => {
-    const f = new FormData();
-    f.set("endpoint", "https://prom.example.com/api/v1/write");
-    f.set("bearerToken", "tok_abc");
-    expect(
-      prometheusRemoteWriteDriver.parseFormData(f).config.bearerToken,
-    ).toBe("tok_abc");
-  });
-
-  it("rejects non-https endpoints", () => {
-    const f = new FormData();
-    f.set("endpoint", "http://prom/api/v1/write");
-    expect(() => prometheusRemoteWriteDriver.parseFormData(f)).toThrow(
-      /must start with https/,
-    );
-  });
-});
+// parseFormData moved to the SaaS-side connect adapter.
 
 describe("generateSinkBundle", () => {
   it("emits an unauthenticated prometheus_remote_write sink", () => {

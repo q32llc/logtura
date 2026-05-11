@@ -1,17 +1,12 @@
 /**
- * Cloudflare API token plumbing — token verification, account
- * listing, freshness check, env-var declarations, shell-safe key
- * helpers. This is shared between the worker-tail and AI Gateway
- * drivers; while we only have one driver extracted as a package it
- * lives here inline. When `driver-cloudflare-ai-gateway` extracts
- * into its own package, factor this out into
- * `@logtura/cloudflare-shared` and have both drivers depend on it.
+ * Cloudflare API token plumbing shared between cloudflare-* drivers.
+ * Auth (verify, freshness) + the runtime env var spec. Form schemas
+ * and FormData parsing live host-side in the SaaS connect adapter.
  */
 import {
   type ConnectionRef,
   type DockerfileDep,
   type EnvVarSpec,
-  type FormField,
   type ProviderAccount,
   ProviderError,
 } from "@logtura/core";
@@ -58,42 +53,6 @@ export async function cfFetch<T>(
     throw new ProviderError(msg, res.status);
   }
   return json.result;
-}
-
-export const CF_FORM_FIELDS: readonly FormField[] = [
-  {
-    name: "api_token",
-    label: "Paste the token Cloudflare gave you",
-    type: "password",
-    placeholder: "cfat_...",
-    description:
-      "After clicking Continue → Create Token in Cloudflare, copy the token and paste it here.",
-    required: true,
-  },
-  {
-    name: "account_id",
-    label: "Account ID",
-    type: "text",
-    placeholder: "auto-detect from token if blank",
-    description:
-      "Leave blank to auto-detect the first account the token can access.",
-    required: false,
-  },
-];
-
-export function parseCfFormData(form: FormData): {
-  credentials: CloudflareCredentials;
-  explicitAccountId: string | null;
-} {
-  const apiToken = String(form.get("api_token") ?? "").trim();
-  const accountId = String(form.get("account_id") ?? "").trim();
-  if (!apiToken) {
-    throw new ProviderError("Missing api_token", 400);
-  }
-  return {
-    credentials: { apiToken },
-    explicitAccountId: accountId || null,
-  };
 }
 
 export async function verifyCfCredentials(

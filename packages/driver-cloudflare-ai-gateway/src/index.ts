@@ -10,11 +10,9 @@
  */
 import {
   cfFetch,
-  CF_FORM_FIELDS,
   checkCfCredentialFreshness,
   type CloudflareCredentials,
   cfRuntimeSpec,
-  parseCfFormData,
   safeKey,
   verifyCfCredentials,
 } from "@logtura/cloudflare-shared";
@@ -31,28 +29,10 @@ interface CfAiGateway {
   collect_logs?: boolean;
 }
 
-// AI Gateway:Read isn't documented as a permissionGroupKeys value
-// so the prefilled template URL points to the bare custom-token
-// page. Users add AI Gateway:Read by hand.
-const TOKEN_TEMPLATE_URL =
-  "https://dash.cloudflare.com/profile/api-tokens";
-
 export const cloudflareAiGatewayDriver: ProviderDriver<CloudflareCredentials> = {
   id: "cloudflare-ai-gateway",
   displayName: "Cloudflare AI Gateway",
   sourceLabel: "AI Gateway",
-  connectFlow: {
-    kind: "external_token",
-    url: TOKEN_TEMPLATE_URL,
-    buttonLabel: "Connect Cloudflare (AI Gateway)",
-    buttonDescription:
-      "Create a custom token with AI Gateway:Read scoped to your account, then paste it below.",
-    pasteFieldName: "api_token",
-    manualInstructions:
-      "At dash.cloudflare.com/profile/api-tokens → Create Custom Token → add AI Gateway:Read for the account that owns your gateway.",
-  },
-  formFields: CF_FORM_FIELDS,
-  parseFormData: parseCfFormData,
   verifyCredentials: verifyCfCredentials,
   checkCredentialFreshness: checkCfCredentialFreshness,
 
@@ -107,7 +87,9 @@ export const cloudflareAiGatewayDriver: ProviderDriver<CloudflareCredentials> = 
   runtimeSpec(_connection: ConnectionRef) {
     // No extra Docker install for AI Gateway — http_client is in
     // Vector itself.
-    return cfRuntimeSpec({ helpUrl: TOKEN_TEMPLATE_URL });
+    return cfRuntimeSpec({
+      helpUrl: "https://dash.cloudflare.com/profile/api-tokens",
+    });
   },
 };
 

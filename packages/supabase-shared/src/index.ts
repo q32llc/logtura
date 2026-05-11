@@ -13,7 +13,6 @@
  */
 import {
   type EnvVarSpec,
-  type FormField,
   type ProviderAccount,
   ProviderError,
 } from "@logtura/core";
@@ -57,40 +56,6 @@ export async function sbFetch<T>(
     throw new ProviderError(msg, res.status);
   }
   return JSON.parse(text) as T;
-}
-
-export const SB_FORM_FIELDS: readonly FormField[] = [
-  {
-    name: "pat",
-    label: "Supabase Personal Access Token",
-    type: "password",
-    placeholder: "sbp_...",
-    description:
-      "Issue at supabase.com/dashboard/account/tokens. The token has full account scope — Supabase doesn't offer per-project PATs today, so prefer using a token created specifically for log-forwarding and revoke it when you're done.",
-    required: true,
-  },
-  {
-    name: "project_ref",
-    label: "Project ref (optional)",
-    type: "text",
-    placeholder: "auto-detect from the first project the token can reach",
-    description:
-      "20-character lowercase id like `edzvfyvdtvwrnaoyupqq`. Leave blank to auto-pick the first project the token sees.",
-    required: false,
-  },
-];
-
-export function parseSbFormData(form: FormData): {
-  credentials: SupabaseCredentials;
-  explicitAccountId: string | null;
-} {
-  const pat = String(form.get("pat") ?? "").trim();
-  const projectRef = String(form.get("project_ref") ?? "").trim();
-  if (!pat) throw new ProviderError("Missing pat", 400);
-  return {
-    credentials: { pat },
-    explicitAccountId: projectRef || null,
-  };
 }
 
 export interface SupabaseProject {

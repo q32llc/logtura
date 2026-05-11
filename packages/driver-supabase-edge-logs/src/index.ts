@@ -29,11 +29,9 @@ import {
   type SourceRef,
 } from "@logtura/core";
 import {
-  parseSbFormData,
   safeKey,
   sbFetch,
   sbRuntimeSpec,
-  SB_FORM_FIELDS,
   type SupabaseCredentials,
   verifySupabaseCredentials,
 } from "@logtura/supabase-shared";
@@ -45,9 +43,6 @@ interface SbEdgeFunction {
   status?: string;
   version?: number;
 }
-
-const TOKEN_TEMPLATE_URL =
-  "https://supabase.com/dashboard/account/tokens";
 
 /** SQL query template fired against `function_edge_logs`. The
  *  `metadata` column is `ARRAY<STRUCT<...>>` so we `CROSS JOIN
@@ -82,18 +77,6 @@ export const supabaseEdgeLogsDriver: ProviderDriver<SupabaseCredentials> = {
   id: "supabase-edge-logs",
   displayName: "Supabase Edge Functions",
   sourceLabel: "Function",
-  connectFlow: {
-    kind: "external_token",
-    url: TOKEN_TEMPLATE_URL,
-    buttonLabel: "Open Supabase token page",
-    buttonDescription:
-      "Create a Personal Access Token at supabase.com/dashboard/account/tokens and paste it below. The token has full account scope — mint a fresh one specifically for log forwarding and revoke when done.",
-    pasteFieldName: "pat",
-    manualInstructions:
-      "Tokens issued there are full-account; Supabase doesn't offer per-project PATs yet. Treat this token like a password.",
-  },
-  formFields: SB_FORM_FIELDS,
-  parseFormData: parseSbFormData,
   verifyCredentials: verifySupabaseCredentials,
 
   async discoverSources({ credentials, accountId }): Promise<DiscoveredSource[]> {
@@ -162,7 +145,9 @@ export const supabaseEdgeLogsDriver: ProviderDriver<SupabaseCredentials> = {
   },
 
   runtimeSpec(_connection: ConnectionRef) {
-    return sbRuntimeSpec({ helpUrl: TOKEN_TEMPLATE_URL });
+    return sbRuntimeSpec({
+      helpUrl: "https://supabase.com/dashboard/account/tokens",
+    });
   },
 };
 

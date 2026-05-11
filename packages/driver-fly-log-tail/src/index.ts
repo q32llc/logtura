@@ -90,51 +90,6 @@ export const flyLogTailDriver: ProviderDriver<FlyCredentials> = {
   displayName: "Fly.io log tail",
   sourceLabel: "App",
 
-  connectFlow: {
-    kind: "external_token",
-    // Fly doesn't have a click-through scope template like Cloudflare;
-    // tokens are minted via `fly tokens create readonly -o <org>` or
-    // (in our world) via the bootstrap mint button on this page.
-    url: "https://fly.io/user/personal_access_tokens",
-    buttonLabel: "Open Fly tokens page",
-    buttonDescription:
-      "Run `fly tokens create readonly -o <your-org>` and paste the resulting `FlyV1 …` token below. (Easier: if you already linked Fly for a managed deploy, use the bootstrap option above — we'll mint a read-only token for you.)",
-    pasteFieldName: "api_token",
-    manualInstructions:
-      "Tokens are also visible at fly.io/user/personal_access_tokens — but the dashboard only mints full-account tokens. For source connections prefer the CLI's `tokens create readonly` so the credential can't write to your account.",
-  },
-
-  formFields: [
-    {
-      name: "api_token",
-      label: "Fly API token (FlyV1 …)",
-      type: "password",
-      placeholder: "FlyV1 fm2_…,fm2_…",
-      description:
-        "Used to discover apps + tail their logs. Read-only is recommended; `fly tokens create readonly -o <org>` produces one. Revokable from the Fly dashboard.",
-      required: true,
-    },
-    {
-      name: "org_slug",
-      label: "Fly organization (optional)",
-      type: "text",
-      placeholder: "personal",
-      description:
-        "Defaults to your personal org if blank. Used to scope discovery.",
-      required: false,
-    },
-  ],
-
-  parseFormData(form) {
-    const apiToken = String(form.get("api_token") ?? "").trim();
-    const orgSlug = String(form.get("org_slug") ?? "").trim();
-    if (!apiToken) throw new ProviderError("Missing api_token", 400);
-    return {
-      credentials: { apiToken },
-      explicitAccountId: orgSlug || null,
-    };
-  },
-
   async verifyCredentials(creds) {
     // Token validity is implicit in a successful org list; Fly
     // doesn't have a dedicated /verify endpoint.

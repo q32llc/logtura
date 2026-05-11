@@ -1,38 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { slackDriver } from "../src/index";
 
-describe("parseFormData", () => {
-  it("accepts webhook_url + team + channel from the OAuth callback", () => {
-    const f = new FormData();
-    f.set("webhook_url", "https://hooks.slack.com/services/T00/B00/XXX");
-    f.set("team_name", "q32");
-    f.set("channel", "alerts");
-    const out = slackDriver.parseFormData(f);
-    expect(out.config).toEqual({
-      webhookUrl: "https://hooks.slack.com/services/T00/B00/XXX",
-      teamName: "q32",
-      channel: "alerts",
-    });
-  });
-
-  it("rejects when webhook_url is missing", () => {
-    const f = new FormData();
-    f.set("webhook_url", "");
-    expect(() => slackDriver.parseFormData(f)).toThrow(
-      /OAuth did not return a webhook URL/,
-    );
-  });
-
-  it("treats blank optional fields as null", () => {
-    const f = new FormData();
-    f.set("webhook_url", "https://hooks.slack.com/x");
-    expect(slackDriver.parseFormData(f).config).toEqual({
-      webhookUrl: "https://hooks.slack.com/x",
-      teamName: null,
-      channel: null,
-    });
-  });
-});
+// parseFormData moved to the SaaS-side connect adapter
+// (src/destinations/connect/slack.ts); see
+// test/workerd/connect-adapters.test.ts.
 
 describe("generateSinkBundle", () => {
   it("emits a {text} remap + http sink with newline_delimited framing", () => {
