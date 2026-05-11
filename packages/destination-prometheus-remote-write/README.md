@@ -28,7 +28,7 @@ sink_<id>:
     token: "${PROM_URL_<id>_TOKEN}"
 ```
 
-Only consumes the `metrics` flow. Like the Datadog destination, wire this through `generateBundle({ metrics: { kind: "destination", … } })`.
+Only consumes the `metrics` flow. Like the Datadog destination, wire this through `generateBundle({ metrics: { kind: "destination", ... } })`.
 
 ## License
 

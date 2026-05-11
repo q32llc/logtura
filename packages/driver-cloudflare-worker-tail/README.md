@@ -1,8 +1,8 @@
 # @logtura/driver-cloudflare-worker-tail
 
-Logtura provider driver for Cloudflare Workers. Tails `wrangler tail <script> --format json` over Vector's `exec` source — same shape as `wrangler tail` in your terminal, but consumed by Vector for routing into your monitors and sinks.
+Logtura provider driver for Cloudflare Workers. Tails `wrangler tail <script> --format json` over Vector's `exec` source. The output has the same shape as `wrangler tail` in your terminal, but consumed by Vector for routing into your monitors and sinks.
 
-Captures the full tail event: console output, exception stack traces, request outcome, response status, dispatched event metadata. (Cloudflare Logpush only ships request envelopes, not the in-function `console.log` / stack traces; this driver uses the Tail API directly so you get the debugging context.)
+Captures the full tail event: console output, exception stack traces, request outcome, response status, dispatched event metadata. Cloudflare Logpush only ships request envelopes. The in-function `console.log` and stack traces are not in Logpush. This driver uses the Tail API directly so you get the debugging context.
 
 ```bash
 npm install @logtura/driver-cloudflare-worker-tail @logtura/core
@@ -11,8 +11,8 @@ npm install @logtura/driver-cloudflare-worker-tail @logtura/core
 ## Credentials
 
 A Cloudflare API token with:
-- **Workers Scripts: Read** — to discover which workers exist
-- **Workers Tail: Read** — to tail them
+- **Workers Scripts: Read**. Lets the driver discover which workers exist.
+- **Workers Tail: Read**. Lets the driver tail them.
 
 Create one at [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens).
 
@@ -32,7 +32,7 @@ const sources = await cloudflareWorkerTailDriver.discoverSources({
 
 const bundle = generateBundle({
   providers: [cloudflareWorkerTailDriver],
-  destinations: [/* … */],
+  destinations: [/* ... */],
   connections: [{
     connection: {
       id: "con_a", provider: "cloudflare-worker-tail",
@@ -41,13 +41,13 @@ const bundle = generateBundle({
     selectedSources: sources,
     credentials: { apiToken: process.env.CLOUDFLARE_API_TOKEN! },
   }],
-  monitors: [/* … */],
+  monitors: [/* ... */],
 });
 ```
 
 ## Runtime requirements
 
-The forwarder image needs `node` + `wrangler` installed. The driver's `runtimeSpec` returns the Dockerfile install lines automatically.
+The forwarder image needs `node` and `wrangler` installed. The driver's `runtimeSpec` returns the Dockerfile install lines automatically.
 
 ## What it emits
 
@@ -57,7 +57,7 @@ Per selected worker, one Vector `exec` source running:
 wrangler tail <script> --format json | jq -c --unbuffered .
 ```
 
-A driver-level `remap` then flattens the CF tail event into the uniform `{ .script, .message, .level, .error, .timestamp }` shape downstream filters can rely on. Console output, exceptions, and outcome all feed `.level` and `.error` so monitors with `kind: "errors"` catch what you'd expect.
+A driver-level `remap` then flattens the CF tail event into the uniform `{ .script, .message, .level, .error, .timestamp }` shape downstream filters can rely on. Console output, exceptions, and outcome all feed `.level` and `.error` so monitors with `kind: "errors"` catch what you expect.
 
 ## License
 

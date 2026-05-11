@@ -10,7 +10,7 @@ npm install @logtura/destination-datadog-metrics @logtura/core
 
 ```ts
 interface DatadogMetricsConfig {
-  apiKey: string;  // issued in Datadog → Organization Settings → API Keys
+  apiKey: string;  // issued in Datadog, Organization Settings, API Keys
   site: string;    // datadoghq.com (default), datadoghq.eu, us3.datadoghq.com, etc.
 }
 ```
@@ -25,7 +25,7 @@ sink_<id>:
   site: "datadoghq.com"
 ```
 
-Only consumes the `metrics` flow — i.e. wire this through `generateBundle({ metrics: { kind: "destination", destination: …, destinationConfig: … } })`, not through a log monitor's sinks.
+Only consumes the `metrics` flow. Wire this through `generateBundle({ metrics: { kind: "destination", destination: ..., destinationConfig: ... } })`. A log monitor's sinks will reject it.
 
 ## License
 

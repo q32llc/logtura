@@ -1,6 +1,6 @@
 # @logtura/destination-webhook
 
-Logtura destination driver for arbitrary HTTPS webhooks. POSTs each matched event as JSON to whatever URL you configure — Discord, n8n, Better Stack's HTTP source, a Cloudflare Worker, anything that accepts a POST.
+Logtura destination driver for arbitrary HTTPS webhooks. POSTs each matched event as JSON to whatever URL you configure. Works with Discord, n8n, Better Stack's HTTP source, a Cloudflare Worker, or anything that accepts a POST.
 
 ```bash
 npm install @logtura/destination-webhook @logtura/core
@@ -26,7 +26,7 @@ sink_<id>:
   batch: { max_events: 50, timeout_secs: 5 }
 ```
 
-Up to 50 events per request, batched on a 5s flush. Events ship in Vector's default schema — your endpoint receives the full normalized event (`.message`, `.level`, `.error`, `.script`, `.timestamp`, plus any driver-specific fields).
+Up to 50 events per request, batched on a 5s flush. Events ship in Vector's default schema. Your endpoint receives the full normalized event (`.message`, `.level`, `.error`, `.script`, `.timestamp`, plus any driver-specific fields).
 
 ## License
 

@@ -1,8 +1,8 @@
 # @logtura/core
 
-Compose Vector configs from structured driver inputs. The renderer takes a typed input — connections + selected sources + monitors + sinks + heartbeat/metrics targets — and produces a complete `vector.yaml`, a Dockerfile fragment, an env-var manifest, and a component manifest describing the pipeline.
+Compose Vector configs from typed driver inputs. The renderer takes a typed input (connections, selected sources, monitors, sinks, heartbeat and metrics targets) and produces a complete `vector.yaml`, a Dockerfile fragment, an env-var manifest, and a component manifest describing the pipeline.
 
-Pure TypeScript, no I/O. Drivers (providers + destinations) plug in via small contracts; this package is the renderer they feed.
+Pure TypeScript. No I/O. Drivers (providers and destinations) plug in via small contracts. This package is the renderer they feed.
 
 ```bash
 npm install @logtura/core @logtura/driver-fly-log-tail @logtura/destination-slack
@@ -40,7 +40,7 @@ const bundle = generateBundle({
       monitor: {
         id: "mon_errors",
         connectionId: null,
-        displayName: "errors → slack",
+        displayName: "errors to slack",
         filterSteps: [{ kind: "errors" }],
         enabled: true,
       },
@@ -59,11 +59,11 @@ const bundle = generateBundle({
   ],
 });
 
-// bundle.vectorYaml      — the full vector.yaml
-// bundle.dockerfile      — Dockerfile lines for a forwarder image
-// bundle.runCommand      — the `vector --config …` invocation
-// bundle.envVars         — { name, description, source, value, … }[]
-// bundle.componentManifest — primary + plumbing components for a UI
+// bundle.vectorYaml          the full vector.yaml
+// bundle.dockerfile          Dockerfile lines for a forwarder image
+// bundle.runCommand          the `vector --config ...` invocation
+// bundle.envVars             { name, description, source, value, ... }[]
+// bundle.componentManifest   primary + plumbing components for a UI
 ```
 
 ## Driver contract
@@ -83,26 +83,26 @@ A provider driver is a single TypeScript object satisfying `ProviderDriver<TCred
 }
 ```
 
-A destination driver is similar — `DestinationDriver<TConfig>` with `generateSinkBundle`, `runtimeEnvVars`, `envVarValue`.
+A destination driver is similar. `DestinationDriver<TConfig>` declares `generateSinkBundle`, `runtimeEnvVars`, and `envVarValue`.
 
-No form schemas, no OAuth flows, no `FormData` parsing. Those live host-side in whatever app is rendering a UI on top of the renderer.
+Form schemas, OAuth flows, and `FormData` parsing are intentionally not part of this contract. They live host-side in whatever app is rendering a UI on top of the renderer.
 
-## What's around it
+## Related packages
 
-- [@logtura/driver-cloudflare-worker-tail](../driver-cloudflare-worker-tail) — `wrangler tail` over Vector's exec source
-- [@logtura/driver-cloudflare-ai-gateway](../driver-cloudflare-ai-gateway) — Cloudflare AI Gateway logs via http_client
-- [@logtura/driver-fly-log-tail](../driver-fly-log-tail) — `flyctl logs --json` over Vector's exec source
-- [@logtura/driver-supabase-edge-logs](../driver-supabase-edge-logs) — Supabase Edge Functions via the analytics API
-- [@logtura/destination-slack](../destination-slack) — incoming-webhook
-- [@logtura/destination-webhook](../destination-webhook) — generic HTTPS POST
+- [@logtura/driver-cloudflare-worker-tail](../driver-cloudflare-worker-tail). `wrangler tail` over Vector's exec source.
+- [@logtura/driver-cloudflare-ai-gateway](../driver-cloudflare-ai-gateway). Cloudflare AI Gateway logs via http_client.
+- [@logtura/driver-fly-log-tail](../driver-fly-log-tail). `flyctl logs --json` over Vector's exec source.
+- [@logtura/driver-supabase-edge-logs](../driver-supabase-edge-logs). Supabase Edge Functions via the analytics API.
+- [@logtura/destination-slack](../destination-slack). Incoming-webhook.
+- [@logtura/destination-webhook](../destination-webhook). Generic HTTPS POST.
 - [@logtura/destination-datadog-metrics](../destination-datadog-metrics)
 - [@logtura/destination-prometheus-remote-write](../destination-prometheus-remote-write)
 
 ## Status
 
-`0.1.0`. The renderer + the driver contract are stable enough that the hosted product at logtura.com runs on them; the public release is the same code, no fork.
+`0.1.0`. The renderer and driver contract surface area will continue to change as more platforms get added.
 
-Packages currently ship raw TypeScript sources. Consumers need a TS-aware toolchain (Bun, tsx, Vite, Webpack + ts-loader, esbuild, etc.) — compiled `.js` + `.d.ts` distribution is on the roadmap for `0.2.0`.
+Packages currently ship raw TypeScript sources. Consumers need a TS-aware toolchain such as Bun, tsx, Vite, Webpack with ts-loader, or esbuild. Compiled `.js` + `.d.ts` distribution is on the roadmap for `0.2.0`.
 
 ## License
 

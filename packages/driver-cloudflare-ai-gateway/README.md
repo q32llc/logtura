@@ -1,6 +1,6 @@
 # @logtura/driver-cloudflare-ai-gateway
 
-Logtura provider driver for Cloudflare AI Gateway. Polls `GET /accounts/<id>/ai-gateway/gateways/<gw>/logs` over Vector's `http_client` source — one source per selected gateway, 30s poll cadence.
+Logtura provider driver for Cloudflare AI Gateway. Polls `GET /accounts/<id>/ai-gateway/gateways/<gw>/logs` over Vector's `http_client` source. One source per selected gateway, 30s poll cadence.
 
 ```bash
 npm install @logtura/driver-cloudflare-ai-gateway @logtura/core
@@ -26,7 +26,7 @@ const gateways = await cloudflareAiGatewayDriver.discoverSources({
 
 const bundle = generateBundle({
   providers: [cloudflareAiGatewayDriver],
-  destinations: [/* … */],
+  destinations: [/* ... */],
   connections: [{
     connection: {
       id: "con_a", provider: "cloudflare-ai-gateway",
@@ -35,17 +35,17 @@ const bundle = generateBundle({
     selectedSources: gateways,
     credentials: { apiToken: process.env.CLOUDFLARE_API_TOKEN! },
   }],
-  monitors: [/* … */],
+  monitors: [/* ... */],
 });
 ```
 
 ## What it emits
 
-Per selected gateway, one Vector `http_client` source polling Cloudflare's AI Gateway logs endpoint. The driver's normalize maps the response (`provider`, `model`, `status_code`, `success`) into the uniform `{ .script, .message, .level, .error }` shape: `.level = error` when `!success || status >= 500`, `.script` is the gateway's provider slug (`openai`, `anthropic`, etc.).
+Per selected gateway, one Vector `http_client` source polling Cloudflare's AI Gateway logs endpoint. The driver's normalize maps the response (`provider`, `model`, `status_code`, `success`) into the uniform `{ .script, .message, .level, .error }` shape. `.level` becomes `error` when `!success || status >= 500`. `.script` is the gateway's provider slug (`openai`, `anthropic`, and similar).
 
 ## Runtime requirements
 
-None beyond Vector itself — `http_client` is built in.
+None beyond Vector itself. The `http_client` source is built in.
 
 ## License
 
