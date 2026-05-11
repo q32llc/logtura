@@ -21,24 +21,68 @@ const dummySource = {
 // see test/workerd/connect-adapters.test.ts for those tests.
 
 describe("generateSourceBlock", () => {
-  it("emits http_client poll with SQL filter on function_id", () => {
+  it("keys on connection.id (not source) so the renderer dedupes N → 1", () => {
+    // Regression-pin: the original shape was one http_client per
+    // function; Supabase's analytics endpoint started 429-ing at 6
+    // functions × 30s polls. Now every selected function in the
+    // same connection returns the same block key, and the renderer
+    // emits ONE source per connection.
+    const a = supabaseEdgeLogsDriver.generateSourceBlock({
+      source: dummySource,
+      connection: dummyConnection,
+    });
+    const b = supabaseEdgeLogsDriver.generateSourceBlock({
+      source: {
+        ...dummySource,
+        externalId: "agent-thread",
+        metadata: { function_id: "0ab47137-d31d-45b6-a31a-bf3c90b85d9a" },
+      },
+      connection: dummyConnection,
+    });
+    expect(a.key).toBe("supabase_edge_con_x");
+    expect(b.key).toBe(a.key);
+    expect(b.yaml).toBe(a.yaml);
+  });
+
+  it("different connections get distinct keys", () => {
+    const a = supabaseEdgeLogsDriver.generateSourceBlock({
+      source: dummySource,
+      connection: dummyConnection,
+    });
+    const b = supabaseEdgeLogsDriver.generateSourceBlock({
+      source: dummySource,
+      connection: { ...dummyConnection, id: "con_y" },
+    });
+    expect(a.key).not.toBe(b.key);
+  });
+
+  it("emits http_client poll against the analytics endpoint", () => {
     const block = supabaseEdgeLogsDriver.generateSourceBlock({
       source: dummySource,
       connection: dummyConnection,
     });
-    expect(block.key).toBe("supabase_edge_agent_chat");
     expect(block.yaml).toContain("type: http_client");
     expect(block.yaml).toContain("interval_secs: 30");
     expect(block.yaml).toContain(
       'authorization: ["Bearer ${SUPABASE_PAT}"]',
     );
-    // SQL gets URL-encoded into the endpoint URL.
     expect(block.yaml).toContain(
       "/v1/projects/${SUPABASE_PROJECT_REF}/analytics/endpoints/logs.all",
     );
-    expect(block.yaml).toContain(
+  });
+
+  it("SQL no longer filters by function_id — per-function routing is in normalize", () => {
+    // The consolidated source can't see all selected sources at
+    // codegen time, so we drop the per-function WHERE clause and
+    // let normalize filter via its UUID→slug map.
+    const block = supabaseEdgeLogsDriver.generateSourceBlock({
+      source: dummySource,
+      connection: dummyConnection,
+    });
+    expect(block.yaml).not.toContain(
       encodeURIComponent("'6eda78cc-fc80-40f0-bd85-05ab0388842c'"),
     );
+    expect(block.yaml).not.toContain(encodeURIComponent("function_id ="));
   });
 
   it("rejects sources missing function_id in metadata", () => {
@@ -48,18 +92,6 @@ describe("generateSourceBlock", () => {
         connection: dummyConnection,
       }),
     ).toThrow(/missing metadata.function_id/);
-  });
-
-  it("refuses non-UUID function_ids", () => {
-    expect(() =>
-      supabaseEdgeLogsDriver.generateSourceBlock({
-        source: {
-          ...dummySource,
-          metadata: { function_id: "not-a-uuid'; DROP TABLE" },
-        },
-        connection: dummyConnection,
-      }),
-    ).toThrow(/non-UUID/);
   });
 });
 
@@ -74,9 +106,9 @@ describe("generateNormalize", () => {
     ).toBeNull();
   });
 
-  it("emits unwrap + per-record processing + fan-out", () => {
+  it("emits unwrap + slug-map filter + per-record processing + fan-out", () => {
     const norm = supabaseEdgeLogsDriver.generateNormalize!({
-      inputKeys: ["supabase_edge_agent_chat", "supabase_edge_agent_thread"],
+      inputKeys: ["supabase_edge_con_x"],
       connection: dummyConnection,
       sources: [
         dummySource,
@@ -99,6 +131,11 @@ describe("generateNormalize", () => {
     expect(y).toContain('script = "agent-chat"');
     expect(y).toContain('"0ab47137-d31d-45b6-a31a-bf3c90b85d9a"');
     expect(y).toContain('script = "agent-thread"');
+    // Default `script = ""` + the drop branch — the SQL pulls every
+    // project event; normalize is responsible for skipping records
+    // whose function_id isn't in the selected-source map.
+    expect(y).toContain('script = ""');
+    expect(y).toContain('if script == "" {');
     // Status-code derived level.
     expect(y).toContain("status >= 500");
     expect(y).toContain("status >= 400");
@@ -111,9 +148,9 @@ describe("generateNormalize", () => {
     expect(y).toContain('"[" + script + "] " + body');
   });
 
-  it("includes only sources that carry a function_id", () => {
+  it("only emits slug entries for sources that carry a function_id", () => {
     const norm = supabaseEdgeLogsDriver.generateNormalize!({
-      inputKeys: ["supabase_edge_one"],
+      inputKeys: ["supabase_edge_con_x"],
       connection: dummyConnection,
       sources: [
         // No function_id — should be skipped in the lookup, not crash.
@@ -127,7 +164,7 @@ describe("generateNormalize", () => {
       ],
     });
     expect(norm!.yaml).toContain("agent-two");
-    expect(norm!.yaml).not.toContain("agent-chat");
+    expect(norm!.yaml).not.toContain('"agent-chat"');
   });
 });
 

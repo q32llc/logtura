@@ -270,6 +270,15 @@ function renderVectorYaml(
       "  # No sources selected — pipeline runs with heartbeat only.",
     );
   } else {
+    // Drivers that consolidate multiple selected sources into a
+    // single Vector component (Supabase Edge Functions polls the
+    // project's analytics endpoint once, regardless of how many
+    // functions are selected) signal that by returning the same
+    // block.key for every source in a connection. We emit the
+    // YAML body + push the inputKey exactly once per unique key,
+    // and the per-source componentManifest entries all point at
+    // the shared component.
+    const emittedSourceKeys = new Set<string>();
     for (const r of resolved) {
       r.sources.forEach((s, idx) => {
         const row = r.sourceRows[idx]!;
@@ -277,12 +286,20 @@ function renderVectorYaml(
           source: s,
           connection: r.connectionRef,
         });
-        lines.push(`  ${block.key}:`);
-        lines.push(block.yaml);
+        const firstForKey = !emittedSourceKeys.has(block.key);
+        if (firstForKey) {
+          emittedSourceKeys.add(block.key);
+          lines.push(`  ${block.key}:`);
+          lines.push(block.yaml);
+        }
         const c = conn(r.connectionRef.id);
         c.hasSources = true;
         componentManifest.push({
-          id: block.key,
+          // Use the source-row id so each selected function/worker
+          // gets its own manifest entry even when several share a
+          // backing Vector component. Downstream UI shows N tiles,
+          // one per selected source.
+          id: row.id,
           role: "source",
           category: "primary",
           label: `${r.driver.sourceLabel} · ${s.displayName}`,
@@ -296,7 +313,7 @@ function renderVectorYaml(
           inputKeys: [],
           sources: [],
         };
-        bucket.inputKeys.push(block.key);
+        if (firstForKey) bucket.inputKeys.push(block.key);
         bucket.sources.push(s);
         sourcesByDriver.set(r.driver.id, bucket);
         if (!c.driverIds.includes(r.driver.id)) {
