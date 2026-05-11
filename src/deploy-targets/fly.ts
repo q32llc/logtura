@@ -3,7 +3,7 @@ import {
   flyAuthHeader,
   listFlyOrgs,
 } from "./fly-machines";
-import { dischargeBundle } from "./fly-macaroon";
+import { attenuateBundleOrgReadOnly, dischargeBundle } from "./fly-macaroon";
 import type {
   DeployTargetDriver,
   TargetBundle,
@@ -185,19 +185,23 @@ export const flyDriver: DeployTargetDriver<FlyCredentials> = {
         400,
       );
     }
-    // TODO: client-side attenuate this token to read-only by
-    // appending an Organization{Mask:ActionRead} caveat and
-    // recomputing the macaroon HMAC chain (port of flyctl's
-    // `fly tokens create readonly`). Until then the minted token is
-    // org-scoped at the deploy_organization profile — strictly less
-    // privileged than the bootstrap (one org, not the whole
-    // account) but not literally read-only.
+    // Step 1: mint a fresh org-scoped token. Fly's GraphQL
+    // `createLimitedAccessToken` doesn't expose a "read_only" profile
+    // — flyctl's `fly tokens create readonly` starts with
+    // `deploy_organization` and attenuates locally. Same pattern
+    // here.
     const tokenHeader = await createLimitedAccessToken(authHeader, {
       name: `logtura-source-${org.slug}`,
       organizationId: org.id,
       profile: "deploy_organization",
     });
-    return { apiToken: tokenHeader, externalAccountId: org.slug };
+    // Step 2: client-side attenuate to read-only. Appends an
+    // `Organization{Mask: ActionRead}` caveat to the permission
+    // macaroon and recomputes the HMAC chain (anyone holding the
+    // macaroon can attenuate without the issuer key — that's the
+    // whole point of macaroons). Discharge tokens pass through.
+    const readOnlyHeader = await attenuateBundleOrgReadOnly(tokenHeader);
+    return { apiToken: readOnlyHeader, externalAccountId: org.slug };
   },
 };
 

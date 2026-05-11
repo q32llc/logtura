@@ -31,10 +31,18 @@
  *   - We only care about the Cav3P type id.
  */
 
-import { decode as msgpackDecode } from "@msgpack/msgpack";
+import { decode as msgpackDecode, encode as msgpackEncode } from "@msgpack/msgpack";
 
-/** Caveat type id for Caveat3P. Matches the iota in caveat.go. */
+/** Caveat type ids — match the iota in superfly/macaroon/caveat.go. */
+const CAV_FLYIO_ORGANIZATION = 0;
 const CAV_3P = 11;
+/** resset.Action bitmap values from superfly/macaroon/resset/action.go.
+ *  Action is a uint16; read is 1 << 0. */
+const ACTION_READ = 1;
+/** Fly's well-known "permission" location — what permission macaroons
+ *  carry vs the discharge macaroons at /aaa/v1 etc. Used to identify
+ *  the macaroon to attenuate inside a bundle. */
+const LOCATION_PERMISSION = "https://api.fly.io/v1";
 
 const TOKEN_PREFIX_V2 = "fm2";
 const TOKEN_PREFIX_PERMISSION = "fm1r";
@@ -420,4 +428,133 @@ function toBytes(v: unknown): Uint8Array {
     return new Uint8Array(v as number[]);
   }
   throw new MacaroonError("expected bytes");
+}
+
+// --- attenuation ------------------------------------------------------
+//
+// Macaroon attenuation: anyone holding a macaroon can add restrictive
+// caveats by appending [type, body] to the caveat-set and recomputing
+// the tail HMAC. No issuer key required — that's the whole point of
+// macaroons.
+//
+// The HMAC chain (from superfly/macaroon/macaroon.go Macaroon.Add):
+//
+//   for each caveat c:
+//     opc = msgpack(CaveatSet{ caveats: [c] })   // a 2-element array [type, body]
+//     tail = HMAC-SHA256(tail, opc)
+//
+// So one caveat's contribution is the msgpack-encoding of a one-element
+// CaveatSet, not the body alone. The CaveatSet's custom encoder writes
+// `array of length 2N = [type_0, body_0, type_1, body_1, …]`, so for a
+// single caveat it's literally `[type, body]`.
+
+async function hmacSha256(key: Uint8Array, data: Uint8Array): Promise<Uint8Array> {
+  // SubtleCrypto wants BufferSource (ArrayBuffer-backed). Workers'
+  // type defs widen Uint8Array's buffer to ArrayBufferLike, which
+  // doesn't fit. `.slice()` returns a fresh ArrayBuffer-backed view.
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    key.slice().buffer,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const sig = await crypto.subtle.sign("HMAC", cryptoKey, data.slice().buffer);
+  return new Uint8Array(sig);
+}
+
+/** Extract an Organization caveat's org id from a decoded caveat-set
+ *  array. Returns null when none is present (e.g., trying to
+ *  attenuate a macaroon that isn't org-scoped, which would be a
+ *  programmer error here). */
+function findOrgIdInCaveatSet(caveatSet: unknown[]): bigint | number | null {
+  for (let i = 0; i < caveatSet.length; i += 2) {
+    const type = Number(caveatSet[i]);
+    const body = caveatSet[i + 1];
+    if (type !== CAV_FLYIO_ORGANIZATION) continue;
+    if (!Array.isArray(body) || body.length < 2) continue;
+    const id = body[0];
+    if (typeof id === "bigint" || typeof id === "number") return id;
+  }
+  return null;
+}
+
+/**
+ * Attenuate a single permission macaroon to read-only access on its
+ * existing org. Mirrors flyctl's runOrgRead in
+ * superfly/flyctl/internal/command/tokens/create.go: find the
+ * existing Organization caveat to recover the org id, then append a
+ * fresh `Organization{ID, Mask: ActionRead}` caveat and recompute the
+ * tail HMAC. The returned bytes are the new raw macaroon.
+ */
+export async function attenuateOrgReadOnly(
+  rawMacaroon: Uint8Array,
+): Promise<Uint8Array> {
+  const decoded = msgpackDecode(rawMacaroon);
+  if (!Array.isArray(decoded) || decoded.length < 4) {
+    throw new MacaroonError("attenuate: macaroon is not a 4-element array");
+  }
+  const [nonceArr, location, caveatSetArr, tailRaw] = decoded;
+  if (!Array.isArray(caveatSetArr) || caveatSetArr.length % 2 !== 0) {
+    throw new MacaroonError("attenuate: caveat set has odd length");
+  }
+  const tailBytes = toBytes(tailRaw);
+  const orgId = findOrgIdInCaveatSet(caveatSetArr);
+  if (orgId === null) {
+    throw new MacaroonError(
+      "attenuate: macaroon has no Organization caveat to bind read-only to",
+    );
+  }
+  // Build the new caveat body. UseArrayEncodedStructs(true) on the
+  // Go side means Organization{ID, Mask} serializes as a 2-element
+  // array — matches what we emit here.
+  const newCaveatBody = [orgId, ACTION_READ];
+  // CaveatSet's custom encoder writes a flat 2N-length array. For
+  // one caveat that's literally `[type, body]`. useBigInt64 lets us
+  // round-trip a uint64 org id through BigInt if the decoder gave
+  // us one (Fly's IDs are small enough to fit Number today, but the
+  // round-trip is safer than narrowing).
+  const opc = msgpackEncode([CAV_FLYIO_ORGANIZATION, newCaveatBody], {
+    useBigInt64: true,
+  });
+  const newTail = await hmacSha256(tailBytes, opc);
+  const updatedCaveatSet = [
+    ...caveatSetArr,
+    CAV_FLYIO_ORGANIZATION,
+    newCaveatBody,
+  ];
+  const newMacaroon = [nonceArr, location, updatedCaveatSet, newTail];
+  return msgpackEncode(newMacaroon, { useBigInt64: true });
+}
+
+/**
+ * Attenuate every permission macaroon in a FlyV1 bundle to read-only
+ * (discharge macaroons pass through verbatim). Permission macaroons
+ * are identified by location == https://api.fly.io/v1, matching
+ * flyio.LocationPermission in superfly/macaroon/flyio.
+ */
+export async function attenuateBundleOrgReadOnly(
+  authHeader: string,
+): Promise<string> {
+  const segments = parseFlyTokenSegments(authHeader);
+  const out: FlyTokenSegment[] = [];
+  for (const seg of segments) {
+    if (seg.kind !== "macaroon") {
+      out.push(seg);
+      continue;
+    }
+    const decoded = msgpackDecode(seg.raw);
+    const loc =
+      Array.isArray(decoded) && typeof decoded[1] === "string"
+        ? decoded[1]
+        : "";
+    if (loc !== LOCATION_PERMISSION) {
+      // Discharge or unrelated; leave alone.
+      out.push(seg);
+      continue;
+    }
+    const attenuated = await attenuateOrgReadOnly(seg.raw);
+    out.push({ kind: "macaroon", prefix: seg.prefix, raw: attenuated });
+  }
+  return encodeFlyTokenSegments(out);
 }
