@@ -3,6 +3,7 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   Code,
   Container,
   CopyButton,
@@ -11,6 +12,7 @@ import {
   ScrollArea,
   Select,
   Stack,
+  Table,
   Tabs,
   Text,
   TextInput,
@@ -33,6 +35,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { ApiError, api } from "../api";
 import { SelectionEditor } from "../components/SelectionEditor";
 import type {
+  ApiComponentManifestEntry,
   ApiConnection,
   ApiDeployTarget,
   ApiDeployment,
@@ -305,7 +308,10 @@ function OverviewPanel({
         </Stack>
       </Card>
 
-      <MetricsCard deployment={deployment} />
+      <MetricsCard
+        deployment={deployment}
+        manifest={bundle?.componentManifest ?? []}
+      />
 
       <Card withBorder p="lg">
         <Stack gap={6}>
@@ -335,10 +341,22 @@ function OverviewPanel({
 
 // ---------- Metrics (headline + per-component drilldown) ----------------
 
-function MetricsCard({ deployment }: { deployment: ApiDeployment }) {
+function MetricsCard({
+  deployment,
+  manifest,
+}: {
+  deployment: ApiDeployment;
+  manifest: ApiComponentManifestEntry[];
+}) {
   const [mode, setMode] = useState<"rate" | "total">("rate");
   const [expanded, setExpanded] = useState(false);
+  const [showPlumbing, setShowPlumbing] = useState(false);
   const snap = deployment.metricsSnapshot;
+  const manifestById = useMemo(() => {
+    const m = new Map<string, ApiComponentManifestEntry>();
+    for (const e of manifest) m.set(e.id, e);
+    return m;
+  }, [manifest]);
 
   if (!snap || snap.updatedAt === 0) {
     return (
@@ -449,25 +467,39 @@ function MetricsCard({ deployment }: { deployment: ApiDeployment }) {
               ? ` · Vector booted ${relativeTime(snap.processStartAt)} ago`
               : ""}
           </Text>
-          <Button
-            size="compact-xs"
-            variant="subtle"
-            onClick={() => setExpanded(!expanded)}
-          >
-            {expanded
-              ? "Hide per-component"
-              : `Show per-component (${Object.keys(snap.byComponent).length})`}
-          </Button>
+          <Group gap="md">
+            {expanded && (
+              <Checkbox
+                size="xs"
+                label="Show plumbing"
+                checked={showPlumbing}
+                onChange={(e) => setShowPlumbing(e.currentTarget.checked)}
+              />
+            )}
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              onClick={() => setExpanded(!expanded)}
+            >
+              {expanded
+                ? "Hide per-component"
+                : `Show per-component (${Object.keys(snap.byComponent).length})`}
+            </Button>
+          </Group>
         </Group>
 
-        {expanded && <PerComponentTable snap={snap} mode={mode} />}
+        {expanded && (
+          <PerComponentTable
+            snap={snap}
+            mode={mode}
+            manifestById={manifestById}
+            showPlumbing={showPlumbing}
+          />
+        )}
       </Stack>
     </Card>
   );
 }
-
-type SortKey = "id" | "kind" | "throughput" | "errors" | "lastSeen";
-type SortDir = "asc" | "desc";
 
 /** Pick the kind-appropriate counter for "events handled by this
  *  component" — sources track the events leaving them (.sent), sinks
@@ -495,183 +527,216 @@ function throughputRate(c: ApiMetricsComponent): number | null {
   return r.received;
 }
 
+interface ComponentRow {
+  id: string;
+  c: ApiMetricsComponent;
+  manifest: ApiComponentManifestEntry | null;
+  throughputN: number;
+}
+
 function PerComponentTable({
   snap,
   mode,
+  manifestById,
+  showPlumbing,
 }: {
   snap: ApiMetricsSnapshot;
   mode: "rate" | "total";
+  manifestById: Map<string, ApiComponentManifestEntry>;
+  showPlumbing: boolean;
 }) {
-  const [sortKey, setSortKey] = useState<SortKey>("throughput");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
-
-  function toggle(k: SortKey) {
-    if (sortKey === k) {
-      setSortDir(sortDir === "asc" ? "desc" : "asc");
-    } else {
-      setSortKey(k);
-      setSortDir(k === "id" || k === "kind" ? "asc" : "desc");
+  // Rows live in three buckets so we can render section headers and
+  // toggle plumbing visibility without disturbing the table layout.
+  // Components Vector reports that the manifest doesn't know about
+  // (shouldn't happen if generator + container are in sync, but
+  // bundle_outdated races make it possible) fall through to a
+  // "Plumbing" bucket so we never silently drop a row.
+  const { sources, sinks, plumbing } = useMemo(() => {
+    const sources: ComponentRow[] = [];
+    const sinks: ComponentRow[] = [];
+    const plumbing: ComponentRow[] = [];
+    for (const [id, c] of Object.entries(snap.byComponent)) {
+      const manifest = manifestById.get(id) ?? null;
+      const throughputN =
+        mode === "rate"
+          ? (throughputRate(c) ?? -1)
+          : (throughputCounter(c) ?? -1);
+      const row: ComponentRow = { id, c, manifest, throughputN };
+      if (manifest?.role === "source") sources.push(row);
+      else if (manifest?.role === "sink") sinks.push(row);
+      else plumbing.push(row);
     }
-  }
-
-  const rows = Object.entries(snap.byComponent).map(([id, c]) => ({
-    id,
-    c,
-    throughputN:
-      mode === "rate"
-        ? (throughputRate(c) ?? -1)
-        : (throughputCounter(c) ?? -1),
-    errN: mode === "rate"
-      ? (perComponentRate(c).errors ?? -1)
-      : (c.errors ?? -1),
-  }));
-  const kindRank: Record<string, number> = {
-    source: 0,
-    transform: 1,
-    sink: 2,
-    unknown: 3,
-  };
-  rows.sort((a, b) => {
-    const cmp = (() => {
-      switch (sortKey) {
-        case "id":
-          return a.id.localeCompare(b.id);
-        case "kind": {
-          const k = (kindRank[a.c.kind] ?? 9) - (kindRank[b.c.kind] ?? 9);
-          return k !== 0 ? k : a.id.localeCompare(b.id);
-        }
-        case "throughput":
-          return a.throughputN - b.throughputN;
-        case "errors":
-          return a.errN - b.errN;
-        case "lastSeen":
-          return a.c.lastSeen - b.c.lastSeen;
-      }
-    })();
-    return sortDir === "asc" ? cmp : -cmp;
-  });
-
-  const Header = ({
-    label,
-    sk,
-    width,
-    align = "left",
-  }: {
-    label: string;
-    sk: SortKey;
-    width: number | "auto";
-    align?: "left" | "right";
-  }) => {
-    const active = sortKey === sk;
-    const arrow = active ? (sortDir === "asc" ? " ↑" : " ↓") : "";
-    return (
-      <Text
-        size="xs"
-        c={active ? undefined : "dimmed"}
-        fw={active ? 600 : undefined}
-        style={{
-          flexBasis: width === "auto" ? undefined : width,
-          flex: width === "auto" ? 1 : undefined,
-          flexShrink: 0,
-          textAlign: align,
-          cursor: "pointer",
-          userSelect: "none",
-        }}
-        onClick={() => toggle(sk)}
-      >
-        {label}
-        {arrow}
-      </Text>
-    );
-  };
+    const byThroughput = (a: ComponentRow, b: ComponentRow) =>
+      b.throughputN - a.throughputN;
+    sources.sort(byThroughput);
+    sinks.sort(byThroughput);
+    plumbing.sort(byThroughput);
+    return { sources, sinks, plumbing };
+  }, [snap.byComponent, manifestById, mode]);
 
   return (
-    <Stack gap={2} mt="xs">
-      <Group
-        gap="md"
-        px="xs"
-        py={4}
-        style={{
-          borderBottom: "1px solid var(--mantine-color-default-border)",
-        }}
-      >
-        <Header label="Component" sk="id" width={220} />
-        <Header label="Kind / type" sk="kind" width={140} />
-        <Header label="Throughput" sk="throughput" width={130} align="right" />
-        <Header label="Errors" sk="errors" width={90} align="right" />
-        <Header label="Last seen" sk="lastSeen" width="auto" align="right" />
-      </Group>
-      {rows.map(({ id, c }) => {
-        const tCount = throughputCounter(c);
-        const tRate = throughputRate(c);
-        const eCount = c.errors;
-        const eRate = perComponentRate(c).errors;
-        return (
-          <Group key={id} gap="md" px="xs" py={2}>
-            <Text size="xs" style={{ flexBasis: 220, flexShrink: 0 }} truncate>
-              {id}
-            </Text>
-            <Text
-              size="xs"
-              c="dimmed"
-              style={{ flexBasis: 140, flexShrink: 0 }}
-              truncate
-            >
-              {c.kind} · {c.type}
-            </Text>
-            <Text
-              size="xs"
-              style={{ flexBasis: 130, flexShrink: 0, textAlign: "right" }}
-            >
-              {mode === "rate"
-                ? tRate !== null
-                  ? `${fmt1(tRate)}/min`
-                  : "—"
-                : tCount !== undefined
-                  ? fmtN(tCount)
-                  : "—"}
-            </Text>
-            <div
-              style={{ flexBasis: 90, flexShrink: 0, textAlign: "right" }}
-            >
-              <Tooltip
-                label={errorsByTypeTooltip(c)}
-                disabled={!c.errorsByType || Object.keys(c.errorsByType).length === 0}
-                multiline
-                w={280}
-                withinPortal
-              >
-                <Text
-                  size="xs"
-                  c={(c.errors ?? 0) > 0 ? "red.5" : undefined}
-                  style={{
-                    textDecoration:
-                      c.errorsByType && Object.keys(c.errorsByType).length > 0
-                        ? "underline dotted"
-                        : undefined,
-                    cursor:
-                      c.errorsByType && Object.keys(c.errorsByType).length > 0
-                        ? "help"
-                        : undefined,
-                  }}
-                >
-                  {mode === "rate"
-                    ? eRate !== null
-                      ? `${fmt1(eRate)}/min`
-                      : "—"
-                    : eCount !== undefined
-                      ? fmtN(eCount)
-                      : "—"}
-                </Text>
-              </Tooltip>
-            </div>
-            <Text size="xs" c="dimmed" style={{ flex: 1, textAlign: "right" }}>
-              {relativeTime(c.lastSeen)} ago
-            </Text>
-          </Group>
-        );
-      })}
+    <Stack gap="md" mt="xs">
+      <Section title="Sources" count={sources.length} rows={sources} mode={mode} />
+      <Section title="Sinks" count={sinks.length} rows={sinks} mode={mode} />
+      {showPlumbing && (
+        <Section
+          title="Internal plumbing"
+          count={plumbing.length}
+          rows={plumbing}
+          mode={mode}
+        />
+      )}
     </Stack>
+  );
+}
+
+function Section({
+  title,
+  count,
+  rows,
+  mode,
+}: {
+  title: string;
+  count: number;
+  rows: ComponentRow[];
+  mode: "rate" | "total";
+}) {
+  if (count === 0) {
+    return (
+      <Stack gap={4}>
+        <Group gap={8}>
+          <Text fw={600} size="sm">
+            {title}
+          </Text>
+          <Badge size="xs" variant="light">
+            0
+          </Badge>
+        </Group>
+        <Text size="xs" c="dimmed" pl={4}>
+          (none)
+        </Text>
+      </Stack>
+    );
+  }
+  return (
+    <Stack gap={4}>
+      <Group gap={8}>
+        <Text fw={600} size="sm">
+          {title}
+        </Text>
+        <Badge size="xs" variant="light">
+          {count}
+        </Badge>
+      </Group>
+      <Table
+        striped
+        verticalSpacing={4}
+        horizontalSpacing="xs"
+        layout="fixed"
+        style={{ fontSize: "var(--mantine-font-size-xs)" }}
+      >
+        <colgroup>
+          <col />
+          <col style={{ width: 140 }} />
+          <col style={{ width: 110 }} />
+          <col style={{ width: 80 }} />
+          <col style={{ width: 110 }} />
+        </colgroup>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th>Component</Table.Th>
+            <Table.Th>Detail</Table.Th>
+            <Table.Th ta="right">Throughput</Table.Th>
+            <Table.Th ta="right">Errors</Table.Th>
+            <Table.Th ta="right">Last seen</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {rows.map((row) => (
+            <ComponentTableRow key={row.id} row={row} mode={mode} />
+          ))}
+        </Table.Tbody>
+      </Table>
+    </Stack>
+  );
+}
+
+function ComponentTableRow({
+  row,
+  mode,
+}: {
+  row: ComponentRow;
+  mode: "rate" | "total";
+}) {
+  const { id, c, manifest } = row;
+  const tCount = throughputCounter(c);
+  const tRate = throughputRate(c);
+  const eCount = c.errors;
+  const eRate = perComponentRate(c).errors;
+  // Manifest label is the friendly name ("Worker · my-app"); fall
+  // back to the raw component id so plumbing rows the manifest
+  // doesn't cover still show up rather than going blank.
+  const primary = manifest?.label ?? id;
+  const detail = manifest?.detail ?? `${c.kind} · ${c.type}`;
+  const errorsHasBreakdown =
+    c.errorsByType && Object.keys(c.errorsByType).length > 0;
+  return (
+    <Table.Tr>
+      <Table.Td>
+        <Tooltip label={id} withinPortal openDelay={400}>
+          <Text size="xs" truncate>
+            {primary}
+          </Text>
+        </Tooltip>
+      </Table.Td>
+      <Table.Td>
+        <Text size="xs" c="dimmed" truncate>
+          {detail}
+        </Text>
+      </Table.Td>
+      <Table.Td ta="right">
+        <Text size="xs">
+          {mode === "rate"
+            ? tRate !== null
+              ? `${fmt1(tRate)}/min`
+              : "—"
+            : tCount !== undefined
+              ? fmtN(tCount)
+              : "—"}
+        </Text>
+      </Table.Td>
+      <Table.Td ta="right">
+        <Tooltip
+          label={errorsByTypeTooltip(c)}
+          disabled={!errorsHasBreakdown}
+          multiline
+          w={280}
+          withinPortal
+        >
+          <Text
+            size="xs"
+            c={(c.errors ?? 0) > 0 ? "red.5" : undefined}
+            style={{
+              textDecoration: errorsHasBreakdown ? "underline dotted" : undefined,
+              cursor: errorsHasBreakdown ? "help" : undefined,
+            }}
+          >
+            {mode === "rate"
+              ? eRate !== null
+                ? `${fmt1(eRate)}/min`
+                : "—"
+              : eCount !== undefined
+                ? fmtN(eCount)
+                : "—"}
+          </Text>
+        </Tooltip>
+      </Table.Td>
+      <Table.Td ta="right">
+        <Text size="xs" c="dimmed">
+          {relativeTime(c.lastSeen)} ago
+        </Text>
+      </Table.Td>
+    </Table.Tr>
   );
 }
 

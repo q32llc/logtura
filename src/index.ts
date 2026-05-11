@@ -379,6 +379,7 @@ apiAuth.get("/deployments/:id/bundle", async (c) => {
     envVars: sourceBundle.envVars,
     selectedCount: sourceBundle.selectedCount,
     monitorSummary: sourceBundle.monitorSummary,
+    componentManifest: sourceBundle.componentManifest,
   });
 });
 

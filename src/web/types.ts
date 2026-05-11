@@ -118,6 +118,38 @@ export interface ApiTargetBundle {
   envVars: ApiBundleEnvVar[];
   selectedCount: number;
   monitorSummary: string;
+  /** Per-Vector-component metadata so the metrics UI can group rows,
+   *  hide plumbing by default, and label primary rows with the
+   *  originating entity. Generator emits this; the UI doesn't
+   *  pattern-parse component ids. */
+  componentManifest: ApiComponentManifestEntry[];
+}
+
+export interface ApiComponentManifestEntry {
+  id: string;
+  role:
+    | "source"
+    | "sink"
+    | "normalize"
+    | "tag_source"
+    | "monitor_filter"
+    | "sink_filter"
+    | "sink_format"
+    | "internal_metrics"
+    | "heartbeat"
+    | "metrics"
+    | "prom_exporter"
+    | "stdout";
+  category: "primary" | "plumbing";
+  label: string;
+  detail?: string;
+  links?: {
+    connectionId?: string;
+    sourceId?: string;
+    monitorId?: string;
+    sinkId?: string;
+    destinationId?: string;
+  };
 }
 
 export interface ApiDestinationDriver {
