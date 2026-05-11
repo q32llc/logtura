@@ -1,5 +1,8 @@
-import type { DestinationDriver, SinkBundle } from "./types";
-import { DestinationError } from "./types";
+import {
+  type DestinationDriver,
+  DestinationError,
+  type SinkBundle,
+} from "@logtura/core";
 
 /**
  * Prometheus remote-write — Vector's native sink for any Prometheus-

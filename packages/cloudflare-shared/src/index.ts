@@ -1,11 +1,11 @@
 /**
- * Shared bits between the two Cloudflare source drivers
- * (`cloudflare-worker-tail` and `cloudflare-ai-gateway`). Each
- * driver is one transport / one event shape; what they have in
- * common is the auth surface (a Cloudflare API token) — token
- * verification, account listing, freshness check, env-var
- * declarations. Lives here so each driver doesn't fork the same
- * cfFetch helper.
+ * Cloudflare API token plumbing — token verification, account
+ * listing, freshness check, env-var declarations, shell-safe key
+ * helpers. This is shared between the worker-tail and AI Gateway
+ * drivers; while we only have one driver extracted as a package it
+ * lives here inline. When `driver-cloudflare-ai-gateway` extracts
+ * into its own package, factor this out into
+ * `@logtura/cloudflare-shared` and have both drivers depend on it.
  */
 import {
   type ConnectionRef,
@@ -14,7 +14,7 @@ import {
   type FormField,
   type ProviderAccount,
   ProviderError,
-} from "./types";
+} from "@logtura/core";
 
 export const CF_BASE = "https://api.cloudflare.com/client/v4";
 
@@ -143,9 +143,9 @@ export async function checkCfCredentialFreshness(
 }
 
 /** Common runtime spec — both CF transports need the same API
- *  token + account id env vars. Each driver returns this from its
- *  runtimeSpec(). `helpUrl` differs per driver because each
- *  documents its own required permission groups. */
+ *  token + account id env vars. Each driver passes its own
+ *  `helpUrl` because each documents its own required permission
+ *  groups. */
 export function cfRuntimeSpec(input: {
   helpUrl: string;
   extraDockerInstall?: string;

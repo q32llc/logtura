@@ -29,6 +29,14 @@ export default defineConfig({
         },
       },
       "./packages/core",
+      "./packages/destination-datadog-metrics",
+      "./packages/destination-prometheus-remote-write",
+      "./packages/destination-slack",
+      "./packages/destination-webhook",
+      "./packages/driver-cloudflare-ai-gateway",
+      "./packages/driver-cloudflare-worker-tail",
+      "./packages/driver-fly-log-tail",
+      "./packages/driver-supabase-edge-logs",
     ],
     // Coverage rolls up across projects. Istanbul because workerd
     // doesn't emit V8 profile data; istanbul instruments via the

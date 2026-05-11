@@ -8,6 +8,14 @@
  * Analytics Engine, …) we don't yet ship.
  */
 import {
+  type ConnectionRef,
+  type DiscoveredSource,
+  type ProviderDriver,
+  ProviderError,
+  type SourceBlock,
+  type SourceRef,
+} from "@logtura/core";
+import {
   cfFetch,
   CF_FORM_FIELDS,
   checkCfCredentialFreshness,
@@ -17,15 +25,7 @@ import {
   safeKey,
   shellQuoteCfWorkerName,
   verifyCfCredentials,
-} from "./cloudflare-shared";
-import {
-  type ConnectionRef,
-  type DiscoveredSource,
-  type ProviderDriver,
-  ProviderError,
-  type SourceBlock,
-  type SourceRef,
-} from "./types";
+} from "@logtura/cloudflare-shared";
 
 interface CfWorkerScript {
   id: string;

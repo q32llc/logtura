@@ -1,8 +1,8 @@
-import { datadogMetricsDriver } from "./datadog-metrics";
-import { prometheusRemoteWriteDriver } from "./prometheus-remote-write";
-import { slackDriver } from "./slack";
+import { datadogMetricsDriver } from "@logtura/destination-datadog-metrics";
+import { prometheusRemoteWriteDriver } from "@logtura/destination-prometheus-remote-write";
+import { slackDriver } from "@logtura/destination-slack";
+import { webhookDriver } from "@logtura/destination-webhook";
 import type { DestinationDriver, DestinationFlow } from "./types";
-import { webhookDriver } from "./webhook";
 
 const REGISTRY: Record<string, DestinationDriver> = {
   [slackDriver.id]: slackDriver as DestinationDriver,

@@ -44,4 +44,4 @@ export type {
   ComponentManifestEntry,
 } from "./types";
 
-export { ProviderError } from "./types";
+export { DestinationError, ProviderError } from "./types";

@@ -1,12 +1,14 @@
-import { cloudflareAiGatewayDriver } from "./cloudflare-ai-gateway";
-import { cloudflareWorkerTailDriver } from "./cloudflare-worker-tail";
-import { flyLogTailDriver } from "./fly-log-tail";
+import { cloudflareAiGatewayDriver } from "@logtura/driver-cloudflare-ai-gateway";
+import { cloudflareWorkerTailDriver } from "@logtura/driver-cloudflare-worker-tail";
+import { flyLogTailDriver } from "@logtura/driver-fly-log-tail";
+import { supabaseEdgeLogsDriver } from "@logtura/driver-supabase-edge-logs";
 import type { ProviderDriver } from "./types";
 
 const REGISTRY: Record<string, ProviderDriver> = {
   [cloudflareWorkerTailDriver.id]: cloudflareWorkerTailDriver as ProviderDriver,
   [cloudflareAiGatewayDriver.id]: cloudflareAiGatewayDriver as ProviderDriver,
   [flyLogTailDriver.id]: flyLogTailDriver as ProviderDriver,
+  [supabaseEdgeLogsDriver.id]: supabaseEdgeLogsDriver as ProviderDriver,
 };
 
 export function getProvider(id: string): ProviderDriver | null {

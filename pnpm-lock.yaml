@@ -8,9 +8,39 @@ importers:
 
   .:
     dependencies:
+      '@logtura/cloudflare-shared':
+        specifier: workspace:*
+        version: link:packages/cloudflare-shared
       '@logtura/core':
         specifier: workspace:*
         version: link:packages/core
+      '@logtura/destination-datadog-metrics':
+        specifier: workspace:*
+        version: link:packages/destination-datadog-metrics
+      '@logtura/destination-prometheus-remote-write':
+        specifier: workspace:*
+        version: link:packages/destination-prometheus-remote-write
+      '@logtura/destination-slack':
+        specifier: workspace:*
+        version: link:packages/destination-slack
+      '@logtura/destination-webhook':
+        specifier: workspace:*
+        version: link:packages/destination-webhook
+      '@logtura/driver-cloudflare-ai-gateway':
+        specifier: workspace:*
+        version: link:packages/driver-cloudflare-ai-gateway
+      '@logtura/driver-cloudflare-worker-tail':
+        specifier: workspace:*
+        version: link:packages/driver-cloudflare-worker-tail
+      '@logtura/driver-fly-log-tail':
+        specifier: workspace:*
+        version: link:packages/driver-fly-log-tail
+      '@logtura/driver-supabase-edge-logs':
+        specifier: workspace:*
+        version: link:packages/driver-supabase-edge-logs
+      '@logtura/supabase-shared':
+        specifier: workspace:*
+        version: link:packages/supabase-shared
       '@mantine/core':
         specifier: ^8.0.0
         version: 8.3.18(@mantine/hooks@8.3.18(react@18.3.1))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -91,6 +121,15 @@ importers:
         specifier: ^3.99.0
         version: 3.114.17(@cloudflare/workers-types@4.20260509.1)
 
+  packages/cloudflare-shared:
+    devDependencies:
+      '@logtura/core':
+        specifier: workspace:*
+        version: link:../core
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+
   packages/core:
     devDependencies:
       typescript:
@@ -99,6 +138,123 @@ importers:
       vitest:
         specifier: ^4.1.5
         version: 4.1.5(@vitest/coverage-istanbul@4.1.5)(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0))
+
+  packages/destination-datadog-metrics:
+    devDependencies:
+      '@logtura/core':
+        specifier: workspace:*
+        version: link:../core
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.5
+        version: 4.1.5(@vitest/coverage-istanbul@4.1.5)(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0))
+
+  packages/destination-prometheus-remote-write:
+    devDependencies:
+      '@logtura/core':
+        specifier: workspace:*
+        version: link:../core
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.5
+        version: 4.1.5(@vitest/coverage-istanbul@4.1.5)(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0))
+
+  packages/destination-slack:
+    devDependencies:
+      '@logtura/core':
+        specifier: workspace:*
+        version: link:../core
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.5
+        version: 4.1.5(@vitest/coverage-istanbul@4.1.5)(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0))
+
+  packages/destination-webhook:
+    devDependencies:
+      '@logtura/core':
+        specifier: workspace:*
+        version: link:../core
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.5
+        version: 4.1.5(@vitest/coverage-istanbul@4.1.5)(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0))
+
+  packages/driver-cloudflare-ai-gateway:
+    dependencies:
+      '@logtura/cloudflare-shared':
+        specifier: workspace:*
+        version: link:../cloudflare-shared
+    devDependencies:
+      '@logtura/core':
+        specifier: workspace:*
+        version: link:../core
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.5
+        version: 4.1.5(@vitest/coverage-istanbul@4.1.5)(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0))
+
+  packages/driver-cloudflare-worker-tail:
+    dependencies:
+      '@logtura/cloudflare-shared':
+        specifier: workspace:*
+        version: link:../cloudflare-shared
+    devDependencies:
+      '@logtura/core':
+        specifier: workspace:*
+        version: link:../core
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.5
+        version: 4.1.5(@vitest/coverage-istanbul@4.1.5)(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0))
+
+  packages/driver-fly-log-tail:
+    devDependencies:
+      '@logtura/core':
+        specifier: workspace:*
+        version: link:../core
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.5
+        version: 4.1.5(@vitest/coverage-istanbul@4.1.5)(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0))
+
+  packages/driver-supabase-edge-logs:
+    dependencies:
+      '@logtura/supabase-shared':
+        specifier: workspace:*
+        version: link:../supabase-shared
+    devDependencies:
+      '@logtura/core':
+        specifier: workspace:*
+        version: link:../core
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.5
+        version: 4.1.5(@vitest/coverage-istanbul@4.1.5)(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0))
+
+  packages/supabase-shared:
+    devDependencies:
+      '@logtura/core':
+        specifier: workspace:*
+        version: link:../core
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
 
 packages:
 

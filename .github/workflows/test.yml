@@ -25,19 +25,18 @@ jobs:
       - name: typecheck
         run: pnpm typecheck
 
-      - name: workerd integration tests
-        # Real worker in a workerd pool with seeded D1 + Queues; only
-        # external HTTP is mocked. Catches things type-check can't —
-        # routes wired wrong, middleware order, encryption round-trips,
-        # the macaroon HMAC chain we just shipped.
-        run: pnpm test:workerd
+      - name: pull vector image
+        # All per-package vector-validate tests reach for
+        # timberio/vector:latest-debian. Pre-pulling here lets the test
+        # phase below run with no per-suite docker latency.
+        run: docker pull timberio/vector:latest-debian
 
-      - name: vector config validation
-        # Pulls the same forwarder image the deploy uses and runs
-        # `vector validate` against bundles the generator produces.
-        # Catches every kind of error Vector itself would catch at
-        # container start — VRL syntax (E651, type errors), wrong
-        # field types (http_client headers must be array<string>),
-        # missing transforms/sinks, etc. Last line of defense
-        # before a deploy bricks the running container.
-        run: pnpm test:vector
+      - name: test
+        # Runs every vitest project: workerd integration tests (real
+        # D1 + Queues, only external HTTP mocked), @logtura/core unit
+        # tests, every driver + destination package's unit tests, and
+        # the per-package vector-validate tests that hand each
+        # bundle's YAML to `vector validate` inside the image above.
+        # The legacy scripts/test-vector-config.mjs has been retired;
+        # the per-package tests subsume every fixture it ran.
+        run: pnpm vitest run

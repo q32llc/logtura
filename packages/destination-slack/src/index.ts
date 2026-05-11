@@ -1,21 +1,17 @@
-import type { DestinationDriver, SinkBundle } from "./types";
-import { DestinationError } from "./types";
+import {
+  type DestinationDriver,
+  DestinationError,
+  type SinkBundle,
+} from "@logtura/core";
 
 /**
- * Slack incoming-webhook OAuth (https://api.slack.com/messaging/webhooks).
+ * Slack incoming-webhook destination.
  *
- * Flow:
- *   1. UI hits GET /api/destinations/slack/start
- *      → server signs a state cookie + 303s to slack.com/oauth/v2/authorize
- *   2. Slack callback hits GET /api/destinations/slack/callback?code=...
- *      → server exchanges code for incoming_webhook.url + channel + team
- *      → creates a destination row with this driver's config
- *      → 303s back to /app/destinations
- *
- * Requires SLACK_CLIENT_ID and SLACK_CLIENT_SECRET in the env. App must
- * be registered at api.slack.com/apps with the redirect URI
- * <APP_URL>/api/destinations/slack/callback and the
- * `incoming-webhook` scope.
+ * Host-side OAuth flow (the standard
+ * slack.com/oauth/v2/authorize redirect dance) plants the
+ * `webhook_url`, `team_name`, `channel` fields into the form; this
+ * driver just parses them and emits the http sink. The
+ * `incoming-webhook` scope is the only Slack scope needed.
  */
 export interface SlackConfig {
   webhookUrl: string;

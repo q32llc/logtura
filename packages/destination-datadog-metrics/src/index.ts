@@ -1,5 +1,8 @@
-import type { DestinationDriver, SinkBundle } from "./types";
-import { DestinationError } from "./types";
+import {
+  type DestinationDriver,
+  DestinationError,
+  type SinkBundle,
+} from "@logtura/core";
 
 /**
  * Datadog Metrics — Vector's native `datadog_metrics` sink. Takes

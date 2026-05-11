@@ -1,37 +1,90 @@
+/**
+ * `fly-log-tail` source driver.
+ *
+ * Tails `flyctl logs --json -a <app>` over Vector's `exec` source.
+ * Identity is a Fly API token (preferably read-only, minted via
+ * `fly tokens create readonly -o <org>`); discovery hits Fly's
+ * Machines API to list apps.
+ *
+ * The macaroon-attenuation helper that mints read-only tokens from
+ * an existing deploy-target session lives in the host SaaS-side
+ * fly-machines module — when a `@logtura/fly-shared` package
+ * extracts (alongside a future fly deploy-target driver) the
+ * shared bits move there.
+ */
 import {
-  flyAuthHeader,
-  listFlyOrgs,
-} from "../deploy-targets/fly-machines";
-import type {
-  ConnectionRef,
-  DiscoveredSource,
-  ProviderDriver,
-  SourceBlock,
-  SourceRef,
-} from "./types";
-import { ProviderError } from "./types";
+  type ConnectionRef,
+  type DiscoveredSource,
+  type ProviderDriver,
+  ProviderError,
+  type SourceBlock,
+  type SourceRef,
+} from "@logtura/core";
+
+const REST_BASE = "https://api.fly.io";
+const MACHINES_BASE = "https://api.machines.dev";
 
 export interface FlyCredentials {
   apiToken: string;
 }
 
-/**
- * Fly.io source provider.
- *
- * Same identity model the deploy_target driver uses — a Fly API
- * token (or read-only macaroon minted from one). Difference is
- * what we do with it: list apps to discover sources, then run
- * `flyctl logs --json -a <app>` in the forwarder to tail them.
- *
- * For the connect surface we offer paste-token only. The
- * bootstrap-mediated path ("use your existing Fly connection")
- * comes for free via deploy_target.mintConnectionCredentials —
- * the New Connection UI already wires it when a Fly bootstrap
- * exists. The cli_session OAuth-style flow belongs on the
- * deploy_target (where logtura holds + uses the token), not on
- * the source connection (where the credential lives in the user's
- * forwarder container and should be narrowly scoped).
- */
+/** Fly accepts two token shapes: bare-bearer (legacy) and macaroon
+ *  ("FlyV1 fm1r_… / fm2_…"). The header prefix depends on which
+ *  shape the user pasted. */
+export function flyAuthHeader(token: string): string {
+  for (const part of token.split(",")) {
+    const prefix = part.split("_")[0];
+    if (prefix === "fm1r" || prefix === "fm2") return `FlyV1 ${token}`;
+  }
+  return `Bearer ${token}`;
+}
+
+interface FlyOrgNode {
+  slug?: string;
+}
+
+/** Minimal listFlyOrgs — just what the driver needs (slugs). The
+ *  full id+slug variant lives SaaS-side; macaroon attenuation
+ *  needs ids, but the driver only needs slugs for verify. */
+async function listFlyOrgSlugs(authHeader: string): Promise<string[]> {
+  const query = `query($admin: Boolean!) {
+    organizations(admin: $admin) {
+      nodes { slug }
+    }
+  }`;
+  const res = await fetch(`${REST_BASE}/graphql`, {
+    method: "POST",
+    headers: {
+      authorization: authHeader,
+      "content-type": "application/json",
+      accept: "application/json",
+    },
+    body: JSON.stringify({ query, variables: { admin: false } }),
+  });
+  const bodyText = await res.text();
+  if (!res.ok) {
+    throw new ProviderError(
+      `Fly listFlyOrgs failed: ${res.status} ${bodyText.slice(0, 200)}`,
+      res.status,
+    );
+  }
+  const data = JSON.parse(bodyText) as {
+    data?: { organizations?: { nodes?: Array<FlyOrgNode | null> } };
+    errors?: Array<{ message?: string }>;
+  };
+  if (data.errors?.length) {
+    throw new ProviderError(
+      `Fly GraphQL errors: ${data.errors.map((e) => e.message).join("; ")}`,
+      400,
+    );
+  }
+  const out: string[] = [];
+  for (const n of data.data?.organizations?.nodes ?? []) {
+    if (n && typeof n.slug === "string") out.push(n.slug);
+  }
+  return out;
+}
+
 export const flyLogTailDriver: ProviderDriver<FlyCredentials> = {
   id: "fly-log-tail",
   displayName: "Fly.io log tail",
@@ -83,21 +136,20 @@ export const flyLogTailDriver: ProviderDriver<FlyCredentials> = {
   },
 
   async verifyCredentials(creds) {
-    // Resolves the org list via the same GraphQL endpoint the deploy
-    // target uses. Token validity is implicit in a successful org
-    // list; we don't have a dedicated /verify endpoint to hit.
-    const orgs = await listFlyOrgs(flyAuthHeader(creds.apiToken));
-    if (orgs.length === 0) {
+    // Token validity is implicit in a successful org list; Fly
+    // doesn't have a dedicated /verify endpoint.
+    const slugs = await listFlyOrgSlugs(flyAuthHeader(creds.apiToken));
+    if (slugs.length === 0) {
       throw new ProviderError("Fly token has no visible orgs", 403);
     }
-    return orgs.map((o) => ({ id: o.slug, name: o.slug }));
+    return slugs.map((s) => ({ id: s, name: s }));
   },
 
   async discoverSources({ credentials, accountId }) {
     // Apps live under an org. accountId is the org slug; we list
     // apps and treat each as one source. Machines API exposes
     // /v1/apps?org_slug=… for this.
-    const url = `https://api.machines.dev/v1/apps?org_slug=${encodeURIComponent(accountId)}`;
+    const url = `${MACHINES_BASE}/v1/apps?org_slug=${encodeURIComponent(accountId)}`;
     const res = await fetch(url, {
       headers: { authorization: flyAuthHeader(credentials.apiToken) },
     });
@@ -126,7 +178,12 @@ export const flyLogTailDriver: ProviderDriver<FlyCredentials> = {
     return sources;
   },
 
-  generateSourceBlock({ source }: { source: SourceRef; connection: ConnectionRef }): SourceBlock {
+  generateSourceBlock({
+    source,
+  }: {
+    source: SourceRef;
+    connection: ConnectionRef;
+  }): SourceBlock {
     if (source.sourceKind !== "fly_app") {
       throw new Error(`Unknown fly source kind: ${source.sourceKind}`);
     }
@@ -208,7 +265,6 @@ export const flyLogTailDriver: ProviderDriver<FlyCredentials> = {
       ],
     };
   },
-
 };
 
 function safeKey(s: string): string {

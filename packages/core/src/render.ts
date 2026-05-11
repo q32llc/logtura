@@ -262,7 +262,7 @@ function renderVectorYaml(
   // transform fanning in every source it emitted.
   const sourcesByDriver = new Map<
     string,
-    { driverId: string; inputKeys: string[] }
+    { driverId: string; inputKeys: string[]; sources: SourceRef[] }
   >();
   const totalSources = resolved.reduce((n, r) => n + r.sources.length, 0);
   if (totalSources === 0) {
@@ -294,8 +294,10 @@ function renderVectorYaml(
         const bucket = sourcesByDriver.get(r.driver.id) ?? {
           driverId: r.driver.id,
           inputKeys: [],
+          sources: [],
         };
         bucket.inputKeys.push(block.key);
+        bucket.sources.push(s);
         sourcesByDriver.set(r.driver.id, bucket);
         if (!c.driverIds.includes(r.driver.id)) {
           c.driverIds.push(r.driver.id);
@@ -313,6 +315,7 @@ function renderVectorYaml(
     const block = rep.driver.generateNormalize?.({
       inputKeys: bucket.inputKeys,
       connection: rep.connectionRef,
+      sources: bucket.sources,
     });
     if (block) {
       normalizeBlocks.push(block);

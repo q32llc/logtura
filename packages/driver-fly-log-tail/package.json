@@ -1,0 +1,25 @@
+{
+  "name": "@logtura/driver-fly-log-tail",
+  "version": "0.0.0",
+  "description": "Logtura provider driver for Fly.io — tails flyctl logs --json -a <app> via Vector's exec source.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "private": true,
+  "files": ["src"],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "peerDependencies": {
+    "@logtura/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@logtura/core": "workspace:*",
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.5"
+  }
+}

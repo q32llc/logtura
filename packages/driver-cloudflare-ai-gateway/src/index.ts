@@ -17,14 +17,14 @@ import {
   parseCfFormData,
   safeKey,
   verifyCfCredentials,
-} from "./cloudflare-shared";
+} from "@logtura/cloudflare-shared";
 import {
   type ConnectionRef,
   type DiscoveredSource,
   type ProviderDriver,
   ProviderError,
   type SourceBlock,
-} from "./types";
+} from "@logtura/core";
 
 interface CfAiGateway {
   id: string;

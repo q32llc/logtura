@@ -206,10 +206,19 @@ export interface ProviderDriver<TCreds = unknown> {
 
   /** Render this driver's one normalize transform (fans in every
    *  source it emitted). One driver, one transport, one normalize.
-   *  Return null if events already carry the uniform shape. */
+   *  Return null if events already carry the uniform shape.
+   *
+   *  `sources` is the same list whose `generateSourceBlock` results
+   *  are wired in as `inputKeys`. Drivers whose log payload carries
+   *  the source identity natively (cf-worker `.scriptName`, fly
+   *  `.app` injected via jq) can ignore it. Drivers whose payload
+   *  identifies the source by an opaque id (eg Supabase Edge
+   *  Functions reference functions by UUID, not slug) use it to
+   *  inject a UUID → human-slug map into the emitted VRL. */
   generateNormalize?(input: {
     inputKeys: string[];
     connection: ConnectionRef;
+    sources: SourceRef[];
   }): { key: string; yaml: string } | null;
 
   /** Runtime needs — env vars + dockerfile install steps. */
@@ -226,6 +235,16 @@ export class ProviderError extends Error {
   ) {
     super(message);
     this.name = "ProviderError";
+  }
+}
+
+export class DestinationError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number = 500,
+  ) {
+    super(message);
+    this.name = "DestinationError";
   }
 }
 
