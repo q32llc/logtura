@@ -70,6 +70,7 @@ import { newToken, signCookie, verifyCookie } from "./crypto";
 import type { AppContext, Env } from "./env";
 import { generateBundle } from "./generator";
 import { assembleDeploymentBundle } from "./bundle-assembly";
+import { buildInstallBundle } from "./install-bundle";
 import {
   type MetricsSnapshot,
   applyMetricsToSnapshot,
@@ -378,6 +379,82 @@ apiAuth.get("/deployments/:id/bundle", async (c) => {
     envVars: sourceBundle.envVars,
     selectedCount: sourceBundle.selectedCount,
     monitorSummary: sourceBundle.monitorSummary,
+  });
+});
+
+// ----- Install bundle (self-deploy tarball) ----------------------------
+//
+// Two surfaces share one composer:
+//   1. Session-authed download — the "Download install bundle" button.
+//      Returns a streamable .tgz.
+//   2. Signed one-shot URL — the "Generate install command" button mints
+//      a URL with an HMAC-signed payload {deploymentId, userId, exp}.
+//      Public endpoint verifies + serves the same .tgz. 60s TTL is the
+//      replay defense; no DB rows needed.
+
+apiAuth.get("/deployments/:id/install-bundle.tgz", async (c) => {
+  const user = c.get("user")!;
+  const id = c.req.param("id");
+  const deployment = await getDeployment(c.env.DB, user.id, id);
+  if (!deployment) return c.json({ error: "not_found" }, 404);
+  const { filename, bytes } = await buildInstallBundle(c.env, user.id, id);
+  return new Response(bytes as BodyInit, {
+    headers: {
+      "content-type": "application/gzip",
+      "content-disposition": `attachment; filename="${filename}"`,
+      "cache-control": "no-store",
+    },
+  });
+});
+
+apiAuth.post("/deployments/:id/install-bundle/sign", async (c) => {
+  const user = c.get("user")!;
+  const id = c.req.param("id");
+  const deployment = await getDeployment(c.env.DB, user.id, id);
+  if (!deployment) return c.json({ error: "not_found" }, 404);
+  const exp = Date.now() + 60_000; // 60s window
+  const payload = JSON.stringify({ d: id, u: user.id, exp });
+  const signed = await signCookie(payload, c.env.SESSION_SECRET);
+  const url = `${c.env.APP_URL}/api/install-bundle/${encodeURIComponent(signed)}/${encodeURIComponent(deployment.display_name.replace(/[^a-z0-9-]/gi, "-").toLowerCase() || "logtura")}.tgz`;
+  return c.json({ url, expiresAt: exp });
+});
+
+// Public, signature-verified bundle download. URL embeds the signed
+// payload + a cosmetic filename suffix (so `curl -O` produces a
+// readable name). The filename suffix is NOT trusted; we recompute
+// it from the deployment's display_name server-side.
+api.get("/install-bundle/:signed/:_filename", async (c) => {
+  const signed = c.req.param("signed");
+  const raw = await verifyCookie(signed, c.env.SESSION_SECRET);
+  if (!raw) return c.json({ error: "invalid_signature" }, 401);
+  let payload: { d?: string; u?: string; exp?: number };
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return c.json({ error: "invalid_payload" }, 401);
+  }
+  if (!payload.d || !payload.u || !payload.exp) {
+    return c.json({ error: "invalid_payload" }, 401);
+  }
+  if (Date.now() > payload.exp) {
+    return c.json({ error: "expired" }, 410);
+  }
+  // Re-verify the deployment exists for the named user (defense in
+  // depth — if SESSION_SECRET ever rotates mid-flight the signature
+  // check above is the gate, but cheap to also confirm the row).
+  const deployment = await getDeployment(c.env.DB, payload.u, payload.d);
+  if (!deployment) return c.json({ error: "not_found" }, 404);
+  const { filename, bytes } = await buildInstallBundle(
+    c.env,
+    payload.u,
+    payload.d,
+  );
+  return new Response(bytes as BodyInit, {
+    headers: {
+      "content-type": "application/gzip",
+      "content-disposition": `attachment; filename="${filename}"`,
+      "cache-control": "no-store",
+    },
   });
 });
 

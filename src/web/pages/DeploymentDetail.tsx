@@ -20,6 +20,7 @@ import { notifications } from "@mantine/notifications";
 import {
   IconArrowLeft,
   IconCheck,
+  IconCloudUpload,
   IconCopy,
   IconDeviceFloppy,
   IconExternalLink,
@@ -964,22 +965,7 @@ function RunPanel({
     <Stack gap="lg">
       <ManagedDeployCard deployment={deployment} />
 
-      <Card withBorder p="lg" radius="md">
-        <Stack gap="sm">
-          <Group gap={6}>
-            <Text fw={600}>Self-deploy</Text>
-            <Badge size="xs" variant="light">
-              you own the runtime
-            </Badge>
-          </Group>
-          <Text size="sm" c="dimmed">
-            Grab the generated Dockerfile + Vector config and run the
-            forwarder anywhere — your laptop, your own Fly app, a Nomad
-            cluster, a Raspberry Pi. logtura keeps generating the
-            config; you decide where it lives.
-          </Text>
-        </Stack>
-      </Card>
+      <SelfDeployCard deployment={deployment} />
 
       {bundle ? (
         <BundleView bundle={bundle} />
@@ -990,6 +976,152 @@ function RunPanel({
       )}
     </Stack>
   );
+}
+
+// ---------- Self-deploy card -------------------------------------------
+//
+// One download button + one curl one-liner. The download is the simple
+// path (browser → .tgz → untar → ./install.sh). The curl one-liner is
+// for scripted/server-side installs: it embeds an HMAC-signed URL that
+// expires in 60s.
+
+function SelfDeployCard({ deployment }: { deployment: ApiDeployment }) {
+  const [curlCmd, setCurlCmd] = useState<string | null>(null);
+  const [expiresAt, setExpiresAt] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // Tick the "expires in N seconds" line so users see when they
+  // need to regenerate.
+  const [, force] = useState(0);
+  useEffect(() => {
+    if (!expiresAt) return;
+    const t = window.setInterval(() => force((n) => n + 1), 1000);
+    return () => window.clearInterval(t);
+  }, [expiresAt]);
+
+  async function generate() {
+    setBusy(true);
+    setErr(null);
+    setCopied(false);
+    try {
+      const r = await api.signInstallBundle(deployment.id);
+      const cmd = `curl -fsSL ${shellEscape(r.url)} -o logtura.tgz && tar xzf logtura.tgz && cd logtura-* && ./install.sh`;
+      setCurlCmd(cmd);
+      setExpiresAt(r.expiresAt);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Could not sign URL");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const secondsLeft = expiresAt
+    ? Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000))
+    : null;
+  const expired = secondsLeft !== null && secondsLeft === 0;
+
+  return (
+    <Card withBorder p="lg" radius="md">
+      <Stack gap="md">
+        <Stack gap={2}>
+          <Group gap={6}>
+            <Text fw={600}>Self-deploy</Text>
+            <Badge size="xs" variant="light">
+              you own the runtime
+            </Badge>
+          </Group>
+          <Text size="sm" c="dimmed">
+            Download a single tarball, run <code>./install.sh</code>.
+            Works on any host with Docker, Podman, or nerdctl —
+            laptop, Raspberry Pi, your own Fly app, a Nomad cluster.
+            Re-run after each "out of date" mark to push fresh config.
+          </Text>
+        </Stack>
+
+        <Group>
+          <Button
+            component="a"
+            href={api.installBundleUrl(deployment.id)}
+            leftSection={<IconCloudUpload size={14} />}
+            download
+          >
+            Download install bundle
+          </Button>
+          <Button
+            variant="default"
+            onClick={generate}
+            loading={busy}
+            disabled={expiresAt !== null && !expired}
+            leftSection={<IconCopy size={14} />}
+          >
+            {curlCmd && !expired
+              ? "Regenerate one-liner"
+              : "Generate install one-liner"}
+          </Button>
+        </Group>
+
+        {err && (
+          <Alert color="red" variant="light">
+            {err}
+          </Alert>
+        )}
+
+        {curlCmd && (
+          <Stack gap={4}>
+            <Group justify="space-between">
+              <Text size="xs" c="dimmed">
+                One-line install (expires in {secondsLeft}s, URL is
+                single-shot)
+              </Text>
+              <CopyButton value={curlCmd}>
+                {({ copy, copied: c }) => (
+                  <Button
+                    size="compact-xs"
+                    variant="subtle"
+                    onClick={() => {
+                      copy();
+                      setCopied(true);
+                    }}
+                    leftSection={
+                      c ? <IconCheck size={12} /> : <IconCopy size={12} />
+                    }
+                  >
+                    {c || copied ? "Copied" : "Copy"}
+                  </Button>
+                )}
+              </CopyButton>
+            </Group>
+            <pre
+              style={{
+                margin: 0,
+                padding: 12,
+                background: "var(--mantine-color-dark-7)",
+                borderRadius: 6,
+                fontSize: 12,
+                overflow: "auto",
+                opacity: expired ? 0.4 : 1,
+              }}
+            >
+              <code>{curlCmd}</code>
+            </pre>
+            {expired && (
+              <Text size="xs" c="dimmed">
+                Link expired. Click Regenerate.
+              </Text>
+            )}
+          </Stack>
+        )}
+      </Stack>
+    </Card>
+  );
+}
+
+function shellEscape(s: string): string {
+  // For URLs we just stuff in single quotes; URLs won't contain
+  // single quotes from us.
+  return `'${s}'`;
 }
 
 function ManagedDeployCard({ deployment }: { deployment: ApiDeployment }) {

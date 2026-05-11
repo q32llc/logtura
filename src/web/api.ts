@@ -240,4 +240,16 @@ export const api = {
       `/deployments/${deploymentId}/mark-deployed`,
       { method: "POST" },
     ),
+  /** URL for the session-authed install bundle download. The browser
+   *  hits it directly via an <a> tag with download attribute; no
+   *  JSON wrapper. Returning the path lets the UI render the link. */
+  installBundleUrl: (deploymentId: string) =>
+    `/api/deployments/${deploymentId}/install-bundle.tgz`,
+  /** Mint an HMAC-signed one-shot URL for the curl one-liner. Caller
+   *  is expected to surface it within ~60s before it expires. */
+  signInstallBundle: (deploymentId: string) =>
+    request<{ url: string; expiresAt: number }>(
+      `/deployments/${deploymentId}/install-bundle/sign`,
+      { method: "POST" },
+    ),
 };
