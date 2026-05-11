@@ -133,14 +133,19 @@ export const flyDriver: ProviderDriver<FlyCredentials> = {
     // `flyctl logs --json -a <app>` emits one JSON event per line,
     // but the app name isn't in the event payload (flyctl knows it
     // from `-a` and doesn't repeat it). We tag at the source via a
-    // shell pipeline:  flyctl … | jq -c '. + {app: "<app>"}'
-    // so every event carries .app before reaching the consolidated
-    // normalize transform — the downstream filters need .script set
-    // correctly per-app, and we know the name at bundle time. jq +
-    // unbuffered output both ship in our kitchen-sink image, same
-    // as the wrangler-tail path.
+    // shell pipeline that:
+    //   1. Forces flyctl's stdout to LINE-buffered with `stdbuf -oL`
+    //      — when piped, libc defaults stdout to BLOCK buffering
+    //      (4 KB), which means events stall in flyctl's buffer
+    //      until enough accumulate. Vector then sees latency spikes
+    //      and "no events" gaps. `jq -c --unbuffered` only fixes
+    //      jq's output buffering; flyctl needs its own kick.
+    //   2. Pipes through `jq -c '. + {app: "<app>"}'` to inject the
+    //      app name so the per-kind normalize can set .script
+    //      correctly per-app. jq + stdbuf both ship in our
+    //      kitchen-sink image, same as the wrangler-tail path.
     const appJq = JSON.stringify(source.externalId).replace(/"/g, '\\"');
-    const command = `flyctl logs --json -a ${shellQuote(source.externalId)} | jq -c --unbuffered '. + {app: "${appJq.slice(1, -1)}"}'`;
+    const command = `stdbuf -oL flyctl logs --json -a ${shellQuote(source.externalId)} | jq -c --unbuffered '. + {app: "${appJq.slice(1, -1)}"}'`;
     const yaml = [
       `    type: exec`,
       `    command: ["sh", "-c", ${JSON.stringify(command)}]`,

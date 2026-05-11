@@ -86,6 +86,15 @@ export const slackDriver: DestinationDriver<SlackConfig> = {
       "    method: post",
       "    encoding:",
       "      codec: json",
+      // Vector's default for codec: json wraps the batch in a JSON
+      // ARRAY (`[{"text":"…"}]`). Slack's incoming-webhook endpoint
+      // expects a top-level OBJECT (`{"text":"…"}`) and replies with
+      // a 400 (`no_text` / `invalid_payload`) on an array. With
+      // max_events: 1 + newline_delimited framing the body becomes
+      // just `{"text":"…"}\n` — one event per request, one JSON
+      // object per body, which is what Slack wants.
+      "    framing:",
+      "      method: newline_delimited",
       "    request:",
       "      headers:",
       "        content-type: application/json",
