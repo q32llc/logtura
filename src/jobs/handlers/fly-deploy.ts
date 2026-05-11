@@ -2,6 +2,7 @@ import { assembleDeploymentBundle } from "../../bundle-assembly";
 import {
   decryptDeployTargetCredentials,
   getDeployTargetById,
+  markDeploymentDeployed,
   updateDeployment,
 } from "../../db";
 import {
@@ -247,6 +248,16 @@ export async function runFlyWaitRunning(
     await updateDeployment(ctx.env.DB, ctx.job.userId, parent.deploymentId, {
       status: "running",
     });
+    // The new bundle is now running on Fly — clear the out-of-date
+    // flag the UI uses for the Redeploy CTA. (We don't clear via
+    // markUserDeploymentsOutdated's inverse because the user might
+    // have changed config OF ANOTHER deployment mid-deploy here;
+    // we only clear this specific deployment.)
+    await markDeploymentDeployed(
+      ctx.env.DB,
+      ctx.job.userId,
+      parent.deploymentId,
+    );
     await ctx.events.record({
       kind: "fly_machine.running",
       message: `Machine ${p.machineId} is running`,

@@ -9,6 +9,8 @@ import {
 import {
   createConnection,
   updateConnectionCredentials,
+  markUserDeploymentsOutdated,
+  markDeploymentDeployed,
   createDestination,
   createMonitor,
   createSink,
@@ -327,6 +329,10 @@ apiAuth.post("/connections/:id/reconnect", async (c) => {
     lockKey: lockKeyForDiscovery(updated.id),
   });
 
+  // Credentials changed → every deployment on this user's account
+  // has an out-of-date bundle. The Redeploy CTA appears.
+  await markUserDeploymentsOutdated(c.env.DB, user.id);
+
   return c.json({ connection: toApiConnection(updated) });
 });
 
@@ -489,7 +495,30 @@ apiAuth.put("/deployments/:id", async (c) => {
   }
   const updated = await updateDeployment(c.env.DB, user.id, id, body as never);
   if (!updated) return c.json({ error: "not_found" }, 404);
+  // Treat anything that changed the bundle inputs as making the
+  // running container stale. status/externalId-only updates are
+  // status bookkeeping (set by the deploy chain itself) and don't
+  // need the flag flipped.
+  const touchesBundle =
+    body.displayName !== undefined ||
+    body.sourceIds !== undefined ||
+    body.monitorIds !== undefined ||
+    body.heartbeatTarget !== undefined ||
+    body.metricsTarget !== undefined;
+  if (touchesBundle) {
+    await markUserDeploymentsOutdated(c.env.DB, user.id);
+  }
   return c.json({ deployment: toApiDeployment(updated) });
+});
+
+apiAuth.post("/deployments/:id/mark-deployed", async (c) => {
+  const user = c.get("user")!;
+  const id = c.req.param("id");
+  const existing = await getDeployment(c.env.DB, user.id, id);
+  if (!existing) return c.json({ error: "not_found" }, 404);
+  await markDeploymentDeployed(c.env.DB, user.id, id);
+  const updated = await getDeployment(c.env.DB, user.id, id);
+  return c.json({ deployment: updated ? toApiDeployment(updated) : null });
 });
 
 apiAuth.delete("/deployments/:id", async (c) => {
@@ -795,12 +824,16 @@ apiAuth.post("/destinations", async (c) => {
     displayName,
     config: parsed.config,
   });
+  // New destination can immediately be picked up by wildcard
+  // metrics_target or by future sinks; coarse-mark is fine.
+  await markUserDeploymentsOutdated(c.env.DB, user.id);
   return c.json({ destination: toApiDestination(destination) });
 });
 
 apiAuth.delete("/destinations/:id", async (c) => {
   const user = c.get("user")!;
   await deleteDestination(c.env.DB, user.id, c.req.param("id"));
+  await markUserDeploymentsOutdated(c.env.DB, user.id);
   return c.json({ ok: true });
 });
 
@@ -948,6 +981,7 @@ apiAuth.post("/monitors", async (c) => {
     filterSteps: body.filterSteps ?? [],
     enabled: body.enabled,
   });
+  await markUserDeploymentsOutdated(c.env.DB, user.id);
   return c.json({ monitor: toApiMonitor(monitor) });
 });
 
@@ -962,12 +996,14 @@ apiAuth.put("/monitors/:id", async (c) => {
   };
   const updated = await updateMonitor(c.env.DB, user.id, id, body);
   if (!updated) return c.json({ error: "not_found" }, 404);
+  await markUserDeploymentsOutdated(c.env.DB, user.id);
   return c.json({ monitor: toApiMonitor(updated) });
 });
 
 apiAuth.delete("/monitors/:id", async (c) => {
   const user = c.get("user")!;
   await deleteMonitor(c.env.DB, user.id, c.req.param("id"));
+  await markUserDeploymentsOutdated(c.env.DB, user.id);
   return c.json({ ok: true });
 });
 
@@ -990,6 +1026,7 @@ apiAuth.post("/monitors/:id/sinks", async (c) => {
     destinationId: body.destinationId,
     filterSteps: body.filterSteps,
   });
+  await markUserDeploymentsOutdated(c.env.DB, user.id);
   return c.json({ sink: toApiSink(sink) });
 });
 
@@ -998,12 +1035,14 @@ apiAuth.put("/sinks/:id", async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json()) as { filterSteps?: FilterStep[] };
   await updateSinkSteps(c.env.DB, user.id, id, body.filterSteps ?? []);
+  await markUserDeploymentsOutdated(c.env.DB, user.id);
   return c.json({ ok: true });
 });
 
 apiAuth.delete("/sinks/:id", async (c) => {
   const user = c.get("user")!;
   await deleteSink(c.env.DB, user.id, c.req.param("id"));
+  await markUserDeploymentsOutdated(c.env.DB, user.id);
   return c.json({ ok: true });
 });
 
@@ -1154,6 +1193,7 @@ function toApiDeployment(d: DeploymentRow) {
     metricsSnapshot: d.metrics_snapshot_json
       ? (JSON.parse(d.metrics_snapshot_json) as MetricsSnapshot)
       : null,
+    bundleOutdated: d.bundle_outdated === 1,
     createdAt: d.created_at,
     updatedAt: d.updated_at,
     lastSeenAt: d.last_seen_at,

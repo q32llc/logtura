@@ -235,4 +235,9 @@ export const api = {
       `/deployments/${deploymentId}/deploy`,
       { method: "POST", body: JSON.stringify(body) },
     ),
+  markDeploymentDeployed: (deploymentId: string) =>
+    request<{ deployment: ApiDeployment | null }>(
+      `/deployments/${deploymentId}/mark-deployed`,
+      { method: "POST" },
+    ),
 };

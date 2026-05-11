@@ -10,7 +10,7 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import { IconCloudUpload, IconPlus } from "@tabler/icons-react";
+import { IconCloudUpload, IconPlus, IconRocket } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { ApiError, api } from "../api";
@@ -105,18 +105,18 @@ export function Deployments() {
           {deployments.map((d) => {
             const c = connectionsById.get(d.connectionId);
             return (
-              <Card
-                key={d.id}
-                withBorder
-                p="md"
-                component={Link}
-                to={`/app/deployments/${d.id}`}
-                style={{ textDecoration: "none", color: "inherit" }}
-              >
-                <Group justify="space-between">
-                  <Stack gap={2}>
-                    <Group gap="xs">
-                      <Text fw={600}>{d.displayName}</Text>
+              <Card key={d.id} withBorder p="md">
+                <Group justify="space-between" wrap="nowrap">
+                  <Stack gap={2} style={{ minWidth: 0, flex: 1 }}>
+                    <Group gap="xs" wrap="nowrap">
+                      <Text
+                        fw={600}
+                        component={Link}
+                        to={`/app/deployments/${d.id}`}
+                        style={{ textDecoration: "none", color: "inherit" }}
+                      >
+                        {d.displayName}
+                      </Text>
                       <Badge size="sm" variant="light">
                         {d.targetKind}
                       </Badge>
@@ -132,6 +132,11 @@ export function Deployments() {
                           managed
                         </Badge>
                       )}
+                      {d.bundleOutdated && (
+                        <Badge size="sm" variant="filled" color="orange">
+                          out of date
+                        </Badge>
+                      )}
                     </Group>
                     <Text size="sm" c="dimmed">
                       {c?.displayName ?? d.connectionId}
@@ -143,9 +148,28 @@ export function Deployments() {
                         : ` · ${d.monitorIds.length} monitors`}
                     </Text>
                   </Stack>
-                  <Button variant="subtle" size="sm">
-                    View
-                  </Button>
+                  <Group gap="xs">
+                    {d.bundleOutdated && (
+                      <Button
+                        component={Link}
+                        to={`/app/deployments/${d.id}?action=deploy`}
+                        size="sm"
+                        variant="filled"
+                        color="orange"
+                        leftSection={<IconRocket size={14} />}
+                      >
+                        Redeploy
+                      </Button>
+                    )}
+                    <Button
+                      component={Link}
+                      to={`/app/deployments/${d.id}`}
+                      variant="subtle"
+                      size="sm"
+                    >
+                      View
+                    </Button>
+                  </Group>
                 </Group>
               </Card>
             );

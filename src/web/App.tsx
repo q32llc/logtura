@@ -1,6 +1,7 @@
 import {
   AppShell,
   Avatar,
+  Badge,
   Button,
   Group,
   Loader,
@@ -148,6 +149,33 @@ function AppShellLayout({
   const location = useLocation();
   const isAppRoute = location.pathname.startsWith("/app");
   const showNavbar = isAppRoute && !!user;
+
+  // Light-weight poll for out-of-date deployment count so the nav
+  // can surface a badge. 30s cadence keeps the badge fresh enough
+  // that a config change becomes visible without a page reload, and
+  // the request is dirt cheap (one D1 row read per deployment).
+  const [outdatedCount, setOutdatedCount] = useState(0);
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const r = await api.listDeployments();
+        if (cancelled) return;
+        setOutdatedCount(
+          r.deployments.filter((d) => d.bundleOutdated).length,
+        );
+      } catch {
+        // ignore polling errors; the badge just stays stale
+      }
+    };
+    void tick();
+    const handle = window.setInterval(tick, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(handle);
+    };
+  }, [user]);
   return (
     <AppShell
       header={{ height: 56 }}
@@ -244,6 +272,7 @@ function AppShellLayout({
               label="Deployments"
               icon={<IconCloudUpload size={16} />}
               activeWhen={(p) => p.startsWith("/app/deployments")}
+              badge={outdatedCount > 0 ? outdatedCount : undefined}
             />
           </Stack>
         </AppShell.Navbar>
@@ -259,11 +288,15 @@ function NavItem({
   label,
   icon,
   activeWhen,
+  badge,
 }: {
   to: string;
   label: string;
   icon: React.ReactNode;
   activeWhen?: (path: string) => boolean;
+  /** Optional small number to surface in the nav. Used today by
+   *  Deployments to show how many have out-of-date bundles. */
+  badge?: number;
 }) {
   const location = useLocation();
   const active = activeWhen
@@ -275,6 +308,13 @@ function NavItem({
       to={to}
       label={label}
       leftSection={icon}
+      rightSection={
+        badge !== undefined ? (
+          <Badge size="xs" color="orange" variant="filled">
+            {badge}
+          </Badge>
+        ) : undefined
+      }
       active={active}
       variant="filled"
     />

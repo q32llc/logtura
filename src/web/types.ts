@@ -237,6 +237,11 @@ export interface ApiDeployment {
   /** Snapshot of latest Vector internal_metrics. null when no
    *  metrics have ever been received. */
   metricsSnapshot: ApiMetricsSnapshot | null;
+  /** true iff the generated bundle differs from what's running on
+   *  the machine (or no successful deploy has happened yet). Set by
+   *  any config mutation; cleared on successful deploy or manual
+   *  mark-as-deployed. */
+  bundleOutdated: boolean;
   createdAt: number;
   updatedAt: number;
   lastSeenAt: number | null;

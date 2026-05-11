@@ -1,0 +1,15 @@
+-- bundle_outdated: 1 iff the deployment's generated bundle differs
+-- from what's currently running on the machine (or we have no way
+-- to know for sure, e.g., right after creation). Cleared when a
+-- successful deploy lands or the user manually marks it deployed.
+--
+-- This is intentionally coarse — we don't diff the actual bundle.
+-- Anything that COULD invalidate the generated config (connection
+-- credentials, source selection, monitor filters, sink config,
+-- destination config, deployment selection) flips the flag for the
+-- affected deployments. Sometimes over-conservative; never silently
+-- wrong. A user-visible "Out of date" banner + Redeploy button on
+-- the deployment surfaces this.
+--
+-- Default 1: new rows are out of date until first deploy.
+ALTER TABLE deployments ADD COLUMN bundle_outdated INTEGER NOT NULL DEFAULT 1;

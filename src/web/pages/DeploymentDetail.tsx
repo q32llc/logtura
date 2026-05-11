@@ -118,6 +118,11 @@ export function DeploymentDetail() {
                 managed
               </Badge>
             )}
+            {deployment.bundleOutdated && (
+              <Badge variant="filled" color="orange">
+                out of date
+              </Badge>
+            )}
           </Group>
         </Stack>
         <Group>
@@ -141,7 +146,18 @@ export function DeploymentDetail() {
         </Group>
       </Group>
 
-      <Tabs defaultValue="overview">
+      {deployment.bundleOutdated && (
+        <OutdatedBanner deployment={deployment} onRefresh={refetch} />
+      )}
+
+      <Tabs
+        defaultValue={
+          new URLSearchParams(window.location.search).get("action") ===
+          "deploy"
+            ? "run"
+            : "overview"
+        }
+      >
         <Tabs.List>
           <Tabs.Tab value="overview">Overview</Tabs.Tab>
           <Tabs.Tab value="configure">Configure</Tabs.Tab>
@@ -161,6 +177,72 @@ export function DeploymentDetail() {
         </Tabs.Panel>
       </Tabs>
     </Container>
+  );
+}
+
+// ---------- Out-of-date banner -----------------------------------------
+
+function OutdatedBanner({
+  deployment,
+  onRefresh,
+}: {
+  deployment: ApiDeployment;
+  onRefresh: () => void;
+}) {
+  const [busy, setBusy] = useState<"deploy" | "mark" | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function markDeployed() {
+    setBusy("mark");
+    setErr(null);
+    try {
+      await api.markDeploymentDeployed(deployment.id);
+      notifications.show({ message: "Marked as deployed", color: "teal" });
+      onRefresh();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <Alert color="orange" variant="light" mb="md">
+      <Group justify="space-between" wrap="nowrap" align="flex-start">
+        <Stack gap={2}>
+          <Text fw={600}>This deployment is out of date</Text>
+          <Text size="sm" c="dimmed">
+            Something changed (token, monitor, sink, destination, source
+            selection…) and the running container is still on the
+            previous config. Redeploy to push the new bundle. If you
+            already deployed this yourself, mark it as deployed to
+            silence the warning.
+          </Text>
+          {err && (
+            <Text size="xs" c="red.6">
+              {err}
+            </Text>
+          )}
+        </Stack>
+        <Group gap="xs" wrap="nowrap">
+          <Button
+            component={Link}
+            to={`/app/deployments/${deployment.id}?action=deploy`}
+            color="orange"
+            leftSection={<IconRocket size={14} />}
+          >
+            Redeploy
+          </Button>
+          <Button
+            variant="default"
+            onClick={markDeployed}
+            loading={busy === "mark"}
+          >
+            Mark as deployed
+          </Button>
+        </Group>
+      </Group>
+    </Alert>
   );
 }
 
@@ -920,6 +1002,7 @@ function ManagedDeployCard({ deployment }: { deployment: ApiDeployment }) {
   const [error, setError] = useState<string | null>(null);
   const [deployJob, setDeployJob] = useState<ApiJob | null>(null);
   const [deploying, setDeploying] = useState(false);
+  const [autoTriggered, setAutoTriggered] = useState(false);
 
   async function refetch() {
     try {
@@ -933,6 +1016,28 @@ function ManagedDeployCard({ deployment }: { deployment: ApiDeployment }) {
   useEffect(() => {
     refetch();
   }, []);
+
+  // ?action=deploy in the URL → auto-fire the deploy once targets
+  // are loaded. This is what the "Redeploy" buttons on the
+  // deployments list + the out-of-date banner link to: open the
+  // detail page on the Run tab with deploy already in progress.
+  useEffect(() => {
+    if (autoTriggered) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("action") !== "deploy") return;
+    if (targets === null) return; // wait for targets to load
+    const flyTarget = targets.find(
+      (t) => t.kind === "fly" && t.externalAccountId === "personal",
+    );
+    if (!flyTarget) return;
+    setAutoTriggered(true);
+    // Strip the query param so a refresh doesn't re-deploy.
+    const url = new URL(window.location.href);
+    url.searchParams.delete("action");
+    window.history.replaceState({}, "", url.toString());
+    void startDeploy(flyTarget.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targets, autoTriggered]);
 
   // Poll the connect endpoint while a session is in progress.
   useEffect(() => {

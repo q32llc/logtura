@@ -776,6 +776,10 @@ export interface DeploymentRow {
    *  component, plus derived rates and a lifetime_offset that
    *  survives Vector restarts. See src/metrics-snapshot.ts. */
   metrics_snapshot_json: string | null;
+  /** 1 = the generated bundle differs from what's running. Cleared
+   *  on successful deploy or manual "mark as deployed." See
+   *  migration 0013 for the semantics. */
+  bundle_outdated: number;
 }
 
 export interface DeploymentSelection {
@@ -1018,6 +1022,47 @@ export async function upsertDeployTarget(
     .first<DeployTargetRow>();
   if (!r) throw new Error("deploy_target vanished after insert");
   return r;
+}
+
+/**
+ * Mark every deployment owned by `userId` as having an out-of-date
+ * bundle. Called from any endpoint that mutates config the
+ * generator reads (connection credentials, source selection,
+ * monitor/sink/destination CRUD, deployment selection). Cheap and
+ * coarse — we don't try to figure out the exact subset of affected
+ * deployments. The bool flip is what surfaces the "Redeploy" CTA
+ * in the UI; sometimes over-conservative beats silently stale.
+ *
+ * Skips deployments that are already marked outdated (no-op write).
+ */
+export async function markUserDeploymentsOutdated(
+  db: D1Database,
+  userId: string,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE deployments SET bundle_outdated = 1, updated_at = ?
+       WHERE user_id = ? AND bundle_outdated = 0`,
+    )
+    .bind(now(), userId)
+    .run();
+}
+
+/** Clear the outdated flag for one deployment — called by the
+ *  fly_deploy job after a successful machine update, and by the
+ *  manual "Mark as deployed" button for users who self-deploy. */
+export async function markDeploymentDeployed(
+  db: D1Database,
+  userId: string,
+  deploymentId: string,
+): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE deployments SET bundle_outdated = 0, updated_at = ?
+       WHERE id = ? AND user_id = ?`,
+    )
+    .bind(now(), deploymentId, userId)
+    .run();
 }
 
 export async function decryptDeployTargetCredentials<T = unknown>(
