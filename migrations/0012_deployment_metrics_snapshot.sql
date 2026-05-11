@@ -1,0 +1,18 @@
+-- metrics_snapshot_json: a single JSON blob per deployment holding
+-- the LATEST values from Vector's internal_metrics. Fixed-memory,
+-- bounded by the deployment's component count (usually 10–60).
+--
+-- Vector emits monotonic counters since process start. On each POST
+-- we overwrite per (component_id, metric) — we never append, so
+-- size stays flat regardless of event volume or time.
+--
+-- Restarts are detected by deriving process_start_at from the
+-- vector_uptime_seconds gauge — when it jumps forward, Vector
+-- rebooted; we roll the current totals into lifetime_offset so the
+-- displayed lifetime counters don't appear to go backwards.
+--
+-- This is a SNAPSHOT, not a time series. For graphs/history, users
+-- configure a metrics destination (datadog_metrics,
+-- prometheus_remote_write) and the data flows straight there. We're
+-- a routing + health-monitoring layer, not a TSDB.
+ALTER TABLE deployments ADD COLUMN metrics_snapshot_json TEXT;

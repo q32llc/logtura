@@ -181,6 +181,42 @@ export type ApiDeploymentStatus =
   | "stopped"
   | "detached";
 
+export interface ApiMetricsComponent {
+  kind: "source" | "transform" | "sink" | "unknown";
+  type: string;
+  received?: number;
+  sent?: number;
+  errors?: number;
+  discarded?: number;
+  prev?: {
+    received?: number;
+    sent?: number;
+    errors?: number;
+    discarded?: number;
+    sampleAt: number;
+  };
+  lastSeen: number;
+}
+
+export interface ApiMetricsSnapshot {
+  byComponent: Record<string, ApiMetricsComponent>;
+  totals: {
+    received: number;
+    sent: number;
+    errors: number;
+    discarded: number;
+  };
+  lifetimeOffset: {
+    received: number;
+    sent: number;
+    errors: number;
+    discarded: number;
+  };
+  processStartAt: number | null;
+  updatedAt: number;
+  vectorVersion?: string;
+}
+
 export interface ApiDeployment {
   id: string;
   connectionId: string;
@@ -198,6 +234,9 @@ export interface ApiDeployment {
   /** "logtura" | "none" | <destination_id> | null. null means
    *  "no metrics export" (we don't emit a metrics sink). */
   metricsTarget: string | null;
+  /** Snapshot of latest Vector internal_metrics. null when no
+   *  metrics have ever been received. */
+  metricsSnapshot: ApiMetricsSnapshot | null;
   createdAt: number;
   updatedAt: number;
   lastSeenAt: number | null;

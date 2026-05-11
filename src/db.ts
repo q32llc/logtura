@@ -726,6 +726,10 @@ export interface DeploymentRow {
    *  "logtura" = ship to us (no time series stored), <destination_id>
    *  = via a configured destination driver. */
   metrics_target: string | null;
+  /** JSON-encoded MetricsSnapshot. Latest counter values per
+   *  component, plus derived rates and a lifetime_offset that
+   *  survives Vector restarts. See src/metrics-snapshot.ts. */
+  metrics_snapshot_json: string | null;
 }
 
 export interface DeploymentSelection {

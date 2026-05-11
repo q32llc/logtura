@@ -36,6 +36,8 @@ import type {
   ApiDeployment,
   ApiDestination,
   ApiJob,
+  ApiMetricsComponent,
+  ApiMetricsSnapshot,
   ApiMonitor,
   ApiSource,
   ApiTargetBundle,
@@ -195,6 +197,8 @@ function OverviewPanel({
         </Stack>
       </Card>
 
+      <MetricsCard deployment={deployment} />
+
       <Card withBorder p="lg">
         <Stack gap={6}>
           <Text fw={600}>Selection</Text>
@@ -219,6 +223,311 @@ function OverviewPanel({
       </Card>
     </Stack>
   );
+}
+
+// ---------- Metrics (headline + per-component drilldown) ----------------
+
+function MetricsCard({ deployment }: { deployment: ApiDeployment }) {
+  const [mode, setMode] = useState<"rate" | "total">("rate");
+  const [expanded, setExpanded] = useState(false);
+  const snap = deployment.metricsSnapshot;
+
+  if (!snap || snap.updatedAt === 0) {
+    return (
+      <Card withBorder p="lg">
+        <Stack gap={4}>
+          <Text fw={600}>Pipeline metrics</Text>
+          <Text size="sm" c="dimmed">
+            {deployment.metricsTarget && deployment.metricsTarget !== "none"
+              ? "Waiting for the first metrics POST from the forwarder. Vector scrapes its own internals every 30s."
+              : 'No metrics target configured. Set metrics_target to "logtura" on the Configure tab to see counters here.'}
+          </Text>
+        </Stack>
+      </Card>
+    );
+  }
+
+  // Lifetime = current totals + lifetime_offset (counters that
+  // survived previous restarts).
+  const lifetime = {
+    received: snap.totals.received + snap.lifetimeOffset.received,
+    sent: snap.totals.sent + snap.lifetimeOffset.sent,
+    errors: snap.totals.errors + snap.lifetimeOffset.errors,
+    discarded: snap.totals.discarded + snap.lifetimeOffset.discarded,
+  };
+  // Rate = sum of per-component rates for received/sent/errors.
+  const totalRate = sumRates(snap);
+  const display =
+    mode === "rate"
+      ? {
+          received: totalRate.received,
+          sent: totalRate.sent,
+          errors: totalRate.errors,
+        }
+      : {
+          received: lifetime.received,
+          sent: lifetime.sent,
+          errors: lifetime.errors,
+        };
+
+  return (
+    <Card withBorder p="lg">
+      <Stack gap="md">
+        <Group justify="space-between" align="center">
+          <Group gap={6}>
+            <Text fw={600}>Pipeline metrics</Text>
+            {snap.vectorVersion && (
+              <Badge size="xs" variant="light">
+                Vector {snap.vectorVersion}
+              </Badge>
+            )}
+          </Group>
+          <Group gap={4}>
+            <Button
+              size="compact-xs"
+              variant={mode === "rate" ? "filled" : "default"}
+              onClick={() => setMode("rate")}
+            >
+              Rate
+            </Button>
+            <Button
+              size="compact-xs"
+              variant={mode === "total" ? "filled" : "default"}
+              onClick={() => setMode("total")}
+            >
+              Total
+            </Button>
+          </Group>
+        </Group>
+
+        <Group gap="xl" wrap="nowrap">
+          <Stack gap={0}>
+            <Text size="xs" c="dimmed">
+              Events received
+            </Text>
+            <Text fw={700} size="xl">
+              {mode === "rate"
+                ? `${fmt1(display.received)} /min`
+                : fmtN(display.received)}
+            </Text>
+          </Stack>
+          <Stack gap={0}>
+            <Text size="xs" c="dimmed">
+              Events sent
+            </Text>
+            <Text fw={700} size="xl">
+              {mode === "rate"
+                ? `${fmt1(display.sent)} /min`
+                : fmtN(display.sent)}
+            </Text>
+          </Stack>
+          <Stack gap={0}>
+            <Text size="xs" c="dimmed">
+              Errors
+            </Text>
+            <Text fw={700} size="xl" c={display.errors > 0 ? "red.5" : undefined}>
+              {mode === "rate"
+                ? `${fmt1(display.errors)} /min`
+                : fmtN(display.errors)}
+            </Text>
+          </Stack>
+        </Group>
+
+        <Group justify="space-between">
+          <Text size="xs" c="dimmed">
+            Last metrics{" "}
+            {snap.updatedAt
+              ? `${relativeTime(snap.updatedAt)} ago`
+              : "never"}
+            {snap.processStartAt
+              ? ` · Vector booted ${relativeTime(snap.processStartAt)} ago`
+              : ""}
+          </Text>
+          <Button
+            size="compact-xs"
+            variant="subtle"
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded
+              ? "Hide per-component"
+              : `Show per-component (${Object.keys(snap.byComponent).length})`}
+          </Button>
+        </Group>
+
+        {expanded && <PerComponentTable snap={snap} mode={mode} />}
+      </Stack>
+    </Card>
+  );
+}
+
+function PerComponentTable({
+  snap,
+  mode,
+}: {
+  snap: ApiMetricsSnapshot;
+  mode: "rate" | "total";
+}) {
+  const rows = Object.entries(snap.byComponent)
+    .map(([id, c]) => {
+      const rate = perComponentRate(c);
+      return { id, c, rate };
+    })
+    .sort((a, b) => {
+      // Sort sources first, then transforms, then sinks; within
+      // each kind, by id.
+      const kindRank: Record<string, number> = {
+        source: 0,
+        transform: 1,
+        sink: 2,
+        unknown: 3,
+      };
+      const k = (kindRank[a.c.kind] ?? 9) - (kindRank[b.c.kind] ?? 9);
+      return k !== 0 ? k : a.id.localeCompare(b.id);
+    });
+
+  return (
+    <Stack gap={2} mt="xs">
+      <Group
+        gap="md"
+        px="xs"
+        py={4}
+        style={{
+          borderBottom: "1px solid var(--mantine-color-default-border)",
+        }}
+      >
+        <Text size="xs" c="dimmed" style={{ flexBasis: 220, flexShrink: 0 }}>
+          Component
+        </Text>
+        <Text size="xs" c="dimmed" style={{ flexBasis: 100, flexShrink: 0 }}>
+          Kind / type
+        </Text>
+        <Text
+          size="xs"
+          c="dimmed"
+          style={{ flexBasis: 110, flexShrink: 0, textAlign: "right" }}
+        >
+          Received
+        </Text>
+        <Text
+          size="xs"
+          c="dimmed"
+          style={{ flexBasis: 110, flexShrink: 0, textAlign: "right" }}
+        >
+          Sent
+        </Text>
+        <Text
+          size="xs"
+          c="dimmed"
+          style={{ flexBasis: 80, flexShrink: 0, textAlign: "right" }}
+        >
+          Errors
+        </Text>
+        <Text size="xs" c="dimmed" style={{ flex: 1, textAlign: "right" }}>
+          Last seen
+        </Text>
+      </Group>
+      {rows.map(({ id, c, rate }) => (
+        <Group key={id} gap="md" px="xs" py={2}>
+          <Text size="xs" style={{ flexBasis: 220, flexShrink: 0 }} truncate>
+            {id}
+          </Text>
+          <Text
+            size="xs"
+            c="dimmed"
+            style={{ flexBasis: 100, flexShrink: 0 }}
+            truncate
+          >
+            {c.kind} · {c.type}
+          </Text>
+          <Text
+            size="xs"
+            style={{ flexBasis: 110, flexShrink: 0, textAlign: "right" }}
+          >
+            {mode === "rate"
+              ? rate.received !== null
+                ? `${fmt1(rate.received)}/min`
+                : "—"
+              : c.received !== undefined
+                ? fmtN(c.received)
+                : "—"}
+          </Text>
+          <Text
+            size="xs"
+            style={{ flexBasis: 110, flexShrink: 0, textAlign: "right" }}
+          >
+            {mode === "rate"
+              ? rate.sent !== null
+                ? `${fmt1(rate.sent)}/min`
+                : "—"
+              : c.sent !== undefined
+                ? fmtN(c.sent)
+                : "—"}
+          </Text>
+          <Text
+            size="xs"
+            c={(c.errors ?? 0) > 0 ? "red.5" : undefined}
+            style={{ flexBasis: 80, flexShrink: 0, textAlign: "right" }}
+          >
+            {mode === "rate"
+              ? rate.errors !== null
+                ? `${fmt1(rate.errors)}/min`
+                : "—"
+              : c.errors !== undefined
+                ? fmtN(c.errors)
+                : "—"}
+          </Text>
+          <Text size="xs" c="dimmed" style={{ flex: 1, textAlign: "right" }}>
+            {relativeTime(c.lastSeen)} ago
+          </Text>
+        </Group>
+      ))}
+    </Stack>
+  );
+}
+
+function sumRates(snap: ApiMetricsSnapshot) {
+  let received = 0;
+  let sent = 0;
+  let errors = 0;
+  for (const c of Object.values(snap.byComponent)) {
+    const r = perComponentRate(c);
+    if (r.received !== null) received += r.received;
+    if (r.sent !== null) sent += r.sent;
+    if (r.errors !== null) errors += r.errors;
+  }
+  return { received, sent, errors };
+}
+
+function perComponentRate(c: ApiMetricsComponent) {
+  const rate = (
+    field: "received" | "sent" | "errors" | "discarded",
+  ): number | null => {
+    const cur = c[field];
+    const prev = c.prev?.[field];
+    if (cur === undefined || prev === undefined || !c.prev) return null;
+    const dt = c.lastSeen - c.prev.sampleAt;
+    if (dt <= 0) return null;
+    const dv = cur - prev;
+    if (dv < 0) return 0;
+    return (dv * 60_000) / dt;
+  };
+  return {
+    received: rate("received"),
+    sent: rate("sent"),
+    errors: rate("errors"),
+    discarded: rate("discarded"),
+  };
+}
+
+function fmt1(n: number): string {
+  if (n === 0) return "0";
+  if (n < 0.1) return n.toFixed(2);
+  if (n < 10) return n.toFixed(1);
+  return Math.round(n).toLocaleString();
+}
+
+function fmtN(n: number): string {
+  return Math.round(n).toLocaleString();
 }
 
 // ---------- Configure ---------------------------------------------------

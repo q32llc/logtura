@@ -67,6 +67,11 @@ import { newToken, signCookie, verifyCookie } from "./crypto";
 import type { AppContext, Env } from "./env";
 import { generateBundle } from "./generator";
 import { assembleDeploymentBundle } from "./bundle-assembly";
+import {
+  type MetricsSnapshot,
+  applyMetricsToSnapshot,
+  parseMetricsBody,
+} from "./metrics-snapshot";
 import { JobDriver, aggregateStatus } from "./jobs/driver";
 import { processQueueBatch } from "./jobs/queue";
 import {
@@ -487,35 +492,52 @@ api.post("/heartbeat/:id", async (c) => {
 
 // Metrics ingest. Same auth pair as heartbeat (deployment id +
 // bearer token). We don't store the time series — that's where money
-// goes; users who want graphs configure a metrics destination
-// (datadog_metrics, prometheus_remote_write) and the forwarder
-// routes through there instead. This endpoint exists so users who
-// pick "logtura" for metrics target see "yes, metrics are flowing"
-// without us standing up a TSDB.
+// goes — but we DO maintain a fixed-memory snapshot of the latest
+// counter values per component, so the UI can show "is anything
+// flowing, are deliveries succeeding, when did each component last
+// emit." See src/metrics-snapshot.ts for the merge logic.
 api.post("/metrics/:id", async (c) => {
   const id = c.req.param("id");
   const auth = c.req.header("authorization") ?? "";
   const presented = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
   if (!presented) return c.json({ error: "missing_token" }, 401);
   const row = await c.env.DB.prepare(
-    "SELECT id, heartbeat_token FROM deployments WHERE id = ?",
+    "SELECT id, heartbeat_token, metrics_snapshot_json FROM deployments WHERE id = ?",
   )
     .bind(id)
-    .first<{ id: string; heartbeat_token: string | null }>();
+    .first<{
+      id: string;
+      heartbeat_token: string | null;
+      metrics_snapshot_json: string | null;
+    }>();
   if (!row || !row.heartbeat_token) {
     return c.json({ error: "not_found" }, 404);
   }
   if (!constantTimeEqual(row.heartbeat_token, presented)) {
     return c.json({ error: "invalid_token" }, 401);
   }
-  // Drain the body and discard — we don't store; we just acknowledge.
-  // (Vector will resend on 5xx, so always 2xx for a valid token.)
+  let body = "";
   try {
-    await c.req.text();
+    body = await c.req.text();
   } catch {
-    // ignore
+    // empty body — still record liveness below
   }
-  await recordHeartbeat(c.env.DB, id);
+  const events = parseMetricsBody(body);
+  if (events.length > 0) {
+    const prevSnap = row.metrics_snapshot_json
+      ? (JSON.parse(row.metrics_snapshot_json) as MetricsSnapshot)
+      : null;
+    const next = applyMetricsToSnapshot(prevSnap, events);
+    await c.env.DB.prepare(
+      "UPDATE deployments SET metrics_snapshot_json = ?, last_seen_at = ?, updated_at = ? WHERE id = ?",
+    )
+      .bind(JSON.stringify(next), Date.now(), Date.now(), id)
+      .run();
+  } else {
+    // Body absent or malformed; treat as a plain liveness ping.
+    await recordHeartbeat(c.env.DB, id);
+  }
+  // Vector will resend on 5xx, so always 2xx for a valid token.
   return c.body(null, 204);
 });
 
@@ -1049,6 +1071,9 @@ function toApiDeployment(d: DeploymentRow) {
       : null,
     heartbeatTarget: d.heartbeat_target,
     metricsTarget: d.metrics_target,
+    metricsSnapshot: d.metrics_snapshot_json
+      ? (JSON.parse(d.metrics_snapshot_json) as MetricsSnapshot)
+      : null,
     createdAt: d.created_at,
     updatedAt: d.updated_at,
     lastSeenAt: d.last_seen_at,
