@@ -1,18 +1,35 @@
 {
   "name": "@logtura/driver-fly-log-tail",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Logtura provider driver for Fly.io — tails flyctl logs --json -a <app> via Vector's exec source.",
+  "license": "Apache-2.0",
+  "author": "Erik Hinterbichler (Logtura)",
+  "homepage": "https://github.com/logtura/logtura#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/logtura/logtura.git",
+    "directory": "packages/driver-fly-log-tail"
+  },
+  "bugs": {
+    "url": "https://github.com/logtura/logtura/issues"
+  },
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts"
   },
-  "private": true,
-  "files": ["src"],
+  "files": [
+    "src",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "peerDependencies": {
     "@logtura/core": "workspace:*"

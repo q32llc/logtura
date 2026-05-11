@@ -1,0 +1,40 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: typecheck
+        run: pnpm typecheck
+
+      - name: pull vector image
+        # Each driver/destination package's vector-validate.test.ts
+        # shells out to `docker run timberio/vector:latest-debian`.
+        # Pre-pull here so the test phase doesn't pay the docker pull
+        # latency per suite.
+        run: docker pull timberio/vector:latest-debian
+
+      - name: test
+        # Runs every package's vitest project: unit tests for the
+        # renderer + each driver/destination's parser & yaml, plus
+        # the docker-backed vector-validate tests that pipe each
+        # bundle's emitted YAML through the real Vector binary.
+        run: pnpm vitest run
