@@ -247,16 +247,14 @@ function MetricsCard({ deployment }: { deployment: ApiDeployment }) {
     );
   }
 
-  // Lifetime = current totals + lifetime_offset (counters that
-  // survived previous restarts).
-  const lifetime = {
-    received: snap.totals.received + snap.lifetimeOffset.received,
-    sent: snap.totals.sent + snap.lifetimeOffset.sent,
-    errors: snap.totals.errors + snap.lifetimeOffset.errors,
-    discarded: snap.totals.discarded + snap.lifetimeOffset.discarded,
-  };
-  // Rate = sum of per-component rates for received/sent/errors.
-  const totalRate = sumRates(snap);
+  // User-facing totals only count user-configured sources (for
+  // "received") and sinks (for "sent" / "errors"). logtura's own
+  // plumbing components (internal_metrics, heartbeat_pulse,
+  // metrics_logtura, etc.) are excluded — they'd otherwise dwarf
+  // real log traffic and made the headline read "6,632/min received"
+  // even when zero actual events were flowing.
+  const lifetime = userLifetime(snap);
+  const totalRate = userRates(snap);
   const display =
     mode === "rate"
       ? {
@@ -485,15 +483,70 @@ function PerComponentTable({
   );
 }
 
-function sumRates(snap: ApiMetricsSnapshot) {
+/** Component IDs the generator emits for logtura's own plumbing
+ *  (heartbeat exec/sink, internal_metrics scrape, metrics_logtura
+ *  sink, prom_heartbeat exporter). These flow events too — they're
+ *  what made the headline look like "6,632/min received" when no
+ *  actual logs were moving — but they aren't user log traffic and
+ *  shouldn't count in the user-facing totals. The per-component
+ *  table still shows them for debugging. */
+const INTERNAL_COMPONENT_IDS = new Set([
+  "internal_metrics",
+  "prom_heartbeat",
+  "heartbeat_pulse",
+  "heartbeat_logtura",
+  "metrics_logtura",
+]);
+function isInternalComponent(id: string): boolean {
+  if (INTERNAL_COMPONENT_IDS.has(id)) return true;
+  // metrics_<destination_id> — generated metric sinks when
+  // metrics_target points at a destination.
+  if (id.startsWith("metrics_")) return true;
+  return false;
+}
+
+/** User-facing headline numbers. Only sources contribute to
+ *  "received" (real log volume in), only sinks contribute to
+ *  "sent" + "errors" (real delivery throughput / failures). Mixing
+ *  in transforms or counting the same event at every stage is what
+ *  made the numbers look unhinged. */
+function userTotals(snap: ApiMetricsSnapshot) {
   let received = 0;
   let sent = 0;
   let errors = 0;
-  for (const c of Object.values(snap.byComponent)) {
+  for (const [id, c] of Object.entries(snap.byComponent)) {
+    if (isInternalComponent(id)) continue;
+    if (c.kind === "source") received += c.received ?? 0;
+    if (c.kind === "sink") {
+      sent += c.sent ?? 0;
+      errors += c.errors ?? 0;
+    }
+  }
+  return { received, sent, errors };
+}
+
+function userLifetime(snap: ApiMetricsSnapshot) {
+  // Lifetime offsets are tracked across all components, so we can't
+  // cleanly split them by kind retroactively. For now, surface the
+  // current-process totals as "since this Vector started" and use
+  // the global lifetime_offset as an indicator that a restart
+  // occurred — the UI can footnote "events from before the last
+  // restart aren't kind-aggregated."
+  return userTotals(snap);
+}
+
+function userRates(snap: ApiMetricsSnapshot) {
+  let received = 0;
+  let sent = 0;
+  let errors = 0;
+  for (const [id, c] of Object.entries(snap.byComponent)) {
+    if (isInternalComponent(id)) continue;
     const r = perComponentRate(c);
-    if (r.received !== null) received += r.received;
-    if (r.sent !== null) sent += r.sent;
-    if (r.errors !== null) errors += r.errors;
+    if (c.kind === "source" && r.received !== null) received += r.received;
+    if (c.kind === "sink") {
+      if (r.sent !== null) sent += r.sent;
+      if (r.errors !== null) errors += r.errors;
+    }
   }
   return { received, sent, errors };
 }

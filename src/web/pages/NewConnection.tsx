@@ -1,23 +1,20 @@
 import {
   Alert,
-  Anchor,
   Button,
   Container,
   Group,
   Paper,
-  PasswordInput,
   Select,
   Stack,
-  Stepper,
   Text,
   TextInput,
   Title,
 } from "@mantine/core";
-import { IconExternalLink } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiError, api } from "../api";
-import type { ApiConnectFlow, ApiFormField, ApiProvider } from "../types";
+import { ConnectSection, renderField } from "../components/ConnectSection";
+import type { ApiProvider } from "../types";
 
 export function NewConnection() {
   const navigate = useNavigate();
@@ -171,106 +168,3 @@ export function NewConnection() {
   );
 }
 
-function ConnectSection({
-  providerName,
-  flow,
-  clicked,
-  onConnect,
-  showManual,
-  toggleManual,
-  stepIndex,
-}: {
-  providerName: string;
-  flow: ApiConnectFlow;
-  clicked: boolean;
-  onConnect: () => void;
-  showManual: boolean;
-  toggleManual: () => void;
-  stepIndex: number;
-}) {
-  if (flow.kind !== "external_token") {
-    // OAuth redirect flow placeholder; not used today.
-    return null;
-  }
-  return (
-    <Stack gap="md" mt="xs">
-      <Stepper
-        active={Math.min(stepIndex, 3)}
-        size="sm"
-        styles={{ separator: { marginInline: 8 } }}
-      >
-        <Stepper.Step label="Name" />
-        <Stepper.Step label={`Authorize ${providerName}`} />
-        <Stepper.Step label="Paste token" />
-        <Stepper.Step label="Verify" />
-      </Stepper>
-
-      <Stack gap={4}>
-        <Group gap="sm" align="center">
-          <Button
-            component="a"
-            href={flow.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={onConnect}
-            leftSection={<IconExternalLink size={16} />}
-            variant={clicked ? "default" : "filled"}
-          >
-            {clicked ? `Re-open ${providerName}` : flow.buttonLabel}
-          </Button>
-          {clicked && (
-            <Text size="sm" c="dimmed">
-              Paste the token below.
-            </Text>
-          )}
-        </Group>
-        <Text size="xs" c="dimmed">
-          {flow.buttonDescription}
-        </Text>
-      </Stack>
-
-      {flow.manualInstructions && (
-        <Stack gap={4}>
-          <Anchor
-            component="button"
-            type="button"
-            size="xs"
-            c="dimmed"
-            onClick={toggleManual}
-          >
-            {showManual
-              ? "Hide manual instructions"
-              : "Or create the token manually"}
-          </Anchor>
-          {showManual && (
-            <Text size="xs" c="dimmed">
-              {flow.manualInstructions}
-            </Text>
-          )}
-        </Stack>
-      )}
-    </Stack>
-  );
-}
-
-function renderField(
-  f: ApiFormField,
-  values: Record<string, string>,
-  setValues: React.Dispatch<React.SetStateAction<Record<string, string>>>,
-) {
-  const props = {
-    key: f.name,
-    label: f.label,
-    placeholder: f.placeholder,
-    description: f.description,
-    required: f.required,
-    value: values[f.name] ?? "",
-    onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
-      setValues((s) => ({ ...s, [f.name]: e.currentTarget.value })),
-  };
-  return f.type === "password" ? (
-    <PasswordInput {...props} autoComplete="off" />
-  ) : (
-    <TextInput {...props} autoComplete="off" />
-  );
-}

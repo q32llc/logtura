@@ -1,6 +1,5 @@
 import {
   Alert,
-  Anchor,
   Badge,
   Button,
   Card,
@@ -9,7 +8,6 @@ import {
   Group,
   Loader,
   Modal,
-  PasswordInput,
   ScrollArea,
   Stack,
   Table,
@@ -32,6 +30,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api } from "../api";
+import { ConnectSection, renderField } from "../components/ConnectSection";
 import type {
   ApiConnection,
   ApiDeployment,
@@ -514,19 +513,46 @@ function ReconnectModal({
   onReconnected: (c: ApiConnection) => void;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
+  const [connectClicked, setConnectClicked] = useState(false);
+  const [showManual, setShowManual] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Reset form when modal reopens.
+  // Reset state every time the modal reopens.
   useEffect(() => {
     if (open) {
       setValues({});
+      setConnectClicked(false);
+      setShowManual(false);
       setErr(null);
     }
   }, [open]);
 
   const formFields = provider?.formFields ?? [];
   const connectFlow = provider?.connectFlow ?? null;
+
+  // Match NewConnection's flow: until the user clicks "Connect
+  // <Provider>", hide the paste-token field so the call-to-action
+  // doesn't compete with the input. For providers without a connect
+  // flow (none currently), show all fields immediately.
+  const fieldsToShow = formFields.filter((f) => {
+    if (!connectFlow) return true;
+    if (
+      connectFlow.kind === "external_token" &&
+      f.name === connectFlow.pasteFieldName
+    ) {
+      return connectClicked;
+    }
+    return true;
+  });
+
+  // Stepper: 0 = authorize, 1 = paste, 2 = verify. Reconnect skips
+  // the "name" step (the connection already exists).
+  const stepIndex = !connectClicked
+    ? 1
+    : !values[connectFlow?.kind === "external_token" ? connectFlow.pasteFieldName : ""]
+      ? 2
+      : 3;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -560,73 +586,28 @@ function ReconnectModal({
     >
       <Stack gap="md">
         <Text size="sm" c="dimmed">
-          Swap in a new token or set of credentials. The connection's
-          id, deployments, monitors, and sinks all stay the same —
-          this just updates the stored credentials and re-runs
-          discovery. Useful when the token was rotated or you added
-          missing scopes.
+          Swap in a new token. The connection's id, deployments,
+          monitors, and sinks all stay the same — this just updates
+          the stored credentials and re-runs discovery. Useful after
+          you rotate a token or add missing scopes.
         </Text>
 
-        {connectFlow && (
-          <Alert color="blue" variant="light">
-            This provider has a structured connect flow (
-            {connectFlow.kind === "oauth_redirect"
-              ? "OAuth"
-              : connectFlow.kind === "cli_session"
-                ? "CLI session"
-                : "token paste"}
-            ).{" "}
-            {connectFlow.kind === "external_token" ? (
-              <>
-                You can grab a fresh token from the provider's dashboard
-                — there's a link on{" "}
-                <Anchor component={Link} to="/app/connections/new">
-                  the new-connection page
-                </Anchor>{" "}
-                if you don't have the URL handy.
-              </>
-            ) : (
-              <>
-                The full connect flow lives on the new-connection page.
-                For now, paste the credential fields below if you have
-                them, or re-run the flow at{" "}
-                <Anchor component={Link} to="/app/connections/new">
-                  /app/connections/new
-                </Anchor>{" "}
-                and delete the old connection after.
-              </>
-            )}
-          </Alert>
+        {connectFlow && provider && (
+          <ConnectSection
+            providerName={provider.displayName}
+            flow={connectFlow}
+            clicked={connectClicked}
+            onConnect={() => setConnectClicked(true)}
+            showManual={showManual}
+            toggleManual={() => setShowManual((v) => !v)}
+            stepIndex={stepIndex}
+            showStepper={false}
+          />
         )}
 
         <form onSubmit={submit}>
           <Stack gap="md">
-            {formFields.length === 0 && (
-              <Alert color="yellow" variant="light">
-                This provider doesn't expose form fields — re-run the
-                connect flow at /app/connections/new instead.
-              </Alert>
-            )}
-            {formFields.map((f) => {
-              const Input = f.type === "password" ? PasswordInput : TextInput;
-              return (
-                <Input
-                  key={f.name}
-                  label={f.label}
-                  placeholder={f.placeholder}
-                  description={f.description}
-                  required={f.required}
-                  value={values[f.name] ?? ""}
-                  onChange={(e) =>
-                    setValues((v) => ({
-                      ...v,
-                      [f.name]: e.currentTarget.value,
-                    }))
-                  }
-                  autoComplete="off"
-                />
-              );
-            })}
+            {fieldsToShow.map((f) => renderField(f, values, setValues))}
 
             {err && (
               <Alert color="red" variant="light">
@@ -641,7 +622,7 @@ function ReconnectModal({
               <Button
                 type="submit"
                 loading={submitting}
-                disabled={formFields.length === 0}
+                disabled={fieldsToShow.length === 0}
               >
                 Reconnect
               </Button>
