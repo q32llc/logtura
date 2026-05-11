@@ -69,8 +69,14 @@ export const slackDriver: DestinationDriver<SlackConfig> = {
       "    type: remap",
       `    inputs: [${inputs.map((i) => `"${i}"`).join(", ")}]`,
       "    source: |-",
-      '      msg = string(.message) ?? encode_json(.)',
-      "      . = { \"text\": msg }",
+      // Slack incoming-webhook rejects {"text": ""} with HTTP 400.
+      // Defensive fallback: if .message is empty or missing, render
+      // the event itself as JSON so the user at least sees what
+      // came through. Upstream normalizers should also produce a
+      // non-empty .message, but this is the last line of defense.
+      '      msg = string(.message) ?? ""',
+      '      if msg == "" { msg = "(empty .message) " + encode_json(.) }',
+      '      . = { "text": msg }',
     ].join("\n");
 
     const sinkYaml = [

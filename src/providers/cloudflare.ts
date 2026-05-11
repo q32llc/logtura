@@ -393,7 +393,18 @@ function workerNormalizeYaml(sourceKey: string): string {
     `  msg = string(ex.message) ?? ""`,
     `  parts = push(parts, name + ": " + msg)`,
     `}`,
-    `.message = if length(parts) > 0 { join!(parts, " | ") } else { "" }`,
+    // Some CF events trip `.error` via outcome alone (canceled,
+    // exceededCpu, scriptNotFound) without any logs or exceptions —
+    // parts ends up empty. An empty .message then trips downstream
+    // sinks: Slack returns 400 Bad Request on `{"text": ""}`, etc.
+    // Fall back to a descriptive synthetic message so the user
+    // sees what happened, and so destinations don't reject the
+    // event silently.
+    `if length(parts) == 0 {`,
+    `  script_name = string(.script) ?? "worker"`,
+    `  parts = push(parts, "[" + script_name + "] outcome=" + outcome)`,
+    `}`,
+    `.message = join!(parts, " | ")`,
   ];
   return [
     "    type: remap",
