@@ -43,6 +43,7 @@ import {
   getDeployment,
   listDeployments,
   listDeploymentsForConnection,
+  decryptDeployTargetCredentials,
   getDeployTargetById,
   listDeployTargets,
   upsertDeployTarget,
@@ -197,6 +198,124 @@ apiAuth.post("/connections", async (c) => {
   await ensureDefaultErrorsMonitor(c.env.DB, user.id);
 
   // Queue an initial discovery instead of running it inline.
+  const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
+  await jobs.enqueue({
+    userId: user.id,
+    kind: "discovery",
+    payload: { connectionId: connection.id },
+    lockKey: lockKeyForDiscovery(connection.id),
+  });
+
+  return c.json({ connection: toApiConnection(connection) });
+});
+
+/**
+ * Mint a new connection from an existing deploy_target's bootstrap
+ * credential. End state is identical to the paste-token flow above:
+ * a connection row with an encrypted `{ apiToken }` blob and an
+ * external_account_id. The difference is logtura runs the
+ * "create-a-scoped-token" step on the user's behalf via the
+ * target driver's `mintConnectionCredentials` rather than having
+ * the user run `fly tokens create readonly` themselves.
+ *
+ * Body: { deployTargetId, providerId, displayName, scope? }
+ *   - deployTargetId: which bootstrap to use (Fly cli_session today)
+ *   - providerId: which source provider this credential is for
+ *   - displayName: free-form label for the new connection
+ *   - scope: opaque hint for the driver (Fly: org slug to mint against)
+ */
+apiAuth.post("/connections/from-bootstrap", async (c) => {
+  const user = c.get("user")!;
+  const body = (await c.req.json()) as {
+    deployTargetId?: string;
+    providerId?: string;
+    displayName?: string;
+    scope?: string;
+  };
+  if (!body.deployTargetId || !body.providerId || !body.displayName) {
+    return c.json({ error: "missing_fields" }, 400);
+  }
+
+  const providerDriver = getProvider(body.providerId);
+  if (!providerDriver) return c.json({ error: "unknown_provider" }, 400);
+
+  const target = await getDeployTargetById(
+    c.env.DB,
+    user.id,
+    body.deployTargetId,
+  );
+  if (!target) return c.json({ error: "bootstrap_not_found" }, 404);
+
+  const targetDriver = getDeployTargetDriver(target.kind);
+  if (!targetDriver?.mintConnectionCredentials) {
+    return c.json(
+      {
+        error: "bootstrap_no_mint",
+        message: `${target.kind} bootstrap can't mint provider credentials`,
+      },
+      400,
+    );
+  }
+
+  const bootstrapCreds = await decryptDeployTargetCredentials(c.env, target);
+
+  let minted;
+  try {
+    minted = await targetDriver.mintConnectionCredentials({
+      bootstrapCredentials: bootstrapCreds,
+      providerId: body.providerId,
+      scope: body.scope,
+    });
+  } catch (err) {
+    console.warn("connection_mint_failed", {
+      target_id: target.id,
+      target_kind: target.kind,
+      provider_id: body.providerId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return c.json(
+      {
+        error: "mint_failed",
+        message: err instanceof Error ? err.message : "mint failed",
+      },
+      502,
+    );
+  }
+
+  // Run the same verifyCredentials the paste path runs, both as a
+  // sanity check (did Fly actually give us a usable token?) and to
+  // surface a usable account list when the mint didn't include one.
+  let accounts: { id: string; name: string }[] = [];
+  try {
+    accounts = await providerDriver.verifyCredentials({
+      apiToken: minted.apiToken,
+    });
+  } catch (err) {
+    if (err instanceof ProviderError) {
+      return c.json(
+        { error: "mint_verify_failed", message: err.message },
+        400,
+      );
+    }
+    throw err;
+  }
+
+  const accountId =
+    minted.externalAccountId ?? accounts[0]?.id ?? null;
+  if (!accountId) {
+    return c.json({ error: "no_accounts" }, 400);
+  }
+
+  const connection = await createConnection(c.env.DB, c.env, {
+    userId: user.id,
+    provider: providerDriver.id,
+    displayName: body.displayName,
+    externalAccountId: accountId,
+    credentials: { apiToken: minted.apiToken },
+  });
+
+  await ensureDefaultErrorsMonitor(c.env.DB, user.id);
+
   const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
   await jobs.enqueue({
     userId: user.id,

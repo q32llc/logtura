@@ -66,6 +66,16 @@ export const api = {
       method: "POST",
       body: form,
     }),
+  createConnectionFromBootstrap: (body: {
+    deployTargetId: string;
+    providerId: string;
+    displayName: string;
+    scope?: string;
+  }) =>
+    request<{ connection: ApiConnection }>("/connections/from-bootstrap", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   reconnectConnection: (id: string, form: FormData) =>
     request<{ connection: ApiConnection }>(
       `/connections/${id}/reconnect`,

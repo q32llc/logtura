@@ -1,3 +1,9 @@
+import {
+  createLimitedAccessToken,
+  flyAuthHeader,
+  listFlyOrgs,
+} from "./fly-machines";
+import { dischargeBundle } from "./fly-macaroon";
 import type {
   DeployTargetDriver,
   TargetBundle,
@@ -149,6 +155,50 @@ export const flyDriver: DeployTargetDriver<FlyCredentials> = {
 
   // deploy / getStatus / destroy: deferred to next pass. The managed
   // toggle in the UI surfaces a "coming soon" until these land.
+
+  async mintConnectionCredentials({ bootstrapCredentials, providerId, scope }) {
+    if (providerId !== "fly") {
+      throw new DeployTargetError(
+        `Fly bootstrap can only mint credentials for the Fly source provider, got: ${providerId}`,
+        400,
+      );
+    }
+    // The bootstrap token from cli_session has third-party caveats
+    // that need fresh discharge tickets before the GraphQL endpoint
+    // will honor it. Cached discharges from approval-time go stale.
+    const authHeader = await dischargeBundle(
+      flyAuthHeader(bootstrapCredentials.apiToken),
+    );
+    const orgs = await listFlyOrgs(authHeader);
+    // `scope` (when set) selects which org to mint against; we use
+    // the slug for the same reason the deploy_target row does. With
+    // no scope hint, prefer "personal" then fall through to the
+    // first visible org — matches resolveFlyOrgSlug's selection.
+    const wanted = scope ?? "personal";
+    const org =
+      orgs.find((o) => o.slug === wanted) ??
+      orgs.find((o) => o.slug === "personal") ??
+      orgs[0];
+    if (!org) {
+      throw new DeployTargetError(
+        "Fly bootstrap has no visible orgs",
+        400,
+      );
+    }
+    // TODO: client-side attenuate this token to read-only by
+    // appending an Organization{Mask:ActionRead} caveat and
+    // recomputing the macaroon HMAC chain (port of flyctl's
+    // `fly tokens create readonly`). Until then the minted token is
+    // org-scoped at the deploy_organization profile — strictly less
+    // privileged than the bootstrap (one org, not the whole
+    // account) but not literally read-only.
+    const tokenHeader = await createLimitedAccessToken(authHeader, {
+      name: `logtura-source-${org.slug}`,
+      organizationId: org.id,
+      profile: "deploy_organization",
+    });
+    return { apiToken: tokenHeader, externalAccountId: org.slug };
+  },
 };
 
 function sanitizeAppName(name: string, fallback: string): string {

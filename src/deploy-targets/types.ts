@@ -94,6 +94,43 @@ export interface DeployTargetDriver<TCreds = unknown> {
     credentials: TCreds;
     externalId: string;
   }): Promise<void>;
+
+  /**
+   * Use this target's held bootstrap credential to mint a NEW scoped
+   * credential suitable for a provider connection. End state matches
+   * the "paste a token" path — the result is the same `{ apiToken }`
+   * shape a paste form would store, just produced by logtura on the
+   * user's behalf instead of by the user running a CLI command. This
+   * is what closes the loop on "bootstrap as credential mint" — once
+   * a Fly deploy_target is connected, the user shouldn't have to
+   * leave the dashboard to also wire up Fly sources.
+   *
+   * Drivers without a meaningful sub-credential model (paste-only
+   * targets, simple webhook destinations) just don't implement this.
+   *
+   * `providerId` lets a single bootstrap mint creds for multiple
+   * provider kinds (today: only Fly source provider; later: any
+   * provider that shares the same identity model — e.g. an AWS
+   * bootstrap might mint creds for both an AWS log-source provider
+   * and an AWS metrics destination).
+   *
+   * `scope` is opaque to the caller and driver-defined. For Fly it
+   * controls things like the "deploy_organization" vs "read_only"
+   * profile. Defaults to whatever the driver considers safe for an
+   * unattenuated mint.
+   */
+  mintConnectionCredentials?(input: {
+    bootstrapCredentials: TCreds;
+    providerId: string;
+    scope?: string;
+  }): Promise<{
+    /** Stored as the new connection's credentials_encrypted blob. */
+    apiToken: string;
+    /** Optional external account id to record on the connection
+     *  (Fly org slug, AWS account id). Mirrors what the paste flow's
+     *  parseFormData/verifyCredentials populates. */
+    externalAccountId?: string;
+  }>;
 }
 
 export class DeployTargetError extends Error {

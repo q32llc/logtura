@@ -343,6 +343,128 @@ export async function resolveFlyOrgSlug(authHeader: string): Promise<string> {
   return personal ?? slugs[0]!;
 }
 
+export interface FlyOrg {
+  /** GraphQL Node ID — what `createLimitedAccessToken` wants. */
+  id: string;
+  /** URL-safe org name — what the user sees and what we store on the
+   *  deploy_target row's external_account_id. */
+  slug: string;
+}
+
+/** Fetch the orgs visible to the bound token, returning both slug and
+ *  node id. `resolveFlyOrgSlug` is sufficient when we only need the
+ *  slug at deploy time; the token-mint path needs the ID too. */
+export async function listFlyOrgs(authHeader: string): Promise<FlyOrg[]> {
+  const query = `query($admin: Boolean!) {
+    organizations(admin: $admin) {
+      nodes { id slug }
+    }
+  }`;
+  const res = await flyFetch(`${REST_BASE}/graphql`, authHeader, {
+    method: "POST",
+    body: JSON.stringify({ query, variables: { admin: false } }),
+  });
+  const bodyText = await res.text();
+  if (!res.ok) {
+    throw new FlyApiError(
+      `listFlyOrgs failed: ${res.status}`,
+      res.status,
+      bodyText,
+    );
+  }
+  const data = JSON.parse(bodyText) as {
+    data?: { organizations?: { nodes?: Array<{ id?: string; slug?: string } | null> } };
+    errors?: Array<{ message?: string }>;
+  };
+  if (data.errors?.length) {
+    throw new Error(
+      `Fly GraphQL errors: ${data.errors.map((e) => e.message).join("; ")}`,
+    );
+  }
+  const out: FlyOrg[] = [];
+  for (const n of data.data?.organizations?.nodes ?? []) {
+    if (n && typeof n.id === "string" && typeof n.slug === "string") {
+      out.push({ id: n.id, slug: n.slug });
+    }
+  }
+  return out;
+}
+
+/**
+ * Mint a scoped child token via Fly's `createLimitedAccessToken`
+ * GraphQL mutation. Profile strings come from fly-go: "deploy" (one
+ * app), "deploy_organization" (one org, full perms), "litefs_cloud",
+ * "machine_exec". For "read-only org" tokens, flyctl mints with
+ * `deploy_organization` and then attenuates the resulting macaroon
+ * client-side by appending a `Mask: ActionRead` caveat + recomputing
+ * the HMAC chain — we don't do that yet (TODO), so the token this
+ * returns is materially safer than the bootstrap (one org vs whole
+ * account) but not strictly read-only.
+ *
+ * Returns the FlyV1-formatted header string (`fm2_...,fm2_...`).
+ */
+export async function createLimitedAccessToken(
+  authHeader: string,
+  input: {
+    name: string;
+    organizationId: string;
+    profile: "deploy" | "deploy_organization" | "litefs_cloud" | "machine_exec";
+    profileParams?: Record<string, unknown>;
+    /** Go duration string, e.g. "8760h". Default ~20 years matches
+     *  flyctl's CLI default — we don't enforce shorter here because
+     *  the credential is rotatable from the dashboard anyway. */
+    expiry?: string;
+  },
+): Promise<string> {
+  const mutation = `mutation CreateLimitedAccessToken(
+    $input: CreateLimitedAccessTokenInput!
+  ) {
+    createLimitedAccessToken(input: $input) {
+      limitedAccessToken { tokenHeader }
+    }
+  }`;
+  const variables = {
+    input: {
+      name: input.name,
+      organizationId: input.organizationId,
+      profile: input.profile,
+      profileParams: input.profileParams ?? {},
+      expiry: input.expiry ?? "175200h", // 20 years
+    },
+  };
+  const res = await flyFetch(`${REST_BASE}/graphql`, authHeader, {
+    method: "POST",
+    body: JSON.stringify({ query: mutation, variables }),
+  });
+  const bodyText = await res.text();
+  if (!res.ok) {
+    throw new FlyApiError(
+      `createLimitedAccessToken failed: ${res.status}`,
+      res.status,
+      bodyText,
+    );
+  }
+  const data = JSON.parse(bodyText) as {
+    data?: {
+      createLimitedAccessToken?: {
+        limitedAccessToken?: { tokenHeader?: string };
+      };
+    };
+    errors?: Array<{ message?: string }>;
+  };
+  if (data.errors?.length) {
+    throw new Error(
+      `Fly GraphQL errors: ${data.errors.map((e) => e.message).join("; ")}`,
+    );
+  }
+  const tokenHeader =
+    data.data?.createLimitedAccessToken?.limitedAccessToken?.tokenHeader;
+  if (!tokenHeader) {
+    throw new Error("Fly returned no tokenHeader from createLimitedAccessToken");
+  }
+  return tokenHeader;
+}
+
 /** base64-encode a UTF-8 string (Workers-compatible). */
 export function base64Encode(s: string): string {
   // btoa works on latin-1; convert to utf-8 bytes first.
