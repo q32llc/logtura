@@ -44,7 +44,7 @@ importers:
     devDependencies:
       '@cloudflare/vitest-pool-workers':
         specifier: ^0.16.3
-        version: 0.16.3(@cloudflare/workers-types@4.20260509.1)(@vitest/runner@4.1.5)(@vitest/snapshot@4.1.5)(vitest@4.1.5(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)))
+        version: 0.16.3(@cloudflare/workers-types@4.20260509.1)(@vitest/runner@4.1.5)(@vitest/snapshot@4.1.5)(vitest@4.1.5)
       '@cloudflare/workers-types':
         specifier: ^4.20250109.0
         version: 4.20260509.1
@@ -57,6 +57,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^4.3.4
         version: 4.7.0(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0))
+      '@vitest/coverage-istanbul':
+        specifier: 4.1.5
+        version: 4.1.5(vitest@4.1.5)
       concurrently:
         specifier: ^9.1.0
         version: 9.2.1
@@ -80,7 +83,7 @@ importers:
         version: 6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)
       vitest:
         specifier: ^4.1.5
-        version: 4.1.5(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0))
+        version: 4.1.5(@vitest/coverage-istanbul@4.1.5)(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0))
       wrangler:
         specifier: ^3.99.0
         version: 3.114.17(@cloudflare/workers-types@4.20260509.1)
@@ -1182,6 +1185,10 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@istanbuljs/schema@0.1.6':
+    resolution: {integrity: sha512-+Sg6GCR/wy1oSmQDFq4LQDAhm3ETKnorxN+y5nbLULOR3P0c14f2Wurzj3/xqPXtasLFfHd5iRFQ7AJt4KH2cw==}
+    engines: {node: '>=8'}
+
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
 
@@ -1445,6 +1452,11 @@ packages:
     peerDependencies:
       vite: ^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0
 
+  '@vitest/coverage-istanbul@4.1.5':
+    resolution: {integrity: sha512-X4kQMDEWh9mA0IiLuigtdYv4kXe+W8KLTbucoz15lbyZRPAxT5l+hu0JizI7Am050+G9vQnB7QJNgYi2LnwV4w==}
+    peerDependencies:
+      vitest: 4.1.5
+
   '@vitest/expect@4.1.5':
     resolution: {integrity: sha512-PWBaRY5JoKuRnHlUHfpV/KohFylaDZTupcXN1H9vYryNLOnitSw60Mw9IAE2r67NbwwzBw/Cc/8q9BK3kIX8Kw==}
 
@@ -1703,11 +1715,26 @@ packages:
     resolution: {integrity: sha512-RWzP96k/yv0PQfyXnWjs6zot20TqfpfsNXhOnev8d1InAxubW93L11/oNUc3tQqn2G0bSdAOBpX+2uDFHV7kdQ==}
     engines: {node: '>=16.9.0'}
 
+  html-escaper@2.0.2:
+    resolution: {integrity: sha512-H2iMtd0I4Mt5eYiapRdIDjp+XzelXQ0tFE4JS7YFwFevXXMmOp9myNrUvCg0D6ws8iqkRPBfKHgbwig1SmlLfg==}
+
   is-arrayish@0.3.4:
     resolution: {integrity: sha512-m6UrgzFVUYawGBh1dUsWR5M2Clqic9RVXC/9f8ceNlv2IcO9j9J/z8UoCLPqtsPBFNzEpfR3xftohbfqDx8EQA==}
 
   is-fullwidth-code-point@3.0.0:
     resolution: {integrity: sha512-zymm5+u+sCsSWyD9qNaejV3DFvhCKclKdizYaJUuHA83RLjb7nSuGnddCHGv0hk+KY7BMAlsWeK4Ueg6EV6XQg==}
+    engines: {node: '>=8'}
+
+  istanbul-lib-coverage@3.2.2:
+    resolution: {integrity: sha512-O8dpsF+r0WV/8MNRKfnmrtCWhuKjxrq2w+jpzBL5UZKTi2LeVWnWOmWRxFlesJONmc+wLAGvKQZEOanko0LFTg==}
+    engines: {node: '>=8'}
+
+  istanbul-lib-report@3.0.1:
+    resolution: {integrity: sha512-GCfE1mtsHGOELCU8e/Z7YWzpmybrx/+dSTfLrvY8qRmaY6zXTKWn6WQIjaAFw069icm6GVMNkgu0NzI4iPZUNw==}
+    engines: {node: '>=10'}
+
+  istanbul-reports@3.2.0:
+    resolution: {integrity: sha512-HGYWWS/ehqTV3xN10i23tkPkpH46MLCIMFNCaaKNavAXTF1RkqxawEPtnjnGZ6XKSInBKkiOA5BKS+aZiY3AvA==}
     engines: {node: '>=8'}
 
   js-tokens@4.0.0:
@@ -1743,6 +1770,13 @@ packages:
 
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
+
+  magicast@0.5.2:
+    resolution: {integrity: sha512-E3ZJh4J3S9KfwdjZhe2afj6R9lGIN5Pher1pF39UGrXRqq/VDaGVIGN13BjHd2u8B61hArAGOnso7nBOouW3TQ==}
+
+  make-dir@4.0.0:
+    resolution: {integrity: sha512-hXdUTZYIVOt1Ex//jAQi+wTZZpUpwBj/0QsOzqegb3rGMMeJiSEu5xLHnYfBrRV4RH2+OCSOO95Is/7x1WJ4bw==}
+    engines: {node: '>=10'}
 
   mime@3.0.0:
     resolution: {integrity: sha512-jSCU7/VB1loIWBZe14aEYHU/+1UMEHoaO7qxCOVJOw9GgH72VAWppxNcjU+x9a2k3GSIBXNKxXQFqRvvZ7vr3A==}
@@ -2431,14 +2465,14 @@ snapshots:
     optionalDependencies:
       workerd: 1.20260507.1
 
-  '@cloudflare/vitest-pool-workers@0.16.3(@cloudflare/workers-types@4.20260509.1)(@vitest/runner@4.1.5)(@vitest/snapshot@4.1.5)(vitest@4.1.5(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)))':
+  '@cloudflare/vitest-pool-workers@0.16.3(@cloudflare/workers-types@4.20260509.1)(@vitest/runner@4.1.5)(@vitest/snapshot@4.1.5)(vitest@4.1.5)':
     dependencies:
       '@vitest/runner': 4.1.5
       '@vitest/snapshot': 4.1.5
       cjs-module-lexer: 1.4.3
       esbuild: 0.27.3
       miniflare: 4.20260507.1
-      vitest: 4.1.5(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0))
+      vitest: 4.1.5(@vitest/coverage-istanbul@4.1.5)(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0))
       wrangler: 4.90.0(@cloudflare/workers-types@4.20260509.1)
       zod: 3.25.76
     transitivePeerDependencies:
@@ -2995,6 +3029,8 @@ snapshots:
   '@img/sharp-win32-x64@0.34.5':
     optional: true
 
+  '@istanbuljs/schema@0.1.6': {}
+
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
@@ -3212,6 +3248,22 @@ snapshots:
       '@types/babel__core': 7.20.5
       react-refresh: 0.17.0
       vite: 6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)
+    transitivePeerDependencies:
+      - supports-color
+
+  '@vitest/coverage-istanbul@4.1.5(vitest@4.1.5)':
+    dependencies:
+      '@babel/core': 7.29.0
+      '@istanbuljs/schema': 0.1.6
+      '@jridgewell/gen-mapping': 0.3.13
+      '@jridgewell/trace-mapping': 0.3.31
+      istanbul-lib-coverage: 3.2.2
+      istanbul-lib-report: 3.0.1
+      istanbul-reports: 3.2.0
+      magicast: 0.5.2
+      obug: 2.1.1
+      tinyrainbow: 3.1.0
+      vitest: 4.1.5(@vitest/coverage-istanbul@4.1.5)(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0))
     transitivePeerDependencies:
       - supports-color
 
@@ -3525,10 +3577,25 @@ snapshots:
 
   hono@4.12.18: {}
 
+  html-escaper@2.0.2: {}
+
   is-arrayish@0.3.4:
     optional: true
 
   is-fullwidth-code-point@3.0.0: {}
+
+  istanbul-lib-coverage@3.2.2: {}
+
+  istanbul-lib-report@3.0.1:
+    dependencies:
+      istanbul-lib-coverage: 3.2.2
+      make-dir: 4.0.0
+      supports-color: 7.2.0
+
+  istanbul-reports@3.2.0:
+    dependencies:
+      html-escaper: 2.0.2
+      istanbul-lib-report: 3.0.1
 
   js-tokens@4.0.0: {}
 
@@ -3555,6 +3622,16 @@ snapshots:
   magic-string@0.30.21:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  magicast@0.5.2:
+    dependencies:
+      '@babel/parser': 7.29.3
+      '@babel/types': 7.29.0
+      source-map-js: 1.2.1
+
+  make-dir@4.0.0:
+    dependencies:
+      semver: 7.8.0
 
   mime@3.0.0: {}
 
@@ -4004,7 +4081,7 @@ snapshots:
       sugarss: 5.0.1(postcss@8.5.14)
       tsx: 4.21.0
 
-  vitest@4.1.5(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)):
+  vitest@4.1.5(@vitest/coverage-istanbul@4.1.5)(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)):
     dependencies:
       '@vitest/expect': 4.1.5
       '@vitest/mocker': 4.1.5(vite@6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0))
@@ -4026,6 +4103,8 @@ snapshots:
       tinyrainbow: 3.1.0
       vite: 6.4.2(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)
       why-is-node-running: 2.3.0
+    optionalDependencies:
+      '@vitest/coverage-istanbul': 4.1.5(vitest@4.1.5)
     transitivePeerDependencies:
       - msw
 
