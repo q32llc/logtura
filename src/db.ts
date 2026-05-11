@@ -142,6 +142,52 @@ export async function getConnection(
     .first<ConnectionRow>();
 }
 
+/**
+ * Replace a connection's encrypted credentials in place. Used by the
+ * "Reconnect" flow — token rotated in the provider's dashboard, or
+ * scopes added — without forcing the user to recreate the connection
+ * (which would also recreate deployments that reference it).
+ *
+ * displayName + externalAccountId are optional updates; pass null to
+ * leave them untouched. Returns the updated row.
+ */
+export async function updateConnectionCredentials(
+  db: D1Database,
+  env: Env,
+  userId: string,
+  connectionId: string,
+  input: {
+    credentials: unknown;
+    externalAccountId?: string | null;
+    displayName?: string | null;
+  },
+): Promise<ConnectionRow | null> {
+  const existing = await getConnection(db, userId, connectionId);
+  if (!existing) return null;
+  const json = JSON.stringify(input.credentials);
+  const ct = await encryptSecret(json, env.CREDENTIAL_ENCRYPTION_KEY);
+  const ts = now();
+  await db
+    .prepare(
+      `UPDATE connections
+       SET credentials_encrypted = ?,
+           external_account_id = ?,
+           display_name = ?,
+           updated_at = ?
+       WHERE id = ? AND user_id = ?`,
+    )
+    .bind(
+      ct,
+      input.externalAccountId ?? existing.external_account_id,
+      input.displayName ?? existing.display_name,
+      ts,
+      connectionId,
+      userId,
+    )
+    .run();
+  return getConnection(db, userId, connectionId);
+}
+
 export async function createConnection(
   db: D1Database,
   env: Env,

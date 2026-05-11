@@ -8,6 +8,7 @@ import {
 } from "./auth";
 import {
   createConnection,
+  updateConnectionCredentials,
   createDestination,
   createMonitor,
   createSink,
@@ -248,6 +249,85 @@ apiAuth.delete("/connections/:id", async (c) => {
   const id = c.req.param("id");
   await deleteConnection(c.env.DB, user.id, id);
   return c.json({ ok: true });
+});
+
+// Reconnect: swap credentials in place. Same form payload as create,
+// minus `provider` (the provider is fixed by the existing row). Used
+// when the user rotated a token or added missing scopes, so existing
+// deployments / monitors / sinks pointing at this connection keep
+// working with no migration.
+apiAuth.post("/connections/:id/reconnect", async (c) => {
+  const user = c.get("user")!;
+  const id = c.req.param("id");
+  const existing = await getConnection(c.env.DB, user.id, id);
+  if (!existing) return c.json({ error: "not_found" }, 404);
+
+  const driver = getProvider(existing.provider);
+  if (!driver) return c.json({ error: "unknown_provider" }, 400);
+
+  const form = await c.req.formData();
+  let credentials: unknown;
+  let explicitAccountId: string | null;
+  try {
+    const parsed = driver.parseFormData(form);
+    credentials = parsed.credentials;
+    explicitAccountId = parsed.explicitAccountId;
+  } catch (err) {
+    if (err instanceof ProviderError) {
+      return c.json({ error: "invalid_form", message: err.message }, 400);
+    }
+    throw err;
+  }
+
+  // Verify the new credentials work before clobbering the stored
+  // ones. If they don't, the connection stays usable on the old
+  // token (the user can try again without breakage).
+  let accounts: { id: string; name: string }[];
+  try {
+    accounts = await driver.verifyCredentials(credentials);
+  } catch (err) {
+    if (err instanceof ProviderError) {
+      return c.json({ error: "verify_failed", message: err.message }, 400);
+    }
+    throw err;
+  }
+
+  // Prefer the explicit account id from the form; fall back to the
+  // existing row's so a token-only rotation doesn't drop it.
+  let accountId = explicitAccountId ?? existing.external_account_id;
+  if (!accountId && accounts.length > 0) accountId = accounts[0]!.id;
+
+  const displayNameRaw = form.get("display_name");
+  const displayName =
+    typeof displayNameRaw === "string" && displayNameRaw.trim()
+      ? displayNameRaw.trim()
+      : null;
+
+  const updated = await updateConnectionCredentials(
+    c.env.DB,
+    c.env,
+    user.id,
+    id,
+    {
+      credentials,
+      externalAccountId: accountId,
+      displayName,
+    },
+  );
+  if (!updated) return c.json({ error: "not_found" }, 404);
+
+  // Re-discover sources — new scopes might mean we can see things
+  // we couldn't before (e.g., AI Gateway after a Workers-only token
+  // is upgraded).
+  const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
+  await jobs.enqueue({
+    userId: user.id,
+    kind: "discovery",
+    payload: { connectionId: updated.id },
+    lockKey: lockKeyForDiscovery(updated.id),
+  });
+
+  return c.json({ connection: toApiConnection(updated) });
 });
 
 apiAuth.get("/deployments/:id/bundle", async (c) => {

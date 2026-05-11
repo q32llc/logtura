@@ -1,5 +1,6 @@
 import {
   Alert,
+  Anchor,
   Badge,
   Button,
   Card,
@@ -7,6 +8,8 @@ import {
   Divider,
   Group,
   Loader,
+  Modal,
+  PasswordInput,
   ScrollArea,
   Stack,
   Table,
@@ -20,6 +23,7 @@ import {
   IconCheck,
   IconClock,
   IconCloudUpload,
+  IconKey,
   IconRefresh,
   IconRoute,
   IconSearch,
@@ -34,6 +38,7 @@ import type {
   ApiDestination,
   ApiJob,
   ApiJobStatus,
+  ApiProvider,
   ApiSource,
 } from "../types";
 
@@ -43,6 +48,7 @@ export function ConnectionDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [connection, setConnection] = useState<ApiConnection | null>(null);
+  const [provider, setProvider] = useState<ApiProvider | null>(null);
   const [sources, setSources] = useState<ApiSource[]>([]);
   const [deployments, setDeployments] = useState<ApiDeployment[]>([]);
   const [destinations, setDestinations] = useState<ApiDestination[]>([]);
@@ -51,6 +57,7 @@ export function ConnectionDetail() {
   const [busy, setBusy] = useState<"discover" | "delete" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [reconnectOpen, setReconnectOpen] = useState(false);
   const pollRef = useRef<number | null>(null);
 
   const refetch = useCallback(async () => {
@@ -64,10 +71,18 @@ export function ConnectionDetail() {
       setSources(conn.sources);
       setLatestJob(conn.latestDiscoveryJob);
       setDeployments(deps.deployments);
+      // Pull the provider's formFields + connectFlow on first load
+      // so the Reconnect modal can render the right inputs without
+      // re-fetching every time.
+      if (!provider) {
+        const p = await api.providers();
+        const driver = p.providers.find((x) => x.id === conn.connection.provider);
+        if (driver) setProvider(driver);
+      }
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load");
     }
-  }, [id]);
+  }, [id, provider]);
 
   useEffect(() => {
     setLoading(true);
@@ -190,6 +205,13 @@ export function ConnectionDetail() {
         <Group>
           <Button
             variant="default"
+            leftSection={<IconKey size={16} />}
+            onClick={() => setReconnectOpen(true)}
+          >
+            Reconnect
+          </Button>
+          <Button
+            variant="default"
             leftSection={<IconRefresh size={16} />}
             onClick={rediscover}
             loading={busy === "discover"}
@@ -207,6 +229,22 @@ export function ConnectionDetail() {
             Delete
           </Button>
         </Group>
+
+        <ReconnectModal
+          open={reconnectOpen}
+          onClose={() => setReconnectOpen(false)}
+          connection={connection}
+          provider={provider}
+          onReconnected={(updated) => {
+            setConnection(updated);
+            setReconnectOpen(false);
+            notifications.show({
+              message: "Reconnected — re-discovering sources",
+              color: "teal",
+            });
+            void refetch();
+          }}
+        />
       </Group>
 
       <DiscoveryJobBanner job={latestJob} />
@@ -460,4 +498,157 @@ function relativeTime(ms: number): string {
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   return new Date(ms).toISOString().slice(0, 10);
+}
+
+function ReconnectModal({
+  open,
+  onClose,
+  connection,
+  provider,
+  onReconnected,
+}: {
+  open: boolean;
+  onClose: () => void;
+  connection: ApiConnection;
+  provider: ApiProvider | null;
+  onReconnected: (c: ApiConnection) => void;
+}) {
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Reset form when modal reopens.
+  useEffect(() => {
+    if (open) {
+      setValues({});
+      setErr(null);
+    }
+  }, [open]);
+
+  const formFields = provider?.formFields ?? [];
+  const connectFlow = provider?.connectFlow ?? null;
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+    setErr(null);
+    try {
+      const form = new FormData();
+      for (const f of formFields) {
+        form.set(f.name, values[f.name] ?? "");
+      }
+      const res = await api.reconnectConnection(connection.id, form);
+      onReconnected(res.connection);
+    } catch (e) {
+      setErr(
+        e instanceof ApiError
+          ? e.message
+          : "Could not reconnect — check the new token's scopes",
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal
+      opened={open}
+      onClose={onClose}
+      title="Reconnect"
+      size="md"
+      centered
+    >
+      <Stack gap="md">
+        <Text size="sm" c="dimmed">
+          Swap in a new token or set of credentials. The connection's
+          id, deployments, monitors, and sinks all stay the same —
+          this just updates the stored credentials and re-runs
+          discovery. Useful when the token was rotated or you added
+          missing scopes.
+        </Text>
+
+        {connectFlow && (
+          <Alert color="blue" variant="light">
+            This provider has a structured connect flow (
+            {connectFlow.kind === "oauth_redirect"
+              ? "OAuth"
+              : connectFlow.kind === "cli_session"
+                ? "CLI session"
+                : "token paste"}
+            ).{" "}
+            {connectFlow.kind === "external_token" ? (
+              <>
+                You can grab a fresh token from the provider's dashboard
+                — there's a link on{" "}
+                <Anchor component={Link} to="/app/connections/new">
+                  the new-connection page
+                </Anchor>{" "}
+                if you don't have the URL handy.
+              </>
+            ) : (
+              <>
+                The full connect flow lives on the new-connection page.
+                For now, paste the credential fields below if you have
+                them, or re-run the flow at{" "}
+                <Anchor component={Link} to="/app/connections/new">
+                  /app/connections/new
+                </Anchor>{" "}
+                and delete the old connection after.
+              </>
+            )}
+          </Alert>
+        )}
+
+        <form onSubmit={submit}>
+          <Stack gap="md">
+            {formFields.length === 0 && (
+              <Alert color="yellow" variant="light">
+                This provider doesn't expose form fields — re-run the
+                connect flow at /app/connections/new instead.
+              </Alert>
+            )}
+            {formFields.map((f) => {
+              const Input = f.type === "password" ? PasswordInput : TextInput;
+              return (
+                <Input
+                  key={f.name}
+                  label={f.label}
+                  placeholder={f.placeholder}
+                  description={f.description}
+                  required={f.required}
+                  value={values[f.name] ?? ""}
+                  onChange={(e) =>
+                    setValues((v) => ({
+                      ...v,
+                      [f.name]: e.currentTarget.value,
+                    }))
+                  }
+                  autoComplete="off"
+                />
+              );
+            })}
+
+            {err && (
+              <Alert color="red" variant="light">
+                {err}
+              </Alert>
+            )}
+
+            <Group justify="flex-end">
+              <Button variant="default" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                loading={submitting}
+                disabled={formFields.length === 0}
+              >
+                Reconnect
+              </Button>
+            </Group>
+          </Stack>
+        </form>
+      </Stack>
+    </Modal>
+  );
 }

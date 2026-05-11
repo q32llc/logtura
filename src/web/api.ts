@@ -66,6 +66,11 @@ export const api = {
       method: "POST",
       body: form,
     }),
+  reconnectConnection: (id: string, form: FormData) =>
+    request<{ connection: ApiConnection }>(
+      `/connections/${id}/reconnect`,
+      { method: "POST", body: form },
+    ),
   getConnection: (id: string) =>
     request<{
       connection: ApiConnection;
