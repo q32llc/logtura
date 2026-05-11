@@ -1,8 +1,10 @@
 import { cloudflareDriver } from "./cloudflare";
+import { flyDriver } from "./fly";
 import type { ProviderDriver } from "./types";
 
 const REGISTRY: Record<string, ProviderDriver> = {
   [cloudflareDriver.id]: cloudflareDriver as ProviderDriver,
+  [flyDriver.id]: flyDriver as ProviderDriver,
 };
 
 export function getProvider(id: string): ProviderDriver | null {

@@ -64,13 +64,6 @@ describe("POST /api/connections/from-bootstrap", () => {
       throw new Error(`Unexpected Fly GraphQL: ${body.query.slice(0, 80)}`);
     });
 
-    // The route also fires verifyCredentials on the provider driver,
-    // which for Cloudflare hits /user/tokens/verify and /accounts.
-    // We're minting for the Fly provider, which doesn't exist yet —
-    // for now the route will return unknown_provider. We assert that
-    // behavior so the test pins the seam: once the Fly source
-    // provider lands, swap this for the green-path assertion and the
-    // mint pipeline below is already wired.
     const res = await SELF.fetch("http://localhost/api/connections/from-bootstrap", {
       method: "POST",
       headers: {
@@ -84,23 +77,61 @@ describe("POST /api/connections/from-bootstrap", () => {
         scope: "personal",
       }),
     });
-    expect(res.status).toBe(400);
-    const json = (await res.json()) as { error: string };
-    expect(json.error).toBe("unknown_provider");
+    expect(res.status).toBe(200);
+    const json = (await res.json()) as {
+      connection: { id: string; provider: string; externalAccountId: string };
+    };
+    expect(json.connection.provider).toBe("fly");
+    expect(json.connection.externalAccountId).toBe("personal");
 
-    // The bootstrap row's credentials should still decrypt cleanly —
-    // we haven't disturbed anything just because the provider doesn't
-    // exist yet.
+    // The stored credential should decrypt to a TWO-caveat macaroon:
+    // the original Organization + the appended read-only attenuation.
+    // This is the end-to-end proof that the mint pipeline produced a
+    // read-only token and that we encrypted+stored it correctly.
     const row = await env.DB.prepare(
-      "SELECT credentials_encrypted FROM deploy_targets WHERE id = ?",
+      "SELECT credentials_encrypted, user_id FROM connections WHERE id = ?",
     )
-      .bind(bootstrap.id)
-      .first<{ credentials_encrypted: ArrayBuffer }>();
+      .bind(json.connection.id)
+      .first<{ credentials_encrypted: ArrayBuffer; user_id: string }>();
+    expect(row?.user_id).toBe(userId);
     const pt = await decryptSecret(
       new Uint8Array(row!.credentials_encrypted),
       env.CREDENTIAL_ENCRYPTION_KEY,
     );
-    expect(JSON.parse(pt)).toEqual({ apiToken: fakeFlyMacaroon(12345) });
+    const stored = JSON.parse(pt) as { apiToken: string };
+    const rawMac = parseFlyTokens(stored.apiToken)[0]!;
+    const decoded = msgpackDecode(rawMac) as unknown[];
+    const caveats = decoded[2] as unknown[];
+    expect(caveats.length).toBe(4); // 2 caveats × [type, body]
+    // Second caveat (the appended one) has Mask: 1 (ActionRead).
+    const appendedBody = caveats[3] as unknown[];
+    expect(appendedBody[1]).toBe(1);
+  });
+
+  it("returns unknown_provider for a providerId that's not registered", async () => {
+    const { userId, sessionCookie } = await seedUser();
+    const bootstrap = await seedDeployTarget({
+      userId,
+      kind: "fly",
+      displayName: "personal-bootstrap",
+      externalAccountId: "personal",
+      credentials: { apiToken: fakeFlyMacaroon(12345) },
+    });
+    const res = await SELF.fetch("http://localhost/api/connections/from-bootstrap", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: sessionCookie,
+      },
+      body: JSON.stringify({
+        deployTargetId: bootstrap.id,
+        providerId: "definitely-not-a-real-provider",
+        displayName: "x",
+      }),
+    });
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { error: string };
+    expect(json.error).toBe("unknown_provider");
   });
 
   it("returns bootstrap_no_mint when target driver doesn't implement minting", async () => {
