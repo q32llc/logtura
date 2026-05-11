@@ -67,6 +67,17 @@ describe("provider connect — cloudflare-ai-gateway", () => {
     expect(out.credentials).toEqual({ apiToken: "cfat_aigw" });
     expect(out.explicitAccountId).toBeNull();
   });
+
+  it("connectFlow URL pre-checks AI Gateway:Read", () => {
+    // Regression-pin: earlier adapter shipped a bare token URL on
+    // the (incorrect) assumption that no permissionGroupKeys slug
+    // existed. CF accepts `ai_gateway` and renders the scope pre-
+    // checked on the custom-token page.
+    const url = adapter.connectFlow!.kind === "external_token"
+      ? adapter.connectFlow.url
+      : "";
+    expect(url).toContain("ai_gateway");
+  });
 });
 
 describe("provider connect — fly-log-tail", () => {

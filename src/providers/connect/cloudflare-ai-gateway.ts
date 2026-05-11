@@ -1,16 +1,28 @@
 /**
  * Connect-UX adapter for the `cloudflare-ai-gateway` OSS driver.
  *
- * AI Gateway:Read isn't documented as a permissionGroupKeys value
- * so the connect URL is the bare custom-token page — users add
- * AI Gateway:Read by hand on Cloudflare's side. Form/parse logic
- * is the same paste-token shape as the worker-tail flow.
+ * Cloudflare's permissionGroupKeys URL params accept `ai_gateway`
+ * with `type: read` — same shape as `workers_scripts` for the
+ * worker-tail adapter. So the connect URL deep-links into CF's
+ * custom-token page with AI Gateway:Read pre-checked; one click +
+ * paste, same as the worker-tail flow.
  */
 import { ProviderError } from "@logtura/core";
 import type { CloudflareCredentials } from "@logtura/cloudflare-shared";
 import type { ProviderConnectAdapter } from "./types";
 
-const TOKEN_TEMPLATE_URL = "https://dash.cloudflare.com/profile/api-tokens";
+const PERMISSION_GROUPS = [{ key: "ai_gateway", type: "read" }];
+
+const TOKEN_TEMPLATE_URL = (() => {
+  const base = "https://dash.cloudflare.com/profile/api-tokens";
+  const params = new URLSearchParams({
+    permissionGroupKeys: JSON.stringify(PERMISSION_GROUPS),
+    accountId: "*",
+    zoneId: "all",
+    name: "logtura-ai-gateway",
+  });
+  return `${base}?${params.toString()}`;
+})();
 
 export const cloudflareAiGatewayConnect: ProviderConnectAdapter<CloudflareCredentials> = {
   driverId: "cloudflare-ai-gateway",
@@ -19,10 +31,10 @@ export const cloudflareAiGatewayConnect: ProviderConnectAdapter<CloudflareCreden
     url: TOKEN_TEMPLATE_URL,
     buttonLabel: "Connect Cloudflare (AI Gateway)",
     buttonDescription:
-      "Create a custom token with AI Gateway:Read scoped to your account, then paste it below.",
+      "Opens Cloudflare with AI Gateway:Read pre-selected. Click Continue → Create Token and paste it below.",
     pasteFieldName: "api_token",
     manualInstructions:
-      "At dash.cloudflare.com/profile/api-tokens → Create Custom Token → add AI Gateway:Read for the account that owns your gateway.",
+      "Or create one manually at dash.cloudflare.com/profile/api-tokens with AI Gateway:Read on the account that owns your gateway.",
   },
   formFields: [
     {
