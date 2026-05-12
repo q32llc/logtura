@@ -12,6 +12,7 @@
  * helpers stay here and the driver-side surface stays slim.
  */
 import {
+  type DockerfileDep,
   type EnvVarSpec,
   type ProviderAccount,
   ProviderError,
@@ -114,7 +115,7 @@ export async function verifySupabaseCredentials(
 export function sbRuntimeSpec(input: {
   helpUrl: string;
   extraEnvVars?: EnvVarSpec[];
-}): { envVars: EnvVarSpec[]; dockerfileDeps: Array<{ install: string }> } {
+}): { envVars: EnvVarSpec[]; dockerfileDeps: DockerfileDep[] } {
   return {
     envVars: [
       {

@@ -130,9 +130,13 @@ export interface EnvVarSpec {
 }
 
 /** Dockerfile install step the driver needs in the forwarder image
- *  (for self-deploy users). */
+ *  (for self-deploy users). Use `install` for a shell command that
+ *  needs `RUN` prefixing (apt installs, curl, etc). Use `directive`
+ *  for raw Dockerfile lines like `COPY --from=<image>:<tag> ...` or
+ *  `ARG ...` that aren't shell commands and shouldn't be wrapped. */
 export interface DockerfileDep {
-  install: string;
+  install?: string;
+  directive?: string;
   aptPackages?: string[];
 }
 

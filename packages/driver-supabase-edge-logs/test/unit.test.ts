@@ -215,9 +215,13 @@ describe("generatePipeline", () => {
     expect(names).toContain("SUPABASE_PROJECT_REF");
     expect(names).not.toContain("SUPABASE_PAT");
 
-    // dockerfileDeps installs the binary from the GitHub release.
-    expect(pipe.dockerfileDeps[0]?.install).toContain(
-      "logtura-http-client",
+    // dockerfileDeps pulls the binary from the published image via
+    // COPY --from, pinned to a specific tag.
+    expect(pipe.dockerfileDeps[0]?.directive).toMatch(
+      /^COPY --from=ghcr\.io\/logtura\/logtura-http-client:v\d+\.\d+\.\d+ /,
+    );
+    expect(pipe.dockerfileDeps[0]?.directive).toContain(
+      "/usr/local/bin/logtura-http-client",
     );
   });
 

@@ -202,12 +202,14 @@ export const supabaseEdgeLogsDriver: ProviderDriver<SupabaseCredentials> = {
         },
         ...runtime.envVars.filter((v) => v.name === "SUPABASE_PROJECT_REF"),
       ];
+      // Pin the sidecar image to an exact tag so Docker layer hashes
+      // by version. Bumping the tag forces a re-pull on the next
+      // forwarder build; otherwise BuildKit caches the COPY layer at
+      // the registry level and reuses it across deploys.
       runtime.dockerfileDeps = [
         {
-          install: [
-            "curl -fsSL https://github.com/logtura/logtura-http-client/releases/latest/download/logtura-http-client-x86_64-unknown-linux-musl",
-            " -o /usr/local/bin/logtura-http-client && chmod +x /usr/local/bin/logtura-http-client",
-          ].join(""),
+          directive:
+            "COPY --from=ghcr.io/logtura/logtura-http-client:v0.1.2 /logtura-http-client /usr/local/bin/logtura-http-client",
         },
       ];
     }
