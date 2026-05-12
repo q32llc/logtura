@@ -6,7 +6,7 @@
  * TS, no D1, no Hono, no I/O.
  */
 
-export { generateBundle } from "./render";
+export { generateBundle, renderDockerfile } from "./render";
 
 export type {
   // Plain entity shapes the caller maps from their storage.

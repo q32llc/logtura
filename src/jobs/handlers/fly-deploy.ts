@@ -28,13 +28,15 @@ import type {
 } from "../types";
 
 const DEFAULT_REGION = "iad";
-/** Our maintained "kitchen-sink" Vector image (Vector + node +
- *  wrangler + flyctl + gcloud + awscli + python). Built by
- *  .github/workflows/build-forwarder.yml from
- *  containers/forwarder/Dockerfile. The bare timberio/vector image
- *  doesn't have the CLIs our generated configs `exec` (wrangler tail
- *  etc.), so a Vector started from it crash-loops. */
-const VECTOR_IMAGE = "ghcr.io/q32llc/logtura-forwarder:latest";
+/** Forwarder image tag we resolve to a concrete digest at deploy
+ *  time. Built by .github/workflows/build-forwarder.yml from
+ *  containers/forwarder/Dockerfile.generated (itself rendered from
+ *  every registered driver's dockerfileDeps — see
+ *  scripts/build-forwarder-dockerfile.mjs). We never pass `:latest`
+ *  directly to Fly because Fly caches the digest behind the tag and
+ *  doesn't re-resolve on update; pinning by digest avoids that
+ *  whole class of "machine running stale image" bug. */
+const FORWARDER_TAG = "latest";
 const MACHINE_NAME = "forwarder";
 /** How long the wait_running chain may run before giving up. */
 const RUN_TIMEOUT_MS = 5 * 60 * 1000;
@@ -149,8 +151,22 @@ export async function runFlyCreateOrUpdateMachine(
     env_[v.name] = v.value;
   }
 
+  // Resolve :latest → concrete sha256 so Fly pins to an immutable
+  // digest. See src/forwarder-image.ts for why.
+  await ctx.progress({ label: "Resolving forwarder image digest" });
+  const { resolveForwarderDigest, forwarderImageRef } = await import(
+    "../../forwarder-image"
+  );
+  const digest = await resolveForwarderDigest(FORWARDER_TAG);
+  const imageRef = forwarderImageRef(digest);
+  await ctx.events.record({
+    kind: "fly_machine.image_pinned",
+    message: `Pinning forwarder to ${digest}`,
+    payload: { digest, imageRef },
+  });
+
   const machineConfig: FlyMachineConfig = {
-    image: VECTOR_IMAGE,
+    image: imageRef,
     env: env_,
     files: [
       {
@@ -225,6 +241,7 @@ export async function runFlyCreateOrUpdateMachine(
 
   await updateDeployment(ctx.env.DB, ctx.job.userId, deployment.id, {
     externalId: `fly:${p.appName}:${machineId}`,
+    imageDigest: digest,
   });
 
   await ctx.enqueueSibling({

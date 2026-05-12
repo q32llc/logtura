@@ -128,7 +128,9 @@ export function cfRuntimeSpec(input: {
       ? [
           {
             install: input.extraDockerInstall,
-            aptPackages: ["curl", "ca-certificates", "gnupg"],
+            // jq is in the worker-tail exec pipeline
+            // (`wrangler tail … | jq -c --unbuffered .`).
+            aptPackages: ["curl", "ca-certificates", "gnupg", "jq"],
           },
         ]
       : [],

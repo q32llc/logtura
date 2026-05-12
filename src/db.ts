@@ -872,6 +872,11 @@ export interface DeploymentRow {
    *  on successful deploy or manual "mark as deployed." See
    *  migration 0013 for the semantics. */
   bundle_outdated: number;
+  /** Forwarder image digest the running machine is pinned to. Set
+   *  by the deploy job after resolving ghcr.io/.../forwarder:latest
+   *  to a concrete sha256. Null on legacy deployments that haven't
+   *  redeployed since the digest-pin landed. See migration 0016. */
+  image_digest: string | null;
 }
 
 export interface DeploymentSelection {
@@ -1269,6 +1274,7 @@ export async function updateDeployment(
     status: DeploymentStatus;
     externalId: string | null;
     metadata: Record<string, unknown> | null;
+    imageDigest: string | null;
   }>,
 ): Promise<DeploymentRow | null> {
   const existing = await getDeployment(db, userId, id);
@@ -1280,7 +1286,7 @@ export async function updateDeployment(
          display_name = ?, managed = ?, status = ?, external_id = ?,
          metadata_json = ?, source_selection_json = ?,
          monitor_selection_json = ?, heartbeat_target = ?,
-         metrics_target = ?, updated_at = ?
+         metrics_target = ?, image_digest = ?, updated_at = ?
        WHERE id = ? AND user_id = ?`,
     )
     .bind(
@@ -1315,6 +1321,9 @@ export async function updateDeployment(
       patch.metricsTarget === undefined
         ? existing.metrics_target
         : patch.metricsTarget,
+      patch.imageDigest === undefined
+        ? existing.image_digest
+        : patch.imageDigest,
       ts,
       id,
       userId,
