@@ -67,11 +67,21 @@ RUN ARCH="$(dpkg --print-architecture)" \
     && /tmp/aws/install \
     && rm -rf /tmp/aws /tmp/awscliv2.zip
 
+# logtura-http-client — our own Rust HTTP poller with bearer_refresh
+# support. Vector's built-in http_client source can't refresh OAuth
+# tokens (vectordotdev/vector#17192), so we ship this alongside
+# Vector and the supabase-edge-logs driver's exec source shells out
+# to it. Pulled from the scratch image we publish at the matching
+# tag — bumping requires both this Dockerfile line and the matching
+# driver pin.
+COPY --from=ghcr.io/logtura/logtura-http-client:v0.1.2 /logtura-http-client /usr/local/bin/logtura-http-client
+
 # At this point: vector + node + wrangler + flyctl + gcloud +
-# awscli + python3. Image is large (~600 MB) but everything common
-# is one apt/npm/curl away. The per-customer vector.yaml is mounted
-# at /etc/vector/vector.yaml at machine create time (the deploy
-# target's file-mount mechanism handles this).
+# awscli + python3 + logtura-http-client. Image is large (~600 MB)
+# but everything common is one apt/npm/curl away. The per-customer
+# vector.yaml is mounted at /etc/vector/vector.yaml at machine
+# create time (the deploy target's file-mount mechanism handles
+# this).
 
 # Vector API for `vector top` debugging.
 EXPOSE 8686
