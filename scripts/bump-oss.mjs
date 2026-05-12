@@ -9,7 +9,7 @@
  *                  so npmjs.com renders the right link per package
  *    homepage      same repo + #readme
  *    bugs          same repo + /issues
- *    author        Erik Hinterbichler (Logtura)
+ *    author        Erik Aronesty (Logtura)
  *    files         keeps existing entries, ensures LICENSE is included
  *
  *  Idempotent — re-run safe after any version bump or new package.
@@ -38,7 +38,7 @@ for (const name of readdirSync(PACKAGES_DIR, { withFileTypes: true })) {
   pkg.version = NEW_VERSION;
   delete pkg.private;
   pkg.license = "Apache-2.0";
-  pkg.author = "Erik Hinterbichler (Logtura)";
+  pkg.author = "Erik Aronesty (Logtura)";
   pkg.repository = {
     type: "git",
     url: `git+${REPO_URL}.git`,

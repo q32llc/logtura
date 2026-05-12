@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Compose Vector configs from typed driver inputs. Provider and destination packages for the @logtura/* namespace.",
   "license": "Apache-2.0",
-  "author": "Erik Hinterbichler (Logtura)",
+  "author": "Erik Aronesty (Logtura)",
   "homepage": "https://github.com/logtura/logtura#readme",
   "repository": {
     "type": "git",

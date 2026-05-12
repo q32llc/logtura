@@ -29,9 +29,19 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
-          registry-url: "https://registry.npmjs.org"
+          # Node 24 because the bundled npm is 11.x and we need
+          # npm 11.5+ for trusted publishing (OIDC). Node 22's
+          # bundled npm is 10.9, which doesn't know how to do the
+          # OIDC dance.
+          node-version: 24
           cache: pnpm
+          # NOTE: no `registry-url` here. setup-node's registry-url
+          # writes an .npmrc with `_authToken=${NODE_AUTH_TOKEN}`,
+          # and the presence of that line tells the npm CLI to use
+          # that token instead of triggering OIDC trusted publishing.
+          # With OIDC we don't supply a token; we need npm to fall
+          # through to the OIDC dance, which only happens when there
+          # is no _authToken in the user's npmrc.
 
       - run: pnpm install --frozen-lockfile
 
