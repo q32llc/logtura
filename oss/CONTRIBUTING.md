@@ -62,7 +62,9 @@ git tag v0.X.Y
 git push origin v0.X.Y
 ```
 
-That tag push fires `.github/workflows/release.yml`. The workflow runs the full test matrix, publishes every `@logtura/*` package to npm via the `NPM_TOKEN` repo secret, and creates the GitHub release with auto-generated notes from the commits since the previous tag. No manual `pnpm publish`, no OTP prompt.
+That tag push fires `.github/workflows/release.yml`. The workflow runs the full test matrix, publishes every `@logtura/*` package to npm via OIDC trusted publishing (no long-lived token to rotate), and creates the GitHub release with auto-generated notes from the commits since the previous tag. No manual `pnpm publish`, no OTP prompt.
+
+Each `@logtura/*` package has its trusted publisher configured on npmjs.com pointing at this repo's `release.yml`. To add a new package to the workspace: publish it once interactively (`pnpm publish --otp=...`), then on npmjs.com under that package's Settings -> Trusted Publishers, add `logtura / logtura / release.yml`. From then on it ships through the workflow.
 
 ## License
 

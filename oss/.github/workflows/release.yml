@@ -5,9 +5,17 @@ on:
     tags:
       - "v*"
 
-# Needed so the workflow can create the GitHub release.
 permissions:
+  # contents:write so the workflow can create the GitHub release.
   contents: write
+  # id-token:write so npm Trusted Publishing can exchange an OIDC
+  # token for a short-lived publish token at the registry. No
+  # long-lived NPM_TOKEN to rotate.
+  #
+  # Each @logtura/* package must have a Trusted Publisher
+  # configured on npmjs.com pointing at this workflow:
+  #   logtura / logtura / release.yml (no environment)
+  id-token: write
 
 jobs:
   release:
@@ -22,19 +30,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          # setup-node writes a project-local .npmrc with
-          # //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}. pnpm
-          # publish reads that token from .npmrc, no interactive
-          # OTP / 2FA needed. The NPM_TOKEN secret must be an
-          # Automation-type granular access token (or any token
-          # without 2FA) scoped to publish on @logtura.
           registry-url: "https://registry.npmjs.org"
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
 
-      # Same test gate the push workflow uses. If tests fail on a
-      # tag, the release does not ship to npm or GitHub.
       - name: pull vector image
         run: docker pull timberio/vector:latest-debian
 
@@ -45,9 +45,12 @@ jobs:
         run: pnpm vitest run
 
       - name: publish to npm
-        run: pnpm publish -r --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # --provenance opts into npm's OIDC trusted-publishing flow.
+        # No NPM_TOKEN env needed; the GH Actions OIDC token + the
+        # per-package trusted-publisher config on npmjs.com authorize
+        # the publish. Also produces SLSA provenance attestations
+        # visible on each package's npm page.
+        run: pnpm publish -r --access public --no-git-checks --provenance
 
       - name: create GitHub release
         run: |
