@@ -20,7 +20,21 @@ import {
 export const SB_BASE = "https://api.supabase.com";
 
 export interface SupabaseCredentials {
+  /** Bearer token used against the Management API. Either a PAT
+   *  minted at supabase.com/dashboard/account/tokens, or an OAuth
+   *  access_token from the Build-a-Supabase-Integration flow — the
+   *  Vector pipeline doesn't distinguish, both are `Authorization:
+   *  Bearer <pat>` against api.supabase.com. */
   pat: string;
+  /** OAuth refresh token. Present only when the credential came
+   *  from the SaaS-side OAuth flow; the SaaS uses this to mint a
+   *  fresh `pat` when expiry approaches. PAT-paste credentials
+   *  leave this unset. */
+  refreshToken?: string;
+  /** Unix-ms expiry for `pat`. Set by the OAuth callback;
+   *  PAT-paste credentials leave this unset (PATs are long-lived
+   *  by Supabase's design). */
+  expiresAt?: number;
 }
 
 interface SbErrorBody {

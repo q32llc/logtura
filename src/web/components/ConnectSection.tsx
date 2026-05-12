@@ -36,6 +36,10 @@ export interface ConnectSectionProps {
   /** Whether to show the stepper at the top. Reconnect-style hosts
    *  with no name step disable it; NewConnection enables. */
   showStepper?: boolean;
+  /** Connection display name from the host page. For oauth_redirect
+   *  flows, this is sent to the start endpoint so the callback can
+   *  create the connection with the user's chosen name. */
+  displayName?: string;
 }
 
 export function ConnectSection({
@@ -47,11 +51,40 @@ export function ConnectSection({
   toggleManual,
   stepIndex,
   showStepper = true,
+  displayName,
 }: ConnectSectionProps) {
+  if (flow.kind === "oauth_redirect") {
+    const startHref = displayName
+      ? `${flow.startPath}?display_name=${encodeURIComponent(displayName)}`
+      : flow.startPath;
+    const ready = !!displayName?.trim();
+    return (
+      <Stack gap="sm" mt="xs">
+        <Text size="sm">{flow.buttonDescription}</Text>
+        <Group gap="sm" align="center">
+          <Button
+            component="a"
+            href={ready ? startHref : undefined}
+            leftSection={<IconExternalLink size={16} />}
+            disabled={!ready}
+          >
+            {flow.buttonLabel}
+          </Button>
+          {!ready && (
+            <Text size="xs" c="dimmed">
+              Pick a connection name first.
+            </Text>
+          )}
+        </Group>
+        <Text size="xs" c="dimmed">
+          You'll be redirected back here once authorization completes.
+        </Text>
+      </Stack>
+    );
+  }
   if (flow.kind !== "external_token") {
-    // OAuth redirect / cli_session aren't wired here yet — the
-    // pages that use those (Destinations, DeployWizard) own their
-    // own buttons.
+    // cli_session isn't wired here yet — the pages that use it own
+    // their own buttons.
     return null;
   }
   return (

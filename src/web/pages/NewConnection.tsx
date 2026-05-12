@@ -15,12 +15,31 @@ import {
 import { IconBolt } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { ApiError, api } from "../api";
 import { ConnectSection, renderField } from "../components/ConnectSection";
 import type { ApiDeployTarget, ApiProvider } from "../types";
 
+const OAUTH_ERROR_LABELS: Record<string, string> = {
+  oauth_state:
+    "Supabase OAuth state didn't match. Try connecting again from scratch.",
+  supabase_oauth_not_configured:
+    "Supabase OAuth isn't configured on this deployment. Paste a Personal Access Token instead.",
+  supabase_oauth_exchange:
+    "Supabase rejected the OAuth exchange. Try again, or paste a PAT.",
+  supabase_oauth_verify:
+    "Supabase OAuth succeeded but verifying the token failed. Try again.",
+  supabase_oauth_no_projects:
+    "The Supabase account you connected has no visible projects.",
+  missing_display_name:
+    "Pick a connection name before clicking Connect.",
+  auth_required: "Sign in first, then try connecting again.",
+};
+
 export function NewConnection() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const oauthError = searchParams.get("error");
   const [providers, setProviders] = useState<ApiProvider[] | null>(null);
   const [deployTargets, setDeployTargets] = useState<ApiDeployTarget[]>([]);
   const [providerId, setProviderId] = useState<string | null>(null);
@@ -66,6 +85,7 @@ export function NewConnection() {
 
   const driver = providers?.find((p) => p.id === providerId) ?? null;
   const connect = driver?.connectFlow ?? null;
+  const isOauth = connect?.kind === "oauth_redirect";
   const pasteFieldName =
     connect?.kind === "external_token" ? connect.pasteFieldName : null;
 
@@ -201,6 +221,12 @@ export function NewConnection() {
               />
             )}
 
+            {oauthError && OAUTH_ERROR_LABELS[oauthError] && (
+              <Alert color="red" variant="light">
+                {OAUTH_ERROR_LABELS[oauthError]}
+              </Alert>
+            )}
+
             {connect && driver && (
               <ConnectSection
                 providerName={driver.displayName}
@@ -210,6 +236,7 @@ export function NewConnection() {
                 showManual={showManual}
                 toggleManual={() => setShowManual((v) => !v)}
                 stepIndex={activeStep}
+                displayName={displayName}
               />
             )}
 
@@ -245,9 +272,11 @@ export function NewConnection() {
               >
                 Cancel
               </Button>
-              <Button type="submit" loading={submitting} disabled={!driver}>
-                Verify &amp; continue
-              </Button>
+              {!isOauth && (
+                <Button type="submit" loading={submitting} disabled={!driver}>
+                  Verify &amp; continue
+                </Button>
+              )}
             </Group>
           </Stack>
         </form>

@@ -137,13 +137,29 @@ api.get("/providers", (c) => {
     // Pair each OSS driver with its SaaS-side connect adapter so the
     // UI gets form/OAuth metadata alongside the driver identity.
     const connect = getProviderConnect(p.id);
+    let connectFlow = connect?.connectFlow ?? null;
+    let formFields = connect?.formFields ?? [];
+    // Supabase OAuth shim: when SUPABASE_CLIENT_ID/SECRET are
+    // configured, swap the static PAT-paste adapter for an
+    // oauth_redirect flow. PAT paste still works for self-hosted
+    // SaaS without the integration registered.
+    if (p.id === "supabase-edge-logs" && isSupabaseOauthConfigured(c.env)) {
+      connectFlow = {
+        kind: "oauth_redirect",
+        startPath: "/api/providers/supabase-edge-logs/start",
+        buttonLabel: "Connect Supabase",
+        buttonDescription:
+          "Sign in to Supabase and grant Logtura read access to your projects' edge functions and analytics. We never see your database or service-role keys.",
+      };
+      formFields = [];
+    }
     return {
       id: p.id,
       displayName: p.displayName,
       sourceLabel: p.sourceLabel,
       capabilities: p.capabilities,
-      connectFlow: connect?.connectFlow ?? null,
-      formFields: connect?.formFields ?? [],
+      connectFlow,
+      formFields,
     };
   });
   return c.json({ providers });
@@ -1151,6 +1167,159 @@ apiAuth.delete("/destinations/:id", async (c) => {
   await deleteDestination(c.env.DB, user.id, c.req.param("id"));
   await markUserDeploymentsOutdated(c.env.DB, user.id);
   return c.json({ ok: true });
+});
+
+// ---------- Supabase OAuth (provider = "supabase-edge-logs") -------------
+
+const SUPABASE_STATE_COOKIE = "logtura_supabase_state";
+
+function isSupabaseOauthConfigured(env: Env): boolean {
+  return !!(env.SUPABASE_CLIENT_ID && env.SUPABASE_CLIENT_SECRET);
+}
+
+api.get("/providers/supabase-edge-logs/start", async (c) => {
+  const userCookie = getCookie(c, "logtura_session");
+  const userId = userCookie
+    ? await verifyCookie(userCookie, c.env.SESSION_SECRET)
+    : null;
+  if (!userId) return c.redirect("/?error=auth_required", 303);
+
+  if (!isSupabaseOauthConfigured(c.env)) {
+    return c.redirect(
+      "/app/connections/new?error=supabase_oauth_not_configured",
+      303,
+    );
+  }
+  const displayName = c.req.query("display_name")?.trim();
+  if (!displayName) {
+    return c.redirect(
+      "/app/connections/new?error=missing_display_name",
+      303,
+    );
+  }
+
+  const { generatePkcePair, buildAuthorizeUrl } = await import(
+    "./providers/supabase-oauth"
+  );
+  const state = newToken();
+  const { verifier, challenge } = await generatePkcePair();
+  const stateBlob = JSON.stringify({ state, userId, displayName, verifier });
+  const signed = await signCookie(stateBlob, c.env.SESSION_SECRET);
+  setCookie(c, SUPABASE_STATE_COOKIE, signed, {
+    httpOnly: true,
+    secure: c.env.APP_URL.startsWith("https://"),
+    sameSite: "Lax",
+    path: "/",
+    maxAge: 600,
+  });
+  const url = buildAuthorizeUrl({
+    clientId: c.env.SUPABASE_CLIENT_ID!,
+    redirectUri: `${c.env.APP_URL}/api/providers/supabase-edge-logs/callback`,
+    state,
+    codeChallenge: challenge,
+  });
+  return c.redirect(url, 303);
+});
+
+api.get("/providers/supabase-edge-logs/callback", async (c) => {
+  const code = c.req.query("code");
+  const state = c.req.query("state");
+  const stateCookie = getCookie(c, SUPABASE_STATE_COOKIE);
+  const stateJson = await verifyCookie(stateCookie, c.env.SESSION_SECRET);
+  deleteCookie(c, SUPABASE_STATE_COOKIE, { path: "/" });
+  if (!code || !state || !stateJson) {
+    return c.redirect("/app/connections/new?error=oauth_state", 303);
+  }
+  const parsed = (() => {
+    try {
+      return JSON.parse(stateJson) as {
+        state?: string;
+        userId?: string;
+        displayName?: string;
+        verifier?: string;
+      };
+    } catch {
+      return null;
+    }
+  })();
+  if (
+    !parsed ||
+    parsed.state !== state ||
+    !parsed.userId ||
+    !parsed.displayName ||
+    !parsed.verifier
+  ) {
+    return c.redirect("/app/connections/new?error=oauth_state", 303);
+  }
+  if (!isSupabaseOauthConfigured(c.env)) {
+    return c.redirect(
+      "/app/connections/new?error=supabase_oauth_not_configured",
+      303,
+    );
+  }
+
+  const { exchangeCodeForToken } = await import("./providers/supabase-oauth");
+  let tokens;
+  try {
+    tokens = await exchangeCodeForToken({
+      clientId: c.env.SUPABASE_CLIENT_ID!,
+      clientSecret: c.env.SUPABASE_CLIENT_SECRET!,
+      code,
+      redirectUri: `${c.env.APP_URL}/api/providers/supabase-edge-logs/callback`,
+      codeVerifier: parsed.verifier,
+    });
+  } catch (err) {
+    console.error("supabase oauth exchange failed", err);
+    return c.redirect(
+      "/app/connections/new?error=supabase_oauth_exchange",
+      303,
+    );
+  }
+
+  const driver = getProvider("supabase-edge-logs");
+  if (!driver) {
+    return c.redirect("/app/connections/new?error=unknown_provider", 303);
+  }
+  const credentials = {
+    pat: tokens.access_token,
+    refreshToken: tokens.refresh_token,
+    expiresAt: Date.now() + tokens.expires_in * 1000,
+  };
+  let accounts;
+  try {
+    accounts = await driver.verifyCredentials(credentials);
+  } catch (err) {
+    console.error("supabase oauth verify failed", err);
+    return c.redirect(
+      "/app/connections/new?error=supabase_oauth_verify",
+      303,
+    );
+  }
+  if (accounts.length === 0) {
+    return c.redirect(
+      "/app/connections/new?error=supabase_oauth_no_projects",
+      303,
+    );
+  }
+  const accountId = accounts[0]!.id;
+
+  const connection = await createConnection(c.env.DB, c.env, {
+    userId: parsed.userId,
+    provider: driver.id,
+    displayName: parsed.displayName,
+    externalAccountId: accountId,
+    credentials,
+  });
+  await ensureDefaultErrorsMonitor(c.env.DB, parsed.userId);
+  const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
+  await jobs.enqueue({
+    userId: parsed.userId,
+    kind: "discovery",
+    payload: { connectionId: connection.id },
+    lockKey: lockKeyForDiscovery(connection.id),
+  });
+
+  return c.redirect(`/app/connections/${connection.id}`, 303);
 });
 
 // ---------- Slack OAuth (destination kind = "slack") ---------------------

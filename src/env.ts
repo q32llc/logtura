@@ -15,6 +15,13 @@ export interface Env {
   // `incoming-webhook` scope.
   SLACK_CLIENT_ID?: string;
   SLACK_CLIENT_SECRET?: string;
+  // Optional — enables OAuth for the supabase-edge-logs provider.
+  // When unset, the provider falls back to its PAT-paste flow.
+  // The Supabase Integration must register the redirect URI
+  // <APP_URL>/api/providers/supabase-edge-logs/callback and request
+  // Read scopes for Projects, Edge Functions, and Analytics.
+  SUPABASE_CLIENT_ID?: string;
+  SUPABASE_CLIENT_SECRET?: string;
   // Optional — silence-alert emails are sent via Postmark when these
   // are configured. Without them, the cron alerter still flips
   // status='crashed' but skips email.
