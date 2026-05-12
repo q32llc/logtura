@@ -348,6 +348,12 @@ function httpClientYaml(url: string): string {
  *  path unique per channel (fn vs gw) so two sidecars on the same
  *  forwarder don't clobber each other. */
 function execSidecarYaml(tag: string, endpoint: string): string {
+  // Vector applies env-var interpolation to vector.yaml *before* the
+  // heredoc runs — so any `$xxx` literal in the embedded TOML gets
+  // grabbed by Vector's interpolator and fails ("missing env var
+  // name=.access_token"). Escape `$` → `$$` so Vector emits the
+  // literal `$` into the file; the binary then parses normal TOML
+  // with JSONPath strings.
   const tomlLines = [
     `endpoint = ${JSON.stringify(endpoint)}`,
     `scrape_interval_secs = 30`,
@@ -356,14 +362,14 @@ function execSidecarYaml(tag: string, endpoint: string): string {
     `strategy = "bearer_refresh"`,
     `token_url = "\${LOGTURA_TAIL_TOKEN_URL}"`,
     `token_method = "POST"`,
-    `access_token_json_path = "$.access_token"`,
-    `expires_in_json_path = "$.expires_in"`,
+    `access_token_json_path = "$$.access_token"`,
+    `expires_in_json_path = "$$.expires_in"`,
     ``,
     `[auth.token_headers]`,
     `authorization = "Bearer \${LOGTURA_TAIL_TOKEN}"`,
     ``,
     `[rows]`,
-    `json_path = "$.result"`,
+    `json_path = "$$.result"`,
   ];
   const cfgPath = `/tmp/logtura-supabase-${tag}.toml`;
   const script = [
