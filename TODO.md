@@ -62,6 +62,9 @@
 - [ ] Empty states across the app — currently a few panels show `—` instead of guidance.
 - [ ] Mobile/narrow-viewport layout pass.
 
+### Architecture
+- [ ] **Per-provider UX adapters with declarative capabilities** — `if (driver.id === "supabase-edge-logs")` branches are scattered through `src/index.ts` (POST /connections defer-account-pick, reconnect's same rule, /api/providers oauthShortcut injection, OAuth start/callback, /supabase-projects + /supabase-pick-project endpoints) and `src/web/pages/ConnectionDetail.tsx` (picker render). Each new provider that's richer than paste-a-token will add another set. Right shape: the SaaS-side `ProviderConnectAdapter` grows optional hooks like `oauthFlow: { startPath, callbackPath, exchange, refresh }`, `accountPicker: { listAccounts, pickAccount }`, `deferAccountId: boolean`, `postConnectStep?`. SaaS bootstrap iterates the registry to mount routes + the UI checks `provider.accountPicker` to render a generic picker. OSS driver contract stays narrow. Worth doing the next time a non-trivial provider lands (CloudWatch, Vercel).
+
 ---
 
 ## Done
