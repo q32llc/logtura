@@ -1,6 +1,6 @@
 {
   "name": "@logtura/cloudflare-shared",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Shared Cloudflare API-token plumbing used by the cloudflare-* logtura drivers.",
   "license": "Apache-2.0",
   "author": "Erik Hinterbichler (Logtura)",
