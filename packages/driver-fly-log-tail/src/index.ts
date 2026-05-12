@@ -258,6 +258,10 @@ function flyExecSourceYaml(source: SourceRef): string {
     `    type: exec`,
     `    command: ["sh", "-c", ${JSON.stringify(command)}]`,
     `    mode: streaming`,
+    // flyctl + jq write non-JSON status/error lines to stderr.
+    // Vector's exec source decodes stderr through the same JSON
+    // pipeline by default; disable to avoid spurious parse errors.
+    `    include_stderr: false`,
     `    decoding:`,
     `      codec: json`,
   ].join("\n");

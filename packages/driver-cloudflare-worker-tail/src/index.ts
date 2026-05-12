@@ -156,6 +156,12 @@ function workerExecSourceYaml(source: SourceRef): string {
     // line.
     `    command: ["sh", "-c", "wrangler tail ${shellQuoteCfWorkerName(source.externalId)} --format json | jq -c --unbuffered ."]`,
     `    mode: streaming`,
+    // wrangler + jq both write non-JSON status/error lines to stderr.
+    // Vector's exec source feeds stderr through the same JSON decoder
+    // as stdout by default, which produces "Failed deserializing
+    // frame" floods. Disable stderr capture; the machine's stderr is
+    // still visible via Fly logs at a higher level.
+    `    include_stderr: false`,
     `    decoding:`,
     `      codec: json`,
   ].join("\n");

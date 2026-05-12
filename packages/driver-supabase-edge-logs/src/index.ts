@@ -386,6 +386,13 @@ function execSidecarYaml(tag: string, endpoint: string): string {
     `      - -c`,
     `      - |`,
     ...script.split("\n").map((l) => `        ${l}`),
+    // logtura-http-client writes tracing logs to stderr. Vector's
+    // exec source decodes stderr through the same JSON pipeline as
+    // stdout by default — those plain-text log lines fail to parse
+    // and flood Vector's logs with "Failed deserializing frame".
+    // Drop stderr from the source's event stream; Fly logs at the
+    // machine level still captures it for debug visibility.
+    `    include_stderr: false`,
     `    decoding:`,
     `      codec: json`,
     `    framing:`,
