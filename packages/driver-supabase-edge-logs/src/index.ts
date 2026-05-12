@@ -1,33 +1,31 @@
 /**
  * `supabase-edge-logs` source driver.
  *
- * One transport: HTTP poll against the Management API's analytics
- * endpoint
- *   GET /v1/projects/<ref>/analytics/endpoints/logs.all?sql=<…>
- * via Vector's `http_client` source. This is what the Supabase
- * dashboard's Logs tab uses under the hood — a SQL query against
- * the Logflare-backed `function_edge_logs` table.
+ * Two log surfaces per Supabase project, each its own optional
+ * source on the connection:
  *
- * **One poll per CONNECTION, not per function.** The analytics
- * endpoint has an aggressive rate limit (we got HTTP 429s with 6
- * functions × 30s = 12 polls/min). The driver emits one Vector
- * `http_client` keyed on the connection id; the SQL pulls every
- * edge-function event for the project; the normalize remap routes
- * by function_id, dropping events whose function_id isn't in the
- * selected-source set. Renderer dedupes blocks that share a key
- * so N selected functions emit ONE source block in the YAML.
+ *   - `function_edge_logs` — runtime logs of Edge Function
+ *     invocations (console.log/error, execution_time_ms,
+ *     function_id). Discovered as one source per function slug.
+ *   - `edge_logs` — HTTP gateway access logs for the whole project
+ *     (REST, Auth, Storage, function HTTP envelopes; method,
+ *     status_code, path). Discovered as one synthetic "Project HTTP
+ *     gateway" source.
  *
- * Response shape: `{ result: { result: [<records>], error: null } }`.
- * The driver's normalize remap unwraps the array, fans events out
- * (set `. = array(.result.result)`), and per-record:
- *   - maps `function_id` (UUID) → `script` (human slug) via a
- *     codegen-time dict built from `sources`; events whose
- *     function_id isn't in the dict are dropped
- *   - derives `.level` from `.status_code` (5xx → error, 4xx →
- *     warn, else info)
- *   - converts `.timestamp` from microseconds to milliseconds
- *   - prefixes `.message` with `[<slug>]` so non-rollup monitors
- *     still ship tagged events
+ * Users pick a mix of function sources and/or the gateway source.
+ * The driver emits up to two http_client/exec chains per connection;
+ * when both are picked a converging transform fans them into a
+ * single output key for downstream tag_conn / monitors.
+ *
+ * Auth: PAT path emits Vector `http_client` directly. OAuth path
+ * (refreshable credentials) emits an `exec` source running
+ * `logtura-http-client` which calls back into Logtura's SaaS for
+ * fresh access tokens. Same auth-path branching applies to both
+ * surfaces.
+ *
+ * Response envelope on real Supabase analytics is single-nest
+ * `{ result: [...], error: null }` (verified live 2026-05-12 — the
+ * docs/older clients suggested double-nest, which is wrong).
  */
 import {
   type ConnectionRef,
@@ -55,31 +53,19 @@ interface SbEdgeFunction {
   version?: number;
 }
 
-/** SQL query template fired against `function_edge_logs`. Pulls
- *  every edge function event for the project; per-function routing
- *  happens downstream in the normalize remap, where we already
- *  have a codegen-time UUID→slug map and can simply drop events
- *  whose function_id isn't in the selected-source set.
- *
- *  Why pull-all-and-filter instead of `WHERE function_id IN (…)`:
- *  the IN clause would still require one source-per-connection (we
- *  can't see all selected sources at `generateSourceBlock` time),
- *  and the bandwidth cost for "pull events for unselected
- *  functions" is trivial — the LIMIT 100 cap is the constraint,
- *  not per-function filtering. Keeping the SQL static also means
- *  the URL is identical for every poll, which is the only way
- *  Vector deduplicates source components by URL+headers.
- *
- *  90-second lookback is 3x the default poll interval — generous
- *  overlap so a late event doesn't slip between polls; downstream
- *  `dedup` (by .id) drops the duplicates a wide window produces. */
-function buildLogsSql(): string {
-  // function_edge_logs.metadata struct exposes:
-  //   deployment_id STRING, execution_time_ms INT64,
-  //   function_id STRING, version STRING
-  // (HTTP method/status are NOT here — they live on edge_logs which
-  // is the API-gateway table; function logs only carry the
-  // invocation envelope.)
+/** Synthetic externalId used for the project-wide HTTP gateway
+ *  pseudo-source. Distinct from any function slug. */
+const GATEWAY_EXTERNAL_ID = "_gateway_";
+
+/** SourceKind tags on discovered rows. The picker UI doesn't care
+ *  about these strings, but generatePipeline routes on them. */
+const KIND_FN = "supabase_edge_fn";
+const KIND_GW = "supabase_gateway";
+
+/** Function-runtime log SQL — what function_edge_logs.metadata
+ *  actually exposes (verified live; HTTP method/status are NOT
+ *  here, those live on edge_logs). */
+function buildFunctionLogsSql(): string {
   return [
     "SELECT id, function_edge_logs.timestamp AS timestamp, event_message,",
     "  m.function_id AS function_id, m.deployment_id AS deployment_id,",
@@ -92,14 +78,29 @@ function buildLogsSql(): string {
   ].join(" ");
 }
 
+/** Gateway HTTP-access-log SQL. edge_logs.metadata is an array; the
+ *  request and response sub-structs are also arrays. Triple CROSS
+ *  JOIN UNNEST lifts everything to scalars. Verified live against
+ *  the deployed analytics endpoint 2026-05-12. */
+function buildGatewayLogsSql(): string {
+  return [
+    "SELECT id, edge_logs.timestamp AS timestamp, event_message,",
+    "  request.method AS method, request.path AS path,",
+    "  response.status_code AS status_code",
+    "FROM edge_logs",
+    "CROSS JOIN UNNEST(metadata) AS m",
+    "CROSS JOIN UNNEST(m.request) AS request",
+    "CROSS JOIN UNNEST(m.response) AS response",
+    "WHERE timestamp > timestamp_sub(current_timestamp(), interval 90 second)",
+    "ORDER BY timestamp DESC",
+    "LIMIT 100",
+  ].join(" ");
+}
+
 export const supabaseEdgeLogsDriver: ProviderDriver<SupabaseCredentials> = {
   id: "supabase-edge-logs",
   displayName: "Supabase Edge Functions",
   sourceLabel: "Function",
-  // The analytics endpoint streams every edge function event for
-  // the project from a single SQL query. "All" and explicit "list"
-  // share the same poll; the normalize's UUID map differs (drop
-  // unselected vs keep everything).
   capabilities: { selection: "both" },
   verifyCredentials: verifySupabaseCredentials,
 
@@ -119,19 +120,26 @@ export const supabaseEdgeLogsDriver: ProviderDriver<SupabaseCredentials> = {
       }
       throw err;
     }
-    return fns.map((f) => ({
-      sourceKind: "supabase_edge_fn",
+    const fnSources: DiscoveredSource[] = fns.map((f) => ({
+      sourceKind: KIND_FN,
       externalId: f.slug,
       displayName: f.name ?? f.slug,
-      // function_id (the UUID) is what edge-function log records
-      // carry. We stash it here so generateNormalize can emit a
-      // function_id → slug map without re-hitting the API.
       metadata: {
         function_id: f.id,
         status: f.status ?? null,
         version: f.version ?? null,
       },
     }));
+    const gatewaySource: DiscoveredSource = {
+      sourceKind: KIND_GW,
+      externalId: GATEWAY_EXTERNAL_ID,
+      displayName: "Project HTTP gateway",
+      metadata: {
+        description:
+          "All inbound HTTP to the project (REST, Auth, Storage, function invocations). Status-code-driven level inference.",
+      },
+    };
+    return [...fnSources, gatewaySource];
   },
 
   generatePipeline({
@@ -141,14 +149,31 @@ export const supabaseEdgeLogsDriver: ProviderDriver<SupabaseCredentials> = {
     connection: ConnectionRef;
     selection: ProviderSelection;
   }): DriverPipeline {
-    // Resolve the function-id filter set: an explicit list locks the
-    // normalize's UUID -> slug map and the remap drops events for
-    // functions not in the picked set. "all" passes an empty list
-    // and the remap keeps every event the project emits.
-    const sources: SourceRef[] =
+    const connKey = safeKey(connection.id);
+    const isRefreshable = connection.credentialKind === "refreshable";
+
+    // Partition the picked sources by kind. "all" expands to "every
+    // function + the gateway" — the user said monitor everything.
+    const allKindsSelected = selection.kind === "all";
+    const listSources =
       selection.kind === "list" ? selection.sources : [];
+    const fnSources: SourceRef[] = allKindsSelected
+      ? []
+      : listSources.filter((s) => s.sourceKind === KIND_FN);
+    const gwSources: SourceRef[] = allKindsSelected
+      ? []
+      : listSources.filter((s) => s.sourceKind === KIND_GW);
+    const wantFunctions = allKindsSelected || fnSources.length > 0;
+    const wantGateway = allKindsSelected || gwSources.length > 0;
+
+    // Heartbeat-only deployments hand us an empty selection. Emit
+    // the function channel structurally — its normalize drops every
+    // event when the slug map is empty (list mode + zero slugs),
+    // so the bundle stays valid and contributes nothing downstream.
+    const emitEmptyFunctionsStub =
+      !wantFunctions && !wantGateway && selection.kind === "list";
     if (selection.kind === "list") {
-      for (const s of sources) {
+      for (const s of fnSources) {
         if (!s.metadata?.function_id) {
           throw new Error(
             `supabase-edge-logs source ${s.externalId} is missing metadata.function_id. Re-run discovery for this connection.`,
@@ -156,39 +181,116 @@ export const supabaseEdgeLogsDriver: ProviderDriver<SupabaseCredentials> = {
         }
       }
     }
-    const connKey = safeKey(connection.id);
-    const sourceKey = `supabase_edge_${connKey}`;
-    const normalizeKey = `supabase_edge_${connKey}_norm`;
-    const sql = buildLogsSql();
-    const url =
-      `https://api.supabase.com/v1/projects/\${SUPABASE_PROJECT_REF}/analytics/endpoints/logs.all?sql=${encodeURIComponent(sql)}`;
-    // Branch on credential kind. Static bearers (PATs) drive Vector's
-    // native http_client directly. Refreshable bearers (OAuth) need
-    // logtura-http-client as a sidecar exec source because Vector's
-    // http_client can't refresh tokens — see
-    // https://github.com/vectordotdev/vector/discussions/17192.
-    const isRefreshable = connection.credentialKind === "refreshable";
-    const sourceYaml = isRefreshable
-      ? execSidecarYaml(connKey, url)
-      : httpClientYaml(url);
-    const components: VectorComponent[] = [
-      {
-        key: sourceKey,
+
+    const components: VectorComponent[] = [];
+    const manifest: NonNullable<DriverPipeline["manifest"]> = [];
+    const innerOutputKeys: string[] = [];
+
+    if (wantFunctions || emitEmptyFunctionsStub) {
+      const fnKey = `supabase_edge_${connKey}_fn`;
+      const fnNormKey = `${fnKey}_norm`;
+      const fnSql = buildFunctionLogsSql();
+      const fnUrl = `https://api.supabase.com/v1/projects/\${SUPABASE_PROJECT_REF}/analytics/endpoints/logs.all?sql=${encodeURIComponent(fnSql)}`;
+      components.push({
+        key: fnKey,
         kind: "source",
-        yaml: sourceYaml,
-      },
-      {
-        key: normalizeKey,
+        yaml: isRefreshable
+          ? execSidecarYaml(`${connKey}_fn`, fnUrl)
+          : httpClientYaml(fnUrl),
+      });
+      components.push({
+        key: fnNormKey,
         kind: "transform",
-        yaml: edgeNormalizeYaml([sourceKey], sources, selection.kind),
-      },
-    ];
+        yaml: functionNormalizeYaml(
+          [fnKey],
+          fnSources,
+          allKindsSelected ? "all" : "list",
+        ),
+      });
+      innerOutputKeys.push(fnNormKey);
+      manifest.push({
+        id: fnKey,
+        role: "source",
+        category: "primary",
+        label: allKindsSelected
+          ? "Edge Functions (all)"
+          : `Edge Functions (${fnSources.length})`,
+        links: { connectionId: connection.id },
+      });
+      manifest.push({
+        id: fnNormKey,
+        role: "normalize",
+        category: "plumbing",
+        label: "Normalize · Edge Function runtime",
+        links: { connectionId: connection.id },
+      });
+    }
+
+    if (wantGateway) {
+      const gwKey = `supabase_edge_${connKey}_gw`;
+      const gwNormKey = `${gwKey}_norm`;
+      const gwSql = buildGatewayLogsSql();
+      const gwUrl = `https://api.supabase.com/v1/projects/\${SUPABASE_PROJECT_REF}/analytics/endpoints/logs.all?sql=${encodeURIComponent(gwSql)}`;
+      components.push({
+        key: gwKey,
+        kind: "source",
+        yaml: isRefreshable
+          ? execSidecarYaml(`${connKey}_gw`, gwUrl)
+          : httpClientYaml(gwUrl),
+      });
+      components.push({
+        key: gwNormKey,
+        kind: "transform",
+        yaml: gatewayNormalizeYaml([gwKey]),
+      });
+      innerOutputKeys.push(gwNormKey);
+      manifest.push({
+        id: gwKey,
+        role: "source",
+        category: "primary",
+        label: "Supabase HTTP gateway",
+        links: { connectionId: connection.id },
+      });
+      manifest.push({
+        id: gwNormKey,
+        role: "normalize",
+        category: "plumbing",
+        label: "Normalize · HTTP gateway",
+        links: { connectionId: connection.id },
+      });
+    }
+
+    // outputKey: when only one channel is picked, point downstream
+    // directly at that channel's normalize. When both, emit a
+    // trivial converging transform so downstream tag_conn only
+    // reads one key.
+    let outputKey: string;
+    if (innerOutputKeys.length === 1) {
+      outputKey = innerOutputKeys[0]!;
+    } else {
+      outputKey = `supabase_edge_${connKey}_norm`;
+      components.push({
+        key: outputKey,
+        kind: "transform",
+        yaml: [
+          `    type: remap`,
+          `    inputs: [${innerOutputKeys.map((k) => `"${k}"`).join(", ")}]`,
+          `    source: |-`,
+          `      . = .`,
+        ].join("\n"),
+      });
+      manifest.push({
+        id: outputKey,
+        role: "normalize",
+        category: "plumbing",
+        label: "Merge · Supabase channels",
+        links: { connectionId: connection.id },
+      });
+    }
+
     const runtime = sbRuntimeSpec({
       helpUrl: "https://supabase.com/dashboard/account/tokens",
     });
-    // For refreshable credentials, swap PAT-sourced env vars for the
-    // bearer_refresh trio: a connection-scoped JWT, the SaaS token
-    // endpoint URL, and the project ref. SUPABASE_PAT goes away.
     if (isRefreshable) {
       runtime.envVars = [
         {
@@ -207,10 +309,6 @@ export const supabaseEdgeLogsDriver: ProviderDriver<SupabaseCredentials> = {
         },
         ...runtime.envVars.filter((v) => v.name === "SUPABASE_PROJECT_REF"),
       ];
-      // Pin the sidecar image to an exact tag so Docker layer hashes
-      // by version. Bumping the tag forces a re-pull on the next
-      // forwarder build; otherwise BuildKit caches the COPY layer at
-      // the registry level and reuses it across deploys.
       runtime.dockerfileDeps = [
         {
           directive:
@@ -218,28 +316,10 @@ export const supabaseEdgeLogsDriver: ProviderDriver<SupabaseCredentials> = {
         },
       ];
     }
-    const manifest: DriverPipeline["manifest"] = [
-      {
-        id: sourceKey,
-        role: "source",
-        category: "primary",
-        label:
-          selection.kind === "all"
-            ? "Edge Functions (all)"
-            : `Edge Functions (${sources.length})`,
-        links: { connectionId: connection.id },
-      },
-      {
-        id: normalizeKey,
-        role: "normalize",
-        category: "plumbing",
-        label: "Normalize · Edge Function",
-        links: { connectionId: connection.id },
-      },
-    ];
+
     return {
       components,
-      outputKey: normalizeKey,
+      outputKey,
       envVars: runtime.envVars,
       dockerfileDeps: runtime.dockerfileDeps,
       manifest,
@@ -254,31 +334,20 @@ function httpClientYaml(url: string): string {
     `    type: http_client`,
     `    endpoint: ${JSON.stringify(url)}`,
     `    method: GET`,
-    // 30s poll matches the SQL's 90s lookback (3x overlap). One poll
-    // per connection regardless of selection size — the analytics
-    // endpoint rate-limits aggressively.
     `    interval_secs: 30`,
     `    headers:`,
-    // http_client headers want map<string, array<string>>.
     `      authorization: ["Bearer \${SUPABASE_PAT}"]`,
     `    decoding:`,
     `      codec: json`,
   ].join("\n");
 }
 
-/** Refreshable path: exec-source sidecar (logtura-http-client) holds
- *  the connection-scoped JWT and exchanges it with Logtura's SaaS for
- *  a fresh Supabase access token before each poll. Config is written
- *  via a shell heredoc so the entire pipeline lives in vector.yaml
- *  with no extra files in the deploy bundle.
- *
- *  Why heredoc-inline vs a separate config file: the OSS DriverPipeline
- *  contract today emits Vector components, not auxiliary files. Inline
- *  keeps the change minimal and lets us extend the contract later if
- *  this approach grows arms. */
-function execSidecarYaml(connKey: string, endpoint: string): string {
-  // Single-quoted heredoc keeps shell from expanding `${LOGTURA_…}`
-  // tokens — the sidecar binary handles env interpolation itself.
+/** Refreshable path: exec-source sidecar holds the connection-scoped
+ *  JWT and exchanges it for a fresh Supabase access token before
+ *  each poll. `tag` is a short suffix that makes the temp config
+ *  path unique per channel (fn vs gw) so two sidecars on the same
+ *  forwarder don't clobber each other. */
+function execSidecarYaml(tag: string, endpoint: string): string {
   const tomlLines = [
     `endpoint = ${JSON.stringify(endpoint)}`,
     `scrape_interval_secs = 30`,
@@ -294,11 +363,9 @@ function execSidecarYaml(connKey: string, endpoint: string): string {
     `authorization = "Bearer \${LOGTURA_TAIL_TOKEN}"`,
     ``,
     `[rows]`,
-    // Supabase analytics envelope is { result: [...], error: null } —
-    // single nest. Live-verified 2026-05-12 against the deployed API.
     `json_path = "$.result"`,
   ];
-  const cfgPath = `/tmp/logtura-supabase-${connKey}.toml`;
+  const cfgPath = `/tmp/logtura-supabase-${tag}.toml`;
   const script = [
     `cat > ${cfgPath} <<'EOF'`,
     ...tomlLines,
@@ -320,50 +387,29 @@ function execSidecarYaml(connKey: string, endpoint: string): string {
   ].join("\n");
 }
 
-/** Build the normalize remap. Logflare's response is wrapped
- *  (`{ result: { result: [...] } }`), so we extract the array,
- *  process each record in VRL (mapping function_id → slug from
- *  the codegen-time dict, dropping records whose function_id isn't
- *  in the selected set), and set `. = <processed array>` so Vector
- *  fans the batch out into one event per record. */
-function edgeNormalizeYaml(
+/** function_edge_logs normalize. Maps function_id (UUID) to slug,
+ *  drops events for unselected functions in list mode, infers level
+ *  from event_message text (no status_code on this table). */
+function functionNormalizeYaml(
   inputKeys: string[],
   sources: SourceRef[],
   selectionKind: "list" | "all",
 ): string {
-  // Map of function_id (UUID) -> slug. Each source's metadata
-  // carries the function_id we recorded at discovery time. For
-  // `list` selection, events whose function_id isn't in this map
-  // represent functions the user didn't pick; the remap drops them.
-  // For `all` selection the map is empty and the remap falls back
-  // to using the raw function_id as `.script` so unknown functions
-  // still show up.
   const idToSlug: Array<{ fnId: string; slug: string }> = [];
   for (const s of sources) {
     const fnId = String(s.metadata?.function_id ?? "");
     if (fnId) idToSlug.push({ fnId, slug: s.externalId });
   }
-
   const slugLookup = idToSlug.map(
     ({ fnId, slug }) =>
       `  if fn_id == ${JSON.stringify(fnId)} { script = ${JSON.stringify(slug)} }`,
   );
-
-  // Slug-miss policy. In "all" mode an unknown function_id gets
-  // tagged with its UUID. In "list" mode it stays empty, and the
-  // gate below drops the event.
   const slugMissLine =
     selectionKind === "all"
       ? `  if script == "" { script = fn_id }`
       : `  # script == "" means this event is for an unselected function; drop`;
 
   const vrl = [
-    // Real Supabase analytics response shape is
-    //   { result: [<records>], error: null }
-    // (single-nest — the docs/older clients showed double-nest but
-    // the deployed API is flat). The exec-source path uses a JSON
-    // path of `$.result` to extract this array; the http_client
-    // path lands the whole envelope here and we unwrap inside VRL.
     `records = array(.result) ?? array(.) ?? []`,
     `out = []`,
     `for_each(records) -> |_i, rec| {`,
@@ -372,27 +418,16 @@ function edgeNormalizeYaml(
     ...slugLookup,
     slugMissLine,
     `  if script != "" {`,
-    // No status_code on function_edge_logs (HTTP envelope lives on
-    // edge_logs not function_edge_logs). Default level is "info";
-    // event_message text drives warn/error escalation when it
-    // matches obvious failure tokens.
     `    level = "info"`,
     `    body = string(rec.event_message) ?? ""`,
-    // Order matters: warn first (less specific), then error overrides
-    // so any match on error keywords wins regardless of warn match.
     `    if match(body, r'(?i)\\b(warn|warning|deprecated)\\b') { level = "warn" }`,
     `    if match(body, r'(?i)\\b(error|exception|traceback|panic|failed)\\b') { level = "error" }`,
     `    err = level == "error"`,
     `    if body == "" { body = "supabase-edge " + script }`,
-    // Microsecond to millisecond conversion. Vector accepts integer
-    // epoch in either; downstream sinks formatting timestamps want
-    // a consistent unit. Other drivers leave .timestamp as-is from
-    // upstream; we normalize here because the upstream is unusual
-    // (microseconds), and a 1000x-off timestamp would confuse any
-    // human looking at the Slack body.
     `    ts_us = int(rec.timestamp) ?? 0`,
     `    out = push(out, {`,
     `      "script": script,`,
+    `      "source_kind": "function",`,
     `      "level": level,`,
     `      "error": err,`,
     `      "message": "[" + script + "] " + body,`,
@@ -404,9 +439,54 @@ function edgeNormalizeYaml(
     `    })`,
     `  }`,
     `}`,
-    // Setting `.` to an array fans out. Vector emits one event per
-    // element. The downstream tag_conn + monitors then see properly
-    // per-event normalized records.
+    `. = out`,
+  ];
+  return [
+    "    type: remap",
+    `    inputs: [${inputKeys.map((k) => `"${k}"`).join(", ")}]`,
+    "    source: |-",
+    ...vrl.map((line) => `      ${line}`),
+  ].join("\n");
+}
+
+/** edge_logs gateway normalize. Real HTTP status_code drives level
+ *  inference (5xx → error, 4xx → warn). `.script` is set to the
+ *  HTTP path's leading segment ("rest", "auth", "storage",
+ *  "functions") so monitors can route by surface. */
+function gatewayNormalizeYaml(inputKeys: string[]): string {
+  const vrl = [
+    `records = array(.result) ?? array(.) ?? []`,
+    `out = []`,
+    `for_each(records) -> |_i, rec| {`,
+    `  status = int(rec.status_code) ?? 0`,
+    `  method = string(rec.method) ?? ""`,
+    `  path = string(rec.path) ?? ""`,
+    // Pull the surface ("rest" / "auth" / "storage" / "functions"
+    // / "realtime") off the path's first segment for routing.
+    `  parts = split(path, "/")`,
+    `  surface = ""`,
+    `  if length(parts) > 1 { surface = string(parts[1]) ?? "" }`,
+    `  if surface == "" { surface = "unknown" }`,
+    `  level = "info"`,
+    `  if status >= 400 { level = "warn" }`,
+    `  if status >= 500 { level = "error" }`,
+    `  err = status >= 500`,
+    `  body = string(rec.event_message) ?? ""`,
+    `  if body == "" { body = method + " " + to_string(status) + " " + path }`,
+    `  ts_us = int(rec.timestamp) ?? 0`,
+    `  out = push(out, {`,
+    `    "script": surface,`,
+    `    "source_kind": "gateway",`,
+    `    "level": level,`,
+    `    "error": err,`,
+    `    "message": "[" + surface + "] " + body,`,
+    `    "timestamp": ts_us / 1000,`,
+    `    "status_code": status,`,
+    `    "method": method,`,
+    `    "path": path,`,
+    `    "id": string(rec.id) ?? "",`,
+    `  })`,
+    `}`,
     `. = out`,
   ];
   return [

@@ -53,7 +53,7 @@ describe("generatePipeline", () => {
     const bSources = b.components.filter((c) => c.kind === "source");
     expect(aSources).toHaveLength(1);
     expect(bSources).toHaveLength(1);
-    expect(aSources[0]!.key).toBe("supabase_edge_con_x");
+    expect(aSources[0]!.key).toBe("supabase_edge_con_x_fn");
     expect(bSources[0]!.key).toBe(aSources[0]!.key);
   });
 
@@ -273,7 +273,8 @@ describe("discoverSources", () => {
     expect(fetchSpy.mock.calls[0]![0]).toMatch(
       /\/v1\/projects\/edzvfyvdtvwrnaoyupqq\/functions$/,
     );
-    expect(sources).toHaveLength(2);
+    // 2 functions + 1 synthetic gateway pseudo-source.
+    expect(sources).toHaveLength(3);
     expect(sources[0]).toEqual({
       sourceKind: "supabase_edge_fn",
       externalId: "agent-chat",
@@ -284,6 +285,68 @@ describe("discoverSources", () => {
         version: 16,
       },
     });
+    const gateway = sources.find((s) => s.sourceKind === "supabase_gateway");
+    expect(gateway).toBeDefined();
+    expect(gateway!.externalId).toBe("_gateway_");
+    expect(gateway!.displayName).toContain("HTTP gateway");
     fetchSpy.mockRestore();
+  });
+
+  it("gateway source can be picked alongside functions", () => {
+    const pipe = supabaseEdgeLogsDriver.generatePipeline({
+      connection: dummyConnection,
+      selection: {
+        kind: "list",
+        sources: [
+          fnSource("src_a", "agent-chat", "6eda78cc-fc80-40f0-bd85-05ab0388842c"),
+          {
+            id: "src_gw",
+            externalId: "_gateway_",
+            displayName: "Project HTTP gateway",
+            sourceKind: "supabase_gateway",
+            metadata: null,
+          },
+        ],
+      },
+    });
+    const sources = pipe.components.filter((c) => c.kind === "source");
+    expect(sources).toHaveLength(2);
+    const keys = sources.map((s) => s.key);
+    expect(keys).toContain("supabase_edge_con_x_fn");
+    expect(keys).toContain("supabase_edge_con_x_gw");
+    const gwSrc = sources.find((s) => s.key.endsWith("_gw"))!;
+    // Gateway SQL hits edge_logs, not function_edge_logs.
+    expect(decodeURIComponent(gwSrc.yaml)).toContain("FROM edge_logs");
+    // Converging transform fans both normalizes into outputKey.
+    expect(pipe.outputKey).toBe("supabase_edge_con_x_norm");
+    expect(pipe.components.some((c) => c.key === pipe.outputKey)).toBe(true);
+  });
+
+  it("gateway-only selection uses status-code level inference", () => {
+    const pipe = supabaseEdgeLogsDriver.generatePipeline({
+      connection: dummyConnection,
+      selection: {
+        kind: "list",
+        sources: [
+          {
+            id: "src_gw",
+            externalId: "_gateway_",
+            displayName: "Project HTTP gateway",
+            sourceKind: "supabase_gateway",
+            metadata: null,
+          },
+        ],
+      },
+    });
+    const sources = pipe.components.filter((c) => c.kind === "source");
+    expect(sources).toHaveLength(1);
+    expect(sources[0]!.key).toBe("supabase_edge_con_x_gw");
+    const norm = pipe.components.find((c) => c.kind === "transform")!;
+    expect(norm.yaml).toContain("status >= 400");
+    expect(norm.yaml).toContain("status >= 500");
+    expect(norm.yaml).toContain('"source_kind": "gateway"');
+    // No converger when only one channel — outputKey points right
+    // at the single normalize.
+    expect(pipe.outputKey).toBe(norm.key);
   });
 });
