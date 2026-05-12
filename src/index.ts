@@ -607,10 +607,25 @@ apiAuth.post("/connections/:id/reconnect", async (c) => {
     throw err;
   }
 
-  // Prefer the explicit account id from the form; fall back to the
-  // existing row's so a token-only rotation doesn't drop it.
-  let accountId = explicitAccountId ?? existing.external_account_id;
-  if (!accountId && accounts.length > 0) accountId = accounts[0]!.id;
+  // Prefer the explicit account id from the form; otherwise keep
+  // the existing ref if the new token can still see it (the common
+  // "I rotated my token, same project" case). If the existing ref
+  // isn't visible to the new token, clear it so the picker fires
+  // again — better than letting discovery 404 against a project
+  // the new token can't reach.
+  let accountId: string | null = explicitAccountId;
+  if (!accountId && existing.external_account_id) {
+    const stillVisible = accounts.some(
+      (a) => a.id === existing.external_account_id,
+    );
+    accountId = stillVisible ? existing.external_account_id : null;
+  }
+  // Auto-pick a first account ONLY for providers that aren't
+  // supabase-edge-logs. Supabase defers project picking to the
+  // post-create UI; the same rule applies to reconnect.
+  if (!accountId && driver.id !== "supabase-edge-logs" && accounts.length > 0) {
+    accountId = accounts[0]!.id;
+  }
 
   const displayNameRaw = form.get("display_name");
   const displayName =
