@@ -10,10 +10,12 @@
 import {
   type ConnectionRef,
   type DiscoveredSource,
+  type DriverPipeline,
   type ProviderDriver,
   ProviderError,
-  type SourceBlock,
+  type ProviderSelection,
   type SourceRef,
+  type VectorComponent,
 } from "@logtura/core";
 import {
   cfFetch,
@@ -40,6 +42,11 @@ export const cloudflareWorkerTailDriver: ProviderDriver<CloudflareCredentials> =
   id: "cloudflare-worker-tail",
   displayName: "Cloudflare worker tail",
   sourceLabel: "Worker",
+  // wrangler tail is per-script. The "all workers in the account"
+  // shape needs the account-level Tail API (websocket, not exec
+  // subprocesses). Tracked as a future driver refactor; for now
+  // hosts wanting "all" expand the selection at picking time.
+  capabilities: { selection: "list" },
   verifyCredentials: verifyCfCredentials,
   checkCredentialFreshness: checkCfCredentialFreshness,
 
@@ -67,42 +74,92 @@ export const cloudflareWorkerTailDriver: ProviderDriver<CloudflareCredentials> =
     }));
   },
 
-  generateSourceBlock({ source }): SourceBlock {
-    const key = `cf_worker_${safeKey(source.externalId)}`;
-    const yaml = [
-      `    type: exec`,
-      // wrangler picks up CLOUDFLARE_ACCOUNT_ID from env;
-      // `--account-id` is rejected by recent versions.
-      //
-      // wrangler tail --format json emits PRETTY-printed multi-line
-      // JSON. Vector's exec + codec:json + default newline_delimited
-      // framing tries one line at a time → flood of parse errors.
-      // jq -c --unbuffered collapses each value to a single line.
-      `    command: ["sh", "-c", "wrangler tail ${shellQuoteCfWorkerName(source.externalId)} --format json | jq -c --unbuffered ."]`,
-      `    mode: streaming`,
-      `    decoding:`,
-      `      codec: json`,
-    ].join("\n");
-    return { key, yaml };
-  },
-
-  generateNormalize({ inputKeys }) {
-    if (inputKeys.length === 0) return null;
-    return { key: "cf_worker_norm", yaml: workerNormalizeYaml(inputKeys) };
-  },
-
-  runtimeSpec(_connection: ConnectionRef) {
-    return cfRuntimeSpec({
+  generatePipeline({
+    connection,
+    selection,
+  }: {
+    connection: ConnectionRef;
+    selection: ProviderSelection;
+  }): DriverPipeline {
+    if (selection.kind === "all") {
+      throw new Error(
+        "cloudflare-worker-tail does not support \"all\" selection",
+      );
+    }
+    const sources = selection.sources;
+    const components: VectorComponent[] = [];
+    const manifest: DriverPipeline["manifest"] = [];
+    const connKey = safeKey(connection.id);
+    const sourceKeys: string[] = [];
+    for (const s of sources) {
+      const key = `cf_worker_${connKey}_${safeKey(s.externalId)}`;
+      components.push({
+        key,
+        kind: "source",
+        yaml: workerExecSourceYaml(s),
+      });
+      sourceKeys.push(key);
+      manifest.push({
+        id: key,
+        role: "source",
+        category: "primary",
+        label: `Worker · ${s.displayName}`,
+        links: { connectionId: connection.id, sourceId: s.id },
+      });
+    }
+    const normalizeKey = `cf_worker_${connKey}_norm`;
+    if (sourceKeys.length > 0) {
+      components.push({
+        key: normalizeKey,
+        kind: "transform",
+        yaml: workerNormalizeYaml(sourceKeys),
+      });
+      manifest.push({
+        id: normalizeKey,
+        role: "normalize",
+        category: "plumbing",
+        label: "Normalize · Worker",
+        detail: `${sourceKeys.length} source${sourceKeys.length === 1 ? "" : "s"}`,
+        links: { connectionId: connection.id },
+      });
+    }
+    const runtime = cfRuntimeSpec({
       // Bare token-page URL; the connect-time pre-checked scopes URL
-      // lives in the host's connect adapter. helpUrl is rendered next
-      // to the env var on a deploy's "missing creds" view, where we
-      // can't assume the user wants the worker-tail scope set.
+      // lives in the host's connect adapter. helpUrl is rendered
+      // next to the env var on a deploy's "missing creds" view,
+      // where we can't assume the user wants the worker-tail scope
+      // set.
       helpUrl: "https://dash.cloudflare.com/profile/api-tokens",
       extraDockerInstall:
         "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y --no-install-recommends nodejs && npm install -g wrangler@latest",
     });
+    return {
+      components,
+      outputKey: normalizeKey,
+      envVars: runtime.envVars,
+      dockerfileDeps: runtime.dockerfileDeps,
+      manifest,
+    };
   },
 };
+
+function workerExecSourceYaml(source: SourceRef): string {
+  return [
+    `    type: exec`,
+    // wrangler picks up CLOUDFLARE_ACCOUNT_ID from env;
+    // `--account-id` is rejected by recent versions.
+    //
+    // wrangler tail --format json emits PRETTY-printed multi-line
+    // JSON. Vector's exec with codec:json + default newline_delimited
+    // framing tries one line at a time and yields a flood of parse
+    // errors. jq -c --unbuffered collapses each value to a single
+    // line.
+    `    command: ["sh", "-c", "wrangler tail ${shellQuoteCfWorkerName(source.externalId)} --format json | jq -c --unbuffered ."]`,
+    `    mode: streaming`,
+    `    decoding:`,
+    `      codec: json`,
+  ].join("\n");
+}
 
 /** Flattens a `wrangler tail --format json` event into the uniform
  *  pipeline shape (.message, .level, .error, .script, .timestamp).

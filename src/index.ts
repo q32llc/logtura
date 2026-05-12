@@ -140,6 +140,8 @@ api.get("/providers", (c) => {
     return {
       id: p.id,
       displayName: p.displayName,
+      sourceLabel: p.sourceLabel,
+      capabilities: p.capabilities,
       connectFlow: connect?.connectFlow ?? null,
       formFields: connect?.formFields ?? [],
     };

@@ -81,8 +81,12 @@ export interface ConnectionRef {
   displayName: string;
 }
 
-/** Caller view of a single source row for the driver. */
+/** Caller view of a single source row for the driver. `id` is the
+ *  caller's opaque identifier for the source; drivers echo it back
+ *  into `manifest.links.sourceId` so a host UI can connect picked
+ *  rows to live components. Drivers don't otherwise interpret it. */
 export interface SourceRef {
+  id: string;
   externalId: string;
   displayName: string;
   sourceKind: string;
@@ -120,27 +124,90 @@ export interface DockerfileDep {
   aptPackages?: string[];
 }
 
-/** A driver's emitted Vector source block. */
-export interface SourceBlock {
-  /** Unique YAML key under `sources:`. */
+/** A single Vector component emitted by a driver. */
+export interface VectorComponent {
+  /** Top-level component name in vector.yaml. Must be unique across
+   *  the entire bundle. Convention: prefix with driver id and
+   *  connection.id to avoid collisions between drivers and between
+   *  multiple connections using the same driver. */
   key: string;
-  /** YAML body for `sources.<key>:` (without the key itself). */
+  /** Where the component goes in vector.yaml. `source` is anything
+   *  receiving data from outside (exec, http_client, http_server).
+   *  `transform` is anything operating on events from upstream
+   *  components (remap, filter, dedupe, reduce, sample, throttle). */
+  kind: "source" | "transform";
+  /** YAML body for the component. Indented one level (4 spaces) so
+   *  it sits cleanly under `<sources|transforms>.<key>:`. */
   yaml: string;
+}
+
+/** Caller's view of which platform components the user picked. */
+export type ProviderSelection =
+  | { kind: "list"; sources: SourceRef[] }
+  | { kind: "all" };
+
+/** The driver's contribution to the bundle. The driver decides
+ *  how many Vector components to emit and how they wire together
+ *  internally. The renderer just plugs `outputKey` into downstream
+ *  monitor / sink pipelines. */
+export interface DriverPipeline {
+  /** Source + transform components the driver wants in the bundle. */
+  components: VectorComponent[];
+  /** Vector component name that produces the driver's normalized
+   *  output stream. Downstream tag_conn / tag_received transforms
+   *  read from this key. Must match one of the `components[].key`. */
+  outputKey: string;
+  /** Env vars the driver needs at runtime. The host fills `value`
+   *  from stored credentials / external account / user input. */
+  envVars: EnvVarSpec[];
+  /** Dockerfile install steps the forwarder image needs. */
+  dockerfileDeps: DockerfileDep[];
+  /** Optional manifest entries describing the emitted components.
+   *  Each entry's id should match a `components[].key`. Hosts that
+   *  display per-component status (deployment dashboards, throughput
+   *  panels) consume these. Hosts that don't display anything can
+   *  ignore the field. */
+  manifest?: ComponentManifestEntry[];
+}
+
+/** Static metadata about a driver's runtime behavior. Hosts read
+ *  this to gate UI affordances and set user expectations without
+ *  trying inputs against `generatePipeline` to see what works.
+ *
+ *  Grows by adding optional fields; existing consumers don't have
+ *  to handle absence of fields that didn't exist when they were
+ *  written. */
+export interface ProviderCapabilities {
+  /** Which selection kinds the driver accepts via generatePipeline:
+   *
+   *  - `"list"` only: caller must supply an explicit list of sources.
+   *    Most per-component drivers (today's wrangler tail, flyctl logs).
+   *  - `"all"` only: the platform exposes one account-wide stream
+   *    and nothing finer-grained. The renderer passes
+   *    `{ kind: "all" }`; sources are not selectable.
+   *  - `"both"`: the driver supports either. Today's
+   *    supabase-edge-logs (one project poll either filters to picked
+   *    functions or keeps everything).
+   */
+  selection: "all" | "list" | "both";
 }
 
 /** The provider-driver contract. One driver = one transport (e.g.
  *  cloudflare-worker-tail, fly-log-tail).
  *
- *  This is the OSS surface — pure renderer + API client. Anything
+ *  This is the OSS surface: pure renderer + API client. Anything
  *  web-shaped (form schemas, OAuth start paths, paste button copy)
  *  lives in a host-side adapter, not here. That keeps the
- *  @logtura/driver-* packages narrow enough for outside
- *  contributors to ship driver PRs without touching SaaS routing. */
+ *  @logtura/driver-* packages narrow enough for outside contributors
+ *  to ship driver PRs without touching host routing. */
 export interface ProviderDriver<TCreds = unknown> {
   readonly id: string;
   readonly displayName: string;
   /** Friendly noun used in UI labels ("Worker", "App"). */
   readonly sourceLabel: string;
+  /** Static metadata about runtime behavior (what selection kinds
+   *  the driver accepts, etc). See ProviderCapabilities. */
+  readonly capabilities: ProviderCapabilities;
 
   /** Verify credentials, return accessible accounts. */
   verifyCredentials(credentials: TCreds): Promise<ProviderAccount[]>;
@@ -158,35 +225,16 @@ export interface ProviderDriver<TCreds = unknown> {
     accountId: string;
   }): Promise<DiscoveredSource[]>;
 
-  /** Render a single source block (key + yaml) for a selected
-   *  source. The renderer concatenates these into `sources:`. */
-  generateSourceBlock(input: {
-    source: SourceRef;
+  /** Render this connection's complete driver-side pipeline.
+   *  Returns Vector source and transform components, runtime env
+   *  vars, Dockerfile install steps, and optional manifest entries.
+   *  The renderer plugs the returned `outputKey` into downstream
+   *  monitor / sink wiring; the driver controls everything inside
+   *  the sub-graph. */
+  generatePipeline(input: {
     connection: ConnectionRef;
-  }): SourceBlock;
-
-  /** Render this driver's one normalize transform (fans in every
-   *  source it emitted). One driver, one transport, one normalize.
-   *  Return null if events already carry the uniform shape.
-   *
-   *  `sources` is the same list whose `generateSourceBlock` results
-   *  are wired in as `inputKeys`. Drivers whose log payload carries
-   *  the source identity natively (cf-worker `.scriptName`, fly
-   *  `.app` injected via jq) can ignore it. Drivers whose payload
-   *  identifies the source by an opaque id (eg Supabase Edge
-   *  Functions reference functions by UUID, not slug) use it to
-   *  inject a UUID → human-slug map into the emitted VRL. */
-  generateNormalize?(input: {
-    inputKeys: string[];
-    connection: ConnectionRef;
-    sources: SourceRef[];
-  }): { key: string; yaml: string } | null;
-
-  /** Runtime needs — env vars + dockerfile install steps. */
-  runtimeSpec(connection: ConnectionRef): {
-    envVars: EnvVarSpec[];
-    dockerfileDeps: DockerfileDep[];
-  };
+    selection: ProviderSelection;
+  }): DriverPipeline;
 }
 
 export class ProviderError extends Error {
@@ -252,7 +300,14 @@ export interface DestinationDriver<TConfig = unknown> {
  *  calling generateBundle; the renderer doesn't talk to storage. */
 export interface GeneratorConnection {
   connection: Connection;
+  /** Components the user picked. Empty array is valid (zero-source
+   *  connections are useful for heartbeat-only deploys). Ignored
+   *  when `selectAll` is true. */
   selectedSources: Source[];
+  /** When true, the driver subscribes to every component visible to
+   *  the connection's account, including future additions. Requires
+   *  the driver to declare `supportsAllSelection: true`. */
+  selectAll?: boolean;
   /** Decrypted credentials matching the driver's TCreds shape.
    *  Optional when the renderer should emit placeholders rather
    *  than inlining values (e.g., self-deploy bundle UI). */

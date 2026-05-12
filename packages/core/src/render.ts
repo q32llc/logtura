@@ -6,6 +6,7 @@ import type {
   Destination,
   DestinationDriver,
   DockerfileDep,
+  DriverPipeline,
   EnvVarSpec,
   FilterStep,
   GeneratedBundle,
@@ -13,6 +14,7 @@ import type {
   GeneratorConnection,
   GeneratorMonitor,
   ProviderDriver,
+  ProviderSelection,
   Source,
   SourceRef,
 } from "./types";
@@ -21,7 +23,7 @@ export function generateBundle(input: GenerateInput): GeneratedBundle {
   if (input.connections.length === 0) {
     throw new Error("generateBundle requires at least one connection");
   }
-  // Driver lookups are scoped to this call — `input.providers` and
+  // Driver lookups are scoped to this call. `input.providers` and
   // `input.destinations` are the registry. No global state, no
   // implicit side-effects.
   const providerById = new Map(input.providers.map((p) => [p.id, p]));
@@ -33,9 +35,11 @@ export function generateBundle(input: GenerateInput): GeneratedBundle {
   const getDestinationDriver = (id: string): DestinationDriver | null =>
     destinationById.get(id) ?? null;
 
-  // Resolve drivers + refs per connection upfront. Helps the
-  // downstream code stay shaped like a simple iteration instead of
-  // a join inside the hot path.
+  // Resolve drivers + refs per connection, then immediately ask each
+  // driver to render its complete sub-pipeline. The driver owns its
+  // component layout end-to-end; the renderer just stitches the
+  // sub-pipelines together with downstream tagging / filtering /
+  // sinks.
   const resolved = input.connections.map((c) => {
     const driver = getProvider(c.connection.provider);
     if (!driver) {
@@ -47,17 +51,34 @@ export function generateBundle(input: GenerateInput): GeneratedBundle {
       displayName: c.connection.displayName,
     };
     const sources: SourceRef[] = c.selectedSources.map((s) => ({
+      id: s.id,
       externalId: s.externalId,
       displayName: s.displayName,
       sourceKind: s.sourceKind,
       metadata: s.metadata,
     }));
+    const selection: ProviderSelection = c.selectAll
+      ? { kind: "all" }
+      : { kind: "list", sources };
+    if (
+      selection.kind === "all" &&
+      driver.capabilities.selection === "list"
+    ) {
+      throw new Error(
+        `Driver ${driver.id} does not support "all" selection; pick sources explicitly or pick a different driver`,
+      );
+    }
+    const pipeline = driver.generatePipeline({
+      connection: connectionRef,
+      selection,
+    });
     return {
       raw: c,
       connectionRef,
       driver,
       sources,
       sourceRows: c.selectedSources,
+      pipeline,
     };
   });
 
@@ -69,20 +90,19 @@ export function generateBundle(input: GenerateInput): GeneratedBundle {
     getDestinationDriver,
   );
 
-  // Accumulate Dockerfile install deps + env vars from every
-  // connection's driver. Dedup env vars by name (defensive — the
-  // one-per-provider constraint already prevents collisions, but
-  // identical entries would still double-render in the bundle UI).
-  const dockerDeps = resolved.flatMap((r) =>
-    r.driver.runtimeSpec(r.connectionRef).dockerfileDeps,
-  );
+  // Aggregate Dockerfile deps + env vars contributed by each
+  // connection's pipeline. Dedup env vars by name; with one driver
+  // per connection a same-named var across connections (eg two CF
+  // accounts both wanting CLOUDFLARE_API_TOKEN) collapses to one
+  // entry. First-write-wins, which matches what the forwarder
+  // image's single env exposes anyway.
+  const dockerDeps = resolved.flatMap((r) => r.pipeline.dockerfileDeps);
   const dockerfile = renderDockerfile(dockerDeps);
 
   const seenEnv = new Set<string>();
   const envVars: BundleEnvVar[] = [];
   for (const r of resolved) {
-    const spec = r.driver.runtimeSpec(r.connectionRef);
-    for (const e of spec.envVars) {
+    for (const e of r.pipeline.envVars) {
       if (seenEnv.has(e.name)) continue;
       seenEnv.add(e.name);
       let value: string | null = null;
@@ -200,6 +220,7 @@ interface ResolvedConnection {
   driver: ProviderDriver;
   sources: SourceRef[];
   sourceRows: Source[];
+  pipeline: DriverPipeline;
 }
 
 function renderVectorYaml(
@@ -229,134 +250,47 @@ function renderVectorYaml(
   lines.push('  address: "0.0.0.0:8686"');
   lines.push("");
 
-  // ---- sources -----------------------------------------------------
+  // Render the source-side of the bundle:
+  //   - For each connection, the driver returned its own complete
+  //     sub-pipeline (one or more Vector components + an outputKey).
+  //     We dump the source-kind components under `sources:` and the
+  //     transform-kind components under `transforms:` later. We
+  //     don't iterate per-source or wire normalize transforms; the
+  //     driver did all that internally.
+  //   - Downstream wiring keys off `pipeline.outputKey` per
+  //     connection. Each connection's outputKey feeds its own
+  //     tag_conn_<id>, which feeds tag_received, which feeds the
+  //     monitor / sink chains.
+  const driverTransforms: Array<{ key: string; yaml: string }> = [];
+  // Per-connection: the output key the driver said to read from. If
+  // a connection has zero components (e.g. a driver that accepted an
+  // empty selection) we skip its tag_conn entirely.
+  const connectionOutputKey = new Map<string, string>();
   lines.push("sources:");
-  // Tracked per-connection so each connection's events get tagged
-  // with its OWN `.logtura_connection_id` + `.logtura_provider`
-  // downstream. Without this the multi-connection bundle would
-  // either smush events into one tag_source (wrong) or duplicate
-  // the tag remap per source (wasteful).
-  // One driver = one transport = one normalize. Each driver
-  // contributes a single normalize transform per bundle that fans in
-  // every source it owns. The per-conn structure tracks which
-  // driver(s) each connection uses so we can emit the right
-  // tag_conn_<connId> downstream.
-  interface PerConn {
-    /** Source keys that DON'T have a driver-provided normalize. */
-    rawDirectKeys: string[];
-    /** Driver IDs this connection contributes sources to. */
-    driverIds: string[];
-    /** True once we've actually emitted any source for this conn. */
-    hasSources: boolean;
-  }
-  const perConn = new Map<string, PerConn>();
-  function conn(id: string): PerConn {
-    let c = perConn.get(id);
-    if (!c) {
-      c = { rawDirectKeys: [], driverIds: [], hasSources: false };
-      perConn.set(id, c);
-    }
-    return c;
-  }
-  // Sources grouped by driver id — each driver gets one normalize
-  // transform fanning in every source it emitted.
-  const sourcesByDriver = new Map<
-    string,
-    { driverId: string; inputKeys: string[]; sources: SourceRef[] }
-  >();
   const totalSources = resolved.reduce((n, r) => n + r.sources.length, 0);
-  if (totalSources === 0) {
-    lines.push(
-      "  # No sources selected — pipeline runs with heartbeat only.",
-    );
-  } else {
-    // Drivers that consolidate multiple selected sources into a
-    // single Vector component (Supabase Edge Functions polls the
-    // project's analytics endpoint once, regardless of how many
-    // functions are selected) signal that by returning the same
-    // block.key for every source in a connection. We emit the
-    // YAML body + push the inputKey exactly once per unique key,
-    // and the per-source componentManifest entries all point at
-    // the shared component.
-    const emittedSourceKeys = new Set<string>();
-    for (const r of resolved) {
-      r.sources.forEach((s, idx) => {
-        const row = r.sourceRows[idx]!;
-        const block = r.driver.generateSourceBlock({
-          source: s,
-          connection: r.connectionRef,
-        });
-        const firstForKey = !emittedSourceKeys.has(block.key);
-        if (firstForKey) {
-          emittedSourceKeys.add(block.key);
-          lines.push(`  ${block.key}:`);
-          lines.push(block.yaml);
-        }
-        const c = conn(r.connectionRef.id);
-        c.hasSources = true;
-        componentManifest.push({
-          // Use the source-row id so each selected function/worker
-          // gets its own manifest entry even when several share a
-          // backing Vector component. Downstream UI shows N tiles,
-          // one per selected source.
-          id: row.id,
-          role: "source",
-          category: "primary",
-          label: `${r.driver.sourceLabel} · ${s.displayName}`,
-          links: {
-            connectionId: r.connectionRef.id,
-            sourceId: row.id,
-          },
-        });
-        const bucket = sourcesByDriver.get(r.driver.id) ?? {
-          driverId: r.driver.id,
-          inputKeys: [],
-          sources: [],
-        };
-        if (firstForKey) bucket.inputKeys.push(block.key);
-        bucket.sources.push(s);
-        sourcesByDriver.set(r.driver.id, bucket);
-        if (!c.driverIds.includes(r.driver.id)) {
-          c.driverIds.push(r.driver.id);
-        }
-      });
-    }
-  }
-  // Resolve normalize block per driver. With one-driver-per-
-  // transport, a connection's provider uniquely picks the driver.
-  const normalizeBlocks: Array<{ key: string; yaml: string }> = [];
-  const normalizeOutputByDriver = new Map<string, string>();
-  for (const [driverId, bucket] of sourcesByDriver) {
-    const rep = resolved.find((r) => r.driver.id === driverId);
-    if (!rep) continue;
-    const block = rep.driver.generateNormalize?.({
-      inputKeys: bucket.inputKeys,
-      connection: rep.connectionRef,
-      sources: bucket.sources,
-    });
-    if (block) {
-      normalizeBlocks.push(block);
-      normalizeOutputByDriver.set(driverId, block.key);
-      componentManifest.push({
-        id: block.key,
-        role: "normalize",
-        category: "plumbing",
-        label: `Normalize · ${rep.driver.sourceLabel}`,
-        detail: `${bucket.inputKeys.length} source${bucket.inputKeys.length === 1 ? "" : "s"}`,
-        links: { connectionId: rep.connectionRef.id },
-      });
-    } else {
-      // Driver has no normalize → events flow downstream raw.
-      // Each connection contributing to this driver gets the raw
-      // source keys as direct inputs to its tag_conn step.
-      for (const r of resolved) {
-        if (r.driver.id !== driverId) continue;
-        const c = conn(r.connectionRef.id);
-        for (const k of bucket.inputKeys) {
-          if (!c.rawDirectKeys.includes(k)) c.rawDirectKeys.push(k);
-        }
+  let anySourceComponent = false;
+  for (const r of resolved) {
+    if (r.pipeline.components.length === 0) continue;
+    connectionOutputKey.set(r.connectionRef.id, r.pipeline.outputKey);
+    for (const comp of r.pipeline.components) {
+      if (comp.kind === "source") {
+        lines.push(`  ${comp.key}:`);
+        lines.push(comp.yaml);
+        anySourceComponent = true;
+      } else {
+        driverTransforms.push({ key: comp.key, yaml: comp.yaml });
       }
     }
+    // Driver-provided manifest entries describe the emitted
+    // components. Hosts that display per-component status use these.
+    for (const m of r.pipeline.manifest ?? []) {
+      componentManifest.push(m);
+    }
+  }
+  if (!anySourceComponent) {
+    lines.push(
+      "  # No sources selected. Pipeline runs with heartbeat only.",
+    );
   }
   lines.push("  internal_metrics:");
   lines.push("    type: internal_metrics");
@@ -402,11 +336,12 @@ function renderVectorYaml(
 
   // ---- transforms --------------------------------------------------
   // Order:
-  //   1. Per-kind normalize remaps (one per provider+kind).
-  //   2. Per-connection tag_conn_<id> — fans in that connection's
-  //      normalize outputs + any raw-direct keys, sets
-  //      .logtura_connection_id + .logtura_provider.
-  //   3. Unified tag_received — fans in every tag_conn output, sets
+  //   1. Driver-provided transform-kind components (one driver
+  //      sub-pipeline per connection, all opaque to the renderer).
+  //   2. Per-connection tag_conn_<id>. Fans in the driver's
+  //      outputKey, sets .logtura_connection_id and
+  //      .logtura_provider.
+  //   3. Unified tag_received. Fans in every tag_conn output, sets
   //      .logtura_received_at = now(). Single downstream input for
   //      monitors.
   //
@@ -414,29 +349,20 @@ function renderVectorYaml(
   // when there's nothing to emit. Vector rejects a bare `transforms:`
   // with no body.
   const transformLines: string[] = [];
-  for (const n of normalizeBlocks) {
-    transformLines.push(`  ${n.key}:`);
-    transformLines.push(n.yaml);
+  for (const t of driverTransforms) {
+    transformLines.push(`  ${t.key}:`);
+    transformLines.push(t.yaml);
     transformLines.push("");
   }
 
   const tagConnOutputKeys: string[] = [];
   for (const r of resolved) {
-    const c = perConn.get(r.connectionRef.id);
-    if (!c || !c.hasSources) continue;
-    const inputs: string[] = [];
-    for (const driverId of c.driverIds) {
-      const out = normalizeOutputByDriver.get(driverId);
-      if (out) inputs.push(out);
-    }
-    inputs.push(...c.rawDirectKeys);
-    if (inputs.length === 0) continue;
+    const outputKey = connectionOutputKey.get(r.connectionRef.id);
+    if (!outputKey) continue;
     const key = `tag_conn_${safeKey(r.connectionRef.id)}`;
     transformLines.push(`  ${key}:`);
     transformLines.push("    type: remap");
-    transformLines.push(
-      `    inputs: [${inputs.map((k) => `"${k}"`).join(", ")}]`,
-    );
+    transformLines.push(`    inputs: ["${outputKey}"]`);
     transformLines.push("    source: |-");
     transformLines.push(`      .logtura_connection_id = "${r.connectionRef.id}"`);
     transformLines.push(`      .logtura_provider = "${r.driver.id}"`);

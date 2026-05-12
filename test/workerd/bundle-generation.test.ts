@@ -172,10 +172,11 @@ describe("GET /api/deployments/:id/bundle", () => {
     expect(vectorYaml!.content).toContain("transforms:");
     expect(vectorYaml!.content).toContain("sinks:");
 
-    // The consolidated normalize transform — 50 workers should give
-    // ONE cf_worker_norm with multiple inputs (we shipped this
-    // refactor recently; the test pins it).
-    expect(vectorYaml!.content).toContain("cf_worker_norm:");
+    // The consolidated normalize transform: 50 workers give ONE
+    // normalize transform with multiple inputs (per-connection
+    // since the v0.2.0 driver contract, so the key includes the
+    // connection slug).
+    expect(vectorYaml!.content).toMatch(/cf_worker_con_[A-Za-z0-9_-]+_norm:/);
 
     // The rollup_fmt VRL is what tripped E103 twice in prod. Make
     // sure it's actually being emitted and uses to_string (not

@@ -15,10 +15,12 @@
 import {
   type ConnectionRef,
   type DiscoveredSource,
+  type DriverPipeline,
   type ProviderDriver,
   ProviderError,
-  type SourceBlock,
+  type ProviderSelection,
   type SourceRef,
+  type VectorComponent,
 } from "@logtura/core";
 
 const REST_BASE = "https://api.fly.io";
@@ -89,6 +91,10 @@ export const flyLogTailDriver: ProviderDriver<FlyCredentials> = {
   id: "fly-log-tail",
   displayName: "Fly.io log tail",
   sourceLabel: "App",
+  // No native "subscribe to all apps in the org". flyctl logs is
+  // per-app. Hosts wanting "all" semantics expand the selection at
+  // picking time.
+  capabilities: { selection: "list" },
 
   async verifyCredentials(creds) {
     // Token validity is implicit in a successful org list; Fly
@@ -133,71 +139,60 @@ export const flyLogTailDriver: ProviderDriver<FlyCredentials> = {
     return sources;
   },
 
-  generateSourceBlock({
-    source,
+  generatePipeline({
+    connection,
+    selection,
   }: {
-    source: SourceRef;
     connection: ConnectionRef;
-  }): SourceBlock {
-    if (source.sourceKind !== "fly_app") {
-      throw new Error(`Unknown fly source kind: ${source.sourceKind}`);
+    selection: ProviderSelection;
+  }): DriverPipeline {
+    if (selection.kind === "all") {
+      // Should not reach here since supportsAllSelection is false,
+      // but the renderer also gates on the flag.
+      throw new Error("fly-log-tail does not support \"all\" selection");
     }
-    const key = `fly_app_${safeKey(source.externalId)}`;
-    // `flyctl logs --json -a <app>` emits JSON events but in the
-    // pretty-printed multi-line shape (same trap as wrangler tail):
-    // Vector's exec source with `codec: json` + the default
-    // newline_delimited framing tries one line at a time and fails
-    // on every line of a multi-line object. Pipe through `jq -c`
-    // to compact each value onto a single line.
-    //
-    // The pipeline also:
-    //   1. Forces flyctl's stdout LINE-buffered with `stdbuf -oL`.
-    //      libc defaults to BLOCK buffering on a pipe (4 KB), so
-    //      without this, events stall in flyctl's buffer until
-    //      enough accumulate. `jq -c --unbuffered` only handles
-    //      jq's output buffering, not flyctl's.
-    //   2. Injects the app name as a jq VARIABLE via `--arg app`,
-    //      not via shell-string interpolation. Earlier attempts to
-    //      embed it inline tripped over double-escaping and
-    //      produced an invalid jq filter — jq died, Vector then
-    //      read flyctl's raw multi-line output and JSON-parse-
-    //      errored on every line. `--arg` sidesteps the entire
-    //      escaping problem; the app name lives in jq's variable
-    //      space, not in the filter source.
-    //
-    // shellQuote() already restricts externalId to
-    // [a-zA-Z0-9_-]+ so it's safe to interpolate the `-a` arg.
-    //
-    // NOTE the `$$app` — Vector pre-processes the WHOLE config file
-    // for `$VAR` / `${VAR}` env-var substitution before parsing any
-    // structure, even inside string literals destined for `sh -c`.
-    // A bare `$app` in the jq filter would be substituted to "" at
-    // load time (no env var named `app`) and Vector crashes with
-    // "Missing environment variable in config. name = app". The
-    // escape `$$` collapses to a single `$` in Vector's pre-pass,
-    // so jq receives `$app` and resolves it from `--arg app …`.
-    const app = shellQuote(source.externalId);
-    const command = `stdbuf -oL flyctl logs --json -a ${app} | jq -c --unbuffered --arg app ${app} '. + {app: $$app}'`;
-    const yaml = [
-      `    type: exec`,
-      `    command: ["sh", "-c", ${JSON.stringify(command)}]`,
-      `    mode: streaming`,
-      `    decoding:`,
-      `      codec: json`,
-    ].join("\n");
-    return { key, yaml };
-  },
-
-  generateNormalize({ inputKeys }) {
-    if (inputKeys.length === 0) return null;
+    const sources = selection.sources;
+    const components: VectorComponent[] = [];
+    const manifest: DriverPipeline["manifest"] = [];
+    const connKey = safeKey(connection.id);
+    const sourceKeys: string[] = [];
+    for (const s of sources) {
+      if (s.sourceKind !== "fly_app") {
+        throw new Error(`Unknown fly source kind: ${s.sourceKind}`);
+      }
+      const key = `fly_${connKey}_${safeKey(s.externalId)}`;
+      components.push({ key, kind: "source", yaml: flyExecSourceYaml(s) });
+      sourceKeys.push(key);
+      manifest.push({
+        id: key,
+        role: "source",
+        category: "primary",
+        label: `App · ${s.displayName}`,
+        links: { connectionId: connection.id, sourceId: s.id },
+      });
+    }
+    // One normalize transform per connection fans in every selected
+    // app's exec source. outputKey is the normalize's key so
+    // downstream tag_conn reads from it.
+    const normalizeKey = `fly_${connKey}_norm`;
+    if (sourceKeys.length > 0) {
+      components.push({
+        key: normalizeKey,
+        kind: "transform",
+        yaml: flyAppNormalizeYaml(sourceKeys),
+      });
+      manifest.push({
+        id: normalizeKey,
+        role: "normalize",
+        category: "plumbing",
+        label: "Normalize · App",
+        detail: `${sourceKeys.length} source${sourceKeys.length === 1 ? "" : "s"}`,
+        links: { connectionId: connection.id },
+      });
+    }
     return {
-      key: "fly_app_norm",
-      yaml: flyAppNormalizeYaml(inputKeys),
-    };
-  },
-
-  runtimeSpec() {
-    return {
+      components,
+      outputKey: normalizeKey,
       envVars: [
         {
           name: "FLY_API_TOKEN",
@@ -218,9 +213,55 @@ export const flyLogTailDriver: ProviderDriver<FlyCredentials> = {
           aptPackages: ["curl", "ca-certificates"],
         },
       ],
+      manifest,
     };
   },
 };
+
+/** Build the Vector exec source for a single fly app.
+ *
+ *  `flyctl logs --json -a <app>` emits JSON events but in the
+ *  pretty-printed multi-line shape (same trap as wrangler tail).
+ *  Vector's exec source with `codec: json` and the default
+ *  newline_delimited framing tries one line at a time and fails on
+ *  every line of a multi-line object. Pipe through `jq -c` to
+ *  compact each value onto a single line.
+ *
+ *  The pipeline also:
+ *    1. Forces flyctl's stdout LINE-buffered with `stdbuf -oL`.
+ *       libc defaults to BLOCK buffering on a pipe (4 KB), so
+ *       without this, events stall in flyctl's buffer until
+ *       enough accumulate. `jq -c --unbuffered` only handles
+ *       jq's output buffering, not flyctl's.
+ *    2. Injects the app name as a jq VARIABLE via `--arg app`,
+ *       not via shell-string interpolation. Earlier attempts to
+ *       embed it inline tripped over double-escaping and produced
+ *       an invalid jq filter (jq died, Vector then read flyctl's
+ *       raw multi-line output and JSON-parse-errored on every
+ *       line). `--arg` sidesteps the entire escaping problem.
+ *
+ *  shellQuote() restricts externalId to [a-zA-Z0-9_-]+ so it's safe
+ *  to interpolate the `-a` arg.
+ *
+ *  NOTE the `$$app`: Vector pre-processes the WHOLE config file for
+ *  `$VAR` / `${VAR}` env-var substitution before parsing any
+ *  structure, even inside string literals destined for `sh -c`. A
+ *  bare `$app` in the jq filter would be substituted to "" at load
+ *  time (no env var named `app`) and Vector crashes with "Missing
+ *  environment variable in config. name = app". The escape `$$`
+ *  collapses to a single `$` in Vector's pre-pass, so jq receives
+ *  `$app` and resolves it from `--arg app`. */
+function flyExecSourceYaml(source: SourceRef): string {
+  const app = shellQuote(source.externalId);
+  const command = `stdbuf -oL flyctl logs --json -a ${app} | jq -c --unbuffered --arg app ${app} '. + {app: $$app}'`;
+  return [
+    `    type: exec`,
+    `    command: ["sh", "-c", ${JSON.stringify(command)}]`,
+    `    mode: streaming`,
+    `    decoding:`,
+    `      codec: json`,
+  ].join("\n");
+}
 
 function safeKey(s: string): string {
   return s.replace(/[^a-zA-Z0-9_]/g, "_");

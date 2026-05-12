@@ -54,6 +54,6 @@ export type {
   DockerfileDep,
   EnvVarSpec,
   ProviderAccount,
-  SourceBlock,
   SourceRef,
+  VectorComponent,
 } from "./types";

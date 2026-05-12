@@ -19,9 +19,12 @@ import {
 import {
   type ConnectionRef,
   type DiscoveredSource,
+  type DriverPipeline,
   type ProviderDriver,
   ProviderError,
-  type SourceBlock,
+  type ProviderSelection,
+  type SourceRef,
+  type VectorComponent,
 } from "@logtura/core";
 
 interface CfAiGateway {
@@ -33,6 +36,8 @@ export const cloudflareAiGatewayDriver: ProviderDriver<CloudflareCredentials> = 
   id: "cloudflare-ai-gateway",
   displayName: "Cloudflare AI Gateway",
   sourceLabel: "AI Gateway",
+  // Per-gateway endpoints only. No native account-wide stream.
+  capabilities: { selection: "list" },
   verifyCredentials: verifyCfCredentials,
   checkCredentialFreshness: checkCfCredentialFreshness,
 
@@ -60,38 +65,79 @@ export const cloudflareAiGatewayDriver: ProviderDriver<CloudflareCredentials> = 
     }));
   },
 
-  generateSourceBlock({ source }): SourceBlock {
-    const key = `cf_ai_gateway_${safeKey(source.externalId)}`;
-    const yaml = [
-      `    type: http_client`,
-      `    endpoint: "https://api.cloudflare.com/client/v4/accounts/\${CLOUDFLARE_ACCOUNT_ID}/ai-gateway/gateways/${source.externalId}/logs"`,
-      `    method: GET`,
-      `    interval_secs: 30`,
-      `    headers:`,
-      // http_client headers want map<string, array<string>>.
-      `      authorization: ["Bearer \${CLOUDFLARE_API_TOKEN}"]`,
-      `    decoding:`,
-      `      codec: json`,
-    ].join("\n");
-    return { key, yaml };
-  },
-
-  generateNormalize({ inputKeys }) {
-    if (inputKeys.length === 0) return null;
-    return {
-      key: "cf_ai_gateway_norm",
-      yaml: aiGatewayNormalizeYaml(inputKeys),
-    };
-  },
-
-  runtimeSpec(_connection: ConnectionRef) {
-    // No extra Docker install for AI Gateway — http_client is in
-    // Vector itself.
-    return cfRuntimeSpec({
+  generatePipeline({
+    connection,
+    selection,
+  }: {
+    connection: ConnectionRef;
+    selection: ProviderSelection;
+  }): DriverPipeline {
+    if (selection.kind === "all") {
+      throw new Error(
+        "cloudflare-ai-gateway does not support \"all\" selection",
+      );
+    }
+    const sources = selection.sources;
+    const components: VectorComponent[] = [];
+    const manifest: DriverPipeline["manifest"] = [];
+    const connKey = safeKey(connection.id);
+    const sourceKeys: string[] = [];
+    for (const s of sources) {
+      const key = `cf_ai_gateway_${connKey}_${safeKey(s.externalId)}`;
+      components.push({ key, kind: "source", yaml: aiGatewaySourceYaml(s) });
+      sourceKeys.push(key);
+      manifest.push({
+        id: key,
+        role: "source",
+        category: "primary",
+        label: `AI Gateway · ${s.displayName}`,
+        links: { connectionId: connection.id, sourceId: s.id },
+      });
+    }
+    const normalizeKey = `cf_ai_gateway_${connKey}_norm`;
+    if (sourceKeys.length > 0) {
+      components.push({
+        key: normalizeKey,
+        kind: "transform",
+        yaml: aiGatewayNormalizeYaml(sourceKeys),
+      });
+      manifest.push({
+        id: normalizeKey,
+        role: "normalize",
+        category: "plumbing",
+        label: "Normalize · AI Gateway",
+        detail: `${sourceKeys.length} source${sourceKeys.length === 1 ? "" : "s"}`,
+        links: { connectionId: connection.id },
+      });
+    }
+    // No extra Docker install for AI Gateway. http_client is built
+    // into Vector.
+    const runtime = cfRuntimeSpec({
       helpUrl: "https://dash.cloudflare.com/profile/api-tokens",
     });
+    return {
+      components,
+      outputKey: normalizeKey,
+      envVars: runtime.envVars,
+      dockerfileDeps: runtime.dockerfileDeps,
+      manifest,
+    };
   },
 };
+
+function aiGatewaySourceYaml(source: SourceRef): string {
+  return [
+    `    type: http_client`,
+    `    endpoint: "https://api.cloudflare.com/client/v4/accounts/\${CLOUDFLARE_ACCOUNT_ID}/ai-gateway/gateways/${source.externalId}/logs"`,
+    `    method: GET`,
+    `    interval_secs: 30`,
+    `    headers:`,
+    // http_client headers want map<string, array<string>>.
+    `      authorization: ["Bearer \${CLOUDFLARE_API_TOKEN}"]`,
+    `    decoding:`,
+    `      codec: json`,
+  ].join("\n");
+}
 
 /** AI Gateway log entry shape: {id, success, status_code,
  *  request_*, model, provider, response_status_code, ...}. Map to

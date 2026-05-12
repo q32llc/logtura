@@ -28,7 +28,10 @@ export type {
   ProviderAccount,
   EnvVarSpec,
   DockerfileDep,
-  SourceBlock,
+  VectorComponent,
+  DriverPipeline,
+  ProviderCapabilities,
+  ProviderSelection,
   SinkBundle,
   DestinationFlow,
 

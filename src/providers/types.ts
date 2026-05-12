@@ -11,8 +11,8 @@ export type {
   EnvVarSpec,
   ProviderAccount,
   ProviderDriver,
-  SourceBlock,
   SourceRef,
+  VectorComponent,
 } from "@logtura/core";
 
 export { ProviderError } from "@logtura/core";

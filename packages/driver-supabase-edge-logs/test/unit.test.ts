@@ -3,179 +3,192 @@ import { supabaseEdgeLogsDriver } from "../src/index";
 
 const dummyConnection = {
   id: "con_x",
-  provider: "supabase-edge-logs",
-  displayName: "test",
   externalAccountId: "edzvfyvdtvwrnaoyupqq",
+  displayName: "test",
 };
 
-const dummySource = {
-  id: "src_a",
-  externalId: "agent-chat",
-  displayName: "agent-chat",
+const fnSource = (id: string, slug: string, uuid: string) => ({
+  id,
+  externalId: slug,
+  displayName: slug,
   sourceKind: "supabase_edge_fn",
-  metadata: { function_id: "6eda78cc-fc80-40f0-bd85-05ab0388842c" },
-};
+  metadata: { function_id: uuid },
+});
 
-// parseFormData + connectFlow + formFields moved to the SaaS-side
-// connect adapter (src/providers/connect/supabase-edge-logs.ts);
-// see test/workerd/connect-adapters.test.ts for those tests.
+// parseFormData + connectFlow + formFields live in the SaaS-side
+// connect adapter (src/providers/connect/supabase-edge-logs.ts).
 
-describe("generateSourceBlock", () => {
-  it("keys on connection.id (not source) so the renderer dedupes N → 1", () => {
-    // Regression-pin: the original shape was one http_client per
-    // function; Supabase's analytics endpoint started 429-ing at 6
-    // functions × 30s polls. Now every selected function in the
-    // same connection returns the same block key, and the renderer
-    // emits ONE source per connection.
-    const a = supabaseEdgeLogsDriver.generateSourceBlock({
-      source: dummySource,
+describe("capabilities", () => {
+  it("declares both selection modes (one poll handles list or all)", () => {
+    expect(supabaseEdgeLogsDriver.capabilities.selection).toBe("both");
+  });
+});
+
+describe("generatePipeline", () => {
+  it("emits one http_client per connection regardless of selection size", () => {
+    const a = supabaseEdgeLogsDriver.generatePipeline({
       connection: dummyConnection,
-    });
-    const b = supabaseEdgeLogsDriver.generateSourceBlock({
-      source: {
-        ...dummySource,
-        externalId: "agent-thread",
-        metadata: { function_id: "0ab47137-d31d-45b6-a31a-bf3c90b85d9a" },
+      selection: {
+        kind: "list",
+        sources: [
+          fnSource("src_a", "agent-chat", "6eda78cc-fc80-40f0-bd85-05ab0388842c"),
+        ],
       },
-      connection: dummyConnection,
     });
-    expect(a.key).toBe("supabase_edge_con_x");
-    expect(b.key).toBe(a.key);
-    expect(b.yaml).toBe(a.yaml);
+    const b = supabaseEdgeLogsDriver.generatePipeline({
+      connection: dummyConnection,
+      selection: {
+        kind: "list",
+        sources: [
+          fnSource("src_a", "agent-chat", "6eda78cc-fc80-40f0-bd85-05ab0388842c"),
+          fnSource(
+            "src_b",
+            "agent-thread",
+            "0ab47137-d31d-45b6-a31a-bf3c90b85d9a",
+          ),
+        ],
+      },
+    });
+    const aSources = a.components.filter((c) => c.kind === "source");
+    const bSources = b.components.filter((c) => c.kind === "source");
+    expect(aSources).toHaveLength(1);
+    expect(bSources).toHaveLength(1);
+    expect(aSources[0]!.key).toBe("supabase_edge_con_x");
+    expect(bSources[0]!.key).toBe(aSources[0]!.key);
   });
 
   it("different connections get distinct keys", () => {
-    const a = supabaseEdgeLogsDriver.generateSourceBlock({
-      source: dummySource,
+    const a = supabaseEdgeLogsDriver.generatePipeline({
       connection: dummyConnection,
+      selection: {
+        kind: "list",
+        sources: [
+          fnSource("src_a", "agent-chat", "6eda78cc-fc80-40f0-bd85-05ab0388842c"),
+        ],
+      },
     });
-    const b = supabaseEdgeLogsDriver.generateSourceBlock({
-      source: dummySource,
+    const b = supabaseEdgeLogsDriver.generatePipeline({
       connection: { ...dummyConnection, id: "con_y" },
+      selection: {
+        kind: "list",
+        sources: [
+          fnSource("src_a", "agent-chat", "6eda78cc-fc80-40f0-bd85-05ab0388842c"),
+        ],
+      },
     });
-    expect(a.key).not.toBe(b.key);
+    const aKey = a.components.find((c) => c.kind === "source")!.key;
+    const bKey = b.components.find((c) => c.kind === "source")!.key;
+    expect(aKey).not.toBe(bKey);
   });
 
-  it("emits http_client poll against the analytics endpoint", () => {
-    const block = supabaseEdgeLogsDriver.generateSourceBlock({
-      source: dummySource,
+  it("source yaml polls the analytics endpoint with bearer auth", () => {
+    const pipe = supabaseEdgeLogsDriver.generatePipeline({
       connection: dummyConnection,
+      selection: {
+        kind: "list",
+        sources: [
+          fnSource("src_a", "agent-chat", "6eda78cc-fc80-40f0-bd85-05ab0388842c"),
+        ],
+      },
     });
-    expect(block.yaml).toContain("type: http_client");
-    expect(block.yaml).toContain("interval_secs: 30");
-    expect(block.yaml).toContain(
-      'authorization: ["Bearer ${SUPABASE_PAT}"]',
-    );
-    expect(block.yaml).toContain(
+    const src = pipe.components.find((c) => c.kind === "source")!;
+    expect(src.yaml).toContain("type: http_client");
+    expect(src.yaml).toContain("interval_secs: 30");
+    expect(src.yaml).toContain('authorization: ["Bearer ${SUPABASE_PAT}"]');
+    expect(src.yaml).toContain(
       "/v1/projects/${SUPABASE_PROJECT_REF}/analytics/endpoints/logs.all",
     );
   });
 
-  it("SQL no longer filters by function_id — per-function routing is in normalize", () => {
-    // The consolidated source can't see all selected sources at
-    // codegen time, so we drop the per-function WHERE clause and
-    // let normalize filter via its UUID→slug map.
-    const block = supabaseEdgeLogsDriver.generateSourceBlock({
-      source: dummySource,
+  it("SQL doesn't filter by function_id (consolidated routing in normalize)", () => {
+    const pipe = supabaseEdgeLogsDriver.generatePipeline({
       connection: dummyConnection,
+      selection: {
+        kind: "list",
+        sources: [
+          fnSource("src_a", "agent-chat", "6eda78cc-fc80-40f0-bd85-05ab0388842c"),
+        ],
+      },
     });
-    expect(block.yaml).not.toContain(
+    const src = pipe.components.find((c) => c.kind === "source")!;
+    expect(src.yaml).not.toContain(
       encodeURIComponent("'6eda78cc-fc80-40f0-bd85-05ab0388842c'"),
     );
-    expect(block.yaml).not.toContain(encodeURIComponent("function_id ="));
+    expect(src.yaml).not.toContain(encodeURIComponent("function_id ="));
   });
 
   it("rejects sources missing function_id in metadata", () => {
     expect(() =>
-      supabaseEdgeLogsDriver.generateSourceBlock({
-        source: { ...dummySource, metadata: null },
+      supabaseEdgeLogsDriver.generatePipeline({
         connection: dummyConnection,
+        selection: {
+          kind: "list",
+          sources: [
+            { ...fnSource("src_a", "agent-chat", ""), metadata: null },
+          ],
+        },
       }),
     ).toThrow(/missing metadata.function_id/);
   });
-});
 
-describe("generateNormalize", () => {
-  it("returns null when no inputs are wired", () => {
-    expect(
-      supabaseEdgeLogsDriver.generateNormalize!({
-        inputKeys: [],
-        connection: dummyConnection,
-        sources: [],
-      }),
-    ).toBeNull();
-  });
-
-  it("emits unwrap + slug-map filter + per-record processing + fan-out", () => {
-    const norm = supabaseEdgeLogsDriver.generateNormalize!({
-      inputKeys: ["supabase_edge_con_x"],
+  it("list mode normalize emits slug-map + drop-on-miss", () => {
+    const pipe = supabaseEdgeLogsDriver.generatePipeline({
       connection: dummyConnection,
-      sources: [
-        dummySource,
-        {
-          id: "src_b",
-          externalId: "agent-thread",
-          displayName: "agent-thread",
-          sourceKind: "supabase_edge_fn",
-          metadata: { function_id: "0ab47137-d31d-45b6-a31a-bf3c90b85d9a" },
-        },
-      ],
+      selection: {
+        kind: "list",
+        sources: [
+          fnSource("src_a", "agent-chat", "6eda78cc-fc80-40f0-bd85-05ab0388842c"),
+          fnSource(
+            "src_b",
+            "agent-thread",
+            "0ab47137-d31d-45b6-a31a-bf3c90b85d9a",
+          ),
+        ],
+      },
     });
-    expect(norm?.key).toBe("supabase_edge_norm");
-    const y = norm!.yaml;
+    const norm = pipe.components.find((c) => c.kind === "transform")!;
+    const y = norm.yaml;
     expect(y).toContain("type: remap");
-    // Unwrap the Logflare envelope.
     expect(y).toContain("records = array(.result.result) ?? []");
-    // Function-id → slug map (one entry per discovered source).
     expect(y).toContain('"6eda78cc-fc80-40f0-bd85-05ab0388842c"');
     expect(y).toContain('script = "agent-chat"');
     expect(y).toContain('"0ab47137-d31d-45b6-a31a-bf3c90b85d9a"');
     expect(y).toContain('script = "agent-thread"');
-    // Default `script = ""` + the drop branch — the SQL pulls every
-    // project event; normalize is responsible for skipping records
-    // whose function_id isn't in the selected-source map.
-    expect(y).toContain('script = ""');
-    expect(y).toContain('if script == "" {');
-    // Status-code derived level.
+    // List mode drops events for unselected functions.
+    expect(y).toContain("# script ==");
     expect(y).toContain("status >= 500");
     expect(y).toContain("status >= 400");
-    // Microsecond → millisecond.
     expect(y).toContain("ts_us / 1000");
-    // Fan-out at the end.
     expect(y).toContain(". = out");
-    // [script] prefix so non-rollup monitors still ship tagged
-    // bodies (same pattern as the other drivers).
     expect(y).toContain('"[" + script + "] " + body');
   });
 
-  it("only emits slug entries for sources that carry a function_id", () => {
-    const norm = supabaseEdgeLogsDriver.generateNormalize!({
-      inputKeys: ["supabase_edge_con_x"],
+  it("all mode normalize tags unknown function_ids with the UUID instead of dropping", () => {
+    const pipe = supabaseEdgeLogsDriver.generatePipeline({
       connection: dummyConnection,
-      sources: [
-        // No function_id — should be skipped in the lookup, not crash.
-        { ...dummySource, metadata: null },
-        // Valid one.
-        {
-          ...dummySource,
-          externalId: "agent-two",
-          metadata: { function_id: "0ab47137-d31d-45b6-a31a-bf3c90b85d9a" },
-        },
-      ],
+      selection: { kind: "all" },
     });
-    expect(norm!.yaml).toContain("agent-two");
-    expect(norm!.yaml).not.toContain('"agent-chat"');
+    const norm = pipe.components.find((c) => c.kind === "transform")!;
+    const y = norm.yaml;
+    expect(y).not.toContain('script = "agent-chat"');
+    expect(y).toContain('if script == "" { script = fn_id }');
   });
-});
 
-describe("runtimeSpec", () => {
   it("declares SUPABASE_PAT + SUPABASE_PROJECT_REF, no docker deps", () => {
-    const spec = supabaseEdgeLogsDriver.runtimeSpec(dummyConnection);
-    expect(spec.envVars.map((e) => e.name)).toEqual([
+    const pipe = supabaseEdgeLogsDriver.generatePipeline({
+      connection: dummyConnection,
+      selection: {
+        kind: "list",
+        sources: [
+          fnSource("src_a", "agent-chat", "6eda78cc-fc80-40f0-bd85-05ab0388842c"),
+        ],
+      },
+    });
+    expect(pipe.envVars.map((e) => e.name)).toEqual([
       "SUPABASE_PAT",
       "SUPABASE_PROJECT_REF",
     ]);
-    expect(spec.dockerfileDeps).toEqual([]);
+    expect(pipe.dockerfileDeps).toEqual([]);
   });
 });
 

@@ -79,7 +79,7 @@ describe("generateBundle", () => {
     expect(bundle.vectorYaml).toContain("heartbeat_pulse:");
     expect(bundle.vectorYaml).toContain("heartbeat_logtura:");
     // No source-driven plumbing.
-    expect(bundle.vectorYaml).not.toContain("mock_norm:");
+    expect(bundle.vectorYaml).not.toMatch(/mock_con_[A-Za-z0-9_-]+_norm:/);
     expect(bundle.vectorYaml).not.toContain("tag_received:");
   });
 
@@ -98,14 +98,18 @@ describe("generateBundle", () => {
     });
     expect(bundle.selectedCount).toBe(1);
     const y = bundle.vectorYaml;
-    expect(y).toContain("mock_thing_one:");
-    expect(y).toContain("mock_norm:");
+    // Component keys are connection-scoped (the driver picks the
+    // shape; this mock uses mock_<conn>_<source> and mock_<conn>_norm).
+    expect(y).toContain("mock_con_a_thing_one:");
+    expect(y).toContain("mock_con_a_norm:");
     expect(y).toMatch(/tag_conn_con_[A-Za-z0-9_-]+:/);
     expect(y).toContain("tag_received:");
     // Credential value flows into envVars.
     const tokenEnv = bundle.envVars.find((v) => v.name === "MOCK_API_TOKEN");
     expect(tokenEnv?.value).toBe("tok_inline");
-    // Primary manifest row.
+    // Primary manifest row. The driver echoed back Source.id via
+    // links.sourceId, so a host UI can pair the manifest entry with
+    // the picked source.
     const sources = bundle.componentManifest.filter((c) => c.role === "source");
     expect(sources).toHaveLength(1);
     expect(sources[0]!.label).toBe("Thing · thing-one");

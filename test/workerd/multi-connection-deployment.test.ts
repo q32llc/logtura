@@ -130,10 +130,14 @@ describe("multi-connection deployments (source-derived)", () => {
 
     expect(bundle.selectedCount).toBe(2);
     const yaml = bundle.files.find((f) => f.name === "vector.yaml")!.content;
-    expect(yaml).toContain("cf_worker_my_worker");
-    expect(yaml).toContain("fly_app_my_app");
-    expect(yaml).toContain("cf_worker_norm:");
-    expect(yaml).toContain("fly_app_norm:");
+    // Component keys are connection-scoped after the v0.2.0 driver
+    // contract refactor: `cf_worker_<connSlug>_<script>` and
+    // `fly_<connSlug>_<app>`. Pin via regex without nailing the
+    // exact connection id.
+    expect(yaml).toMatch(/cf_worker_con_[A-Za-z0-9_-]+_my_worker/);
+    expect(yaml).toMatch(/fly_con_[A-Za-z0-9_-]+_my_app/);
+    expect(yaml).toMatch(/cf_worker_con_[A-Za-z0-9_-]+_norm:/);
+    expect(yaml).toMatch(/fly_con_[A-Za-z0-9_-]+_norm:/);
     // Per-connection tag transforms exist for each derived
     // connection; tag_received fans them together.
     expect(yaml).toMatch(/tag_conn_con_[A-Za-z0-9_-]+:/g);

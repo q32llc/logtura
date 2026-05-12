@@ -36,6 +36,10 @@ export type {
 export interface GeneratorConnection {
   connection: ConnectionRow;
   selectedSources: LogSourceRow[];
+  /** When true, the driver subscribes to every component in this
+   *  connection's account, including future additions. Driver must
+   *  declare capabilities.selection === "all" or "both". */
+  selectAll?: boolean;
   credentials?: Record<string, unknown>;
 }
 
@@ -75,6 +79,7 @@ export function generateBundle(input: GenerateInput): GeneratedBundle {
     connections: input.connections.map((c) => ({
       connection: rowToConnection(c.connection),
       selectedSources: c.selectedSources.map(rowToSource),
+      selectAll: c.selectAll,
       credentials: c.credentials,
     })),
     monitors: input.monitors.map((m) => ({

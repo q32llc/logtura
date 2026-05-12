@@ -1,5 +1,5 @@
 /** Fast unit tests for the cloudflare-worker-tail driver. Pure
- *  shapes only — no docker, no fetch network. The black-box
+ *  shapes only: no docker, no fetch network. The black-box
  *  "the YAML this driver emits parses through vector validate"
  *  check lives in vector-validate.test.ts. */
 import { describe, expect, it, vi } from "vitest";
@@ -7,97 +7,125 @@ import { cloudflareWorkerTailDriver } from "../src/index";
 
 const dummyConnection = {
   id: "con_x",
-  provider: "cloudflare-worker-tail",
-  displayName: "test",
   externalAccountId: "acct_x",
+  displayName: "test",
 };
 
-// parseFormData + connectFlow + formFields moved to the SaaS-side
-// connect adapter (src/providers/connect/cloudflare-worker-tail.ts);
-// see test/workerd/connect-adapters.test.ts for those tests.
+const workerSource = (id: string, name: string) => ({
+  id,
+  externalId: name,
+  displayName: name,
+  sourceKind: "cf_worker",
+  metadata: null,
+});
 
-describe("generateSourceBlock", () => {
-  it("emits a wrangler tail exec command with json + jq pipeline", () => {
-    const block = cloudflareWorkerTailDriver.generateSourceBlock({
-      source: {
-        id: "src_a",
-        externalId: "my-worker",
-        displayName: "my-worker",
-        sourceKind: "cf_worker",
-        metadata: null,
-      },
+// parseFormData + connectFlow + formFields live in the SaaS-side
+// connect adapter (src/providers/connect/cloudflare-worker-tail.ts).
+
+describe("capabilities", () => {
+  it("declares list-only selection (wrangler tail is per-script)", () => {
+    expect(cloudflareWorkerTailDriver.capabilities.selection).toBe("list");
+  });
+});
+
+describe("generatePipeline", () => {
+  it("rejects all-selection", () => {
+    expect(() =>
+      cloudflareWorkerTailDriver.generatePipeline({
+        connection: dummyConnection,
+        selection: { kind: "all" },
+      }),
+    ).toThrow(/does not support "all"/);
+  });
+
+  it("emits one exec source per worker + a normalize transform", () => {
+    const pipe = cloudflareWorkerTailDriver.generatePipeline({
       connection: dummyConnection,
+      selection: {
+        kind: "list",
+        sources: [
+          workerSource("src_a", "my-worker"),
+          workerSource("src_b", "other-worker"),
+        ],
+      },
     });
-    expect(block.key).toBe("cf_worker_my_worker");
-    expect(block.yaml).toContain("type: exec");
-    expect(block.yaml).toContain("wrangler tail my-worker --format json");
-    expect(block.yaml).toContain("jq -c --unbuffered");
-    expect(block.yaml).toContain("codec: json");
+    const sources = pipe.components.filter((c) => c.kind === "source");
+    const transforms = pipe.components.filter((c) => c.kind === "transform");
+    expect(sources).toHaveLength(2);
+    expect(transforms).toHaveLength(1);
+    expect(pipe.outputKey).toBe(transforms[0]!.key);
+    // Connection-scoped keys so multiple CF accounts can coexist
+    // in one bundle without colliding on identically-named workers.
+    expect(sources[0]!.key).toBe("cf_worker_con_x_my_worker");
+    expect(sources[0]!.yaml).toContain("type: exec");
+    expect(sources[0]!.yaml).toContain(
+      "wrangler tail my-worker --format json",
+    );
+    expect(sources[0]!.yaml).toContain("jq -c --unbuffered");
   });
 
   it("refuses shell-suspicious worker names", () => {
     expect(() =>
-      cloudflareWorkerTailDriver.generateSourceBlock({
-        source: {
-          id: "src_a",
-          externalId: "evil; rm -rf /",
-          displayName: "evil",
-          sourceKind: "cf_worker",
-          metadata: null,
-        },
+      cloudflareWorkerTailDriver.generatePipeline({
         connection: dummyConnection,
+        selection: {
+          kind: "list",
+          sources: [workerSource("src_a", "evil; rm -rf /")],
+        },
       }),
     ).toThrow(/suspicious worker name/);
   });
-});
 
-describe("generateNormalize", () => {
-  it("returns null when no inputs are wired", () => {
-    expect(
-      cloudflareWorkerTailDriver.generateNormalize!({
-        inputKeys: [],
-        connection: dummyConnection,
-        sources: [],
-      }),
-    ).toBeNull();
-  });
-
-  it("emits a remap with the worker level/error classifier", () => {
-    const norm = cloudflareWorkerTailDriver.generateNormalize!({
-      inputKeys: ["cf_worker_a", "cf_worker_b"],
+  it("normalize remap classifies error vs warn vs info from outcome + logs", () => {
+    const pipe = cloudflareWorkerTailDriver.generatePipeline({
       connection: dummyConnection,
-      sources: [],
+      selection: { kind: "list", sources: [workerSource("src_a", "a")] },
     });
-    expect(norm?.key).toBe("cf_worker_norm");
-    const y = norm!.yaml;
-    expect(y).toContain('inputs: ["cf_worker_a", "cf_worker_b"]');
+    const norm = pipe.components.find((c) => c.kind === "transform")!;
+    const y = norm.yaml;
     expect(y).toContain("type: remap");
     // Per-event level: structured-log scan + outcome classifier.
     expect(y).toContain("has_error_log");
     expect(y).toContain("worker_failed");
     expect(y).toContain("client_aborted");
-    // [script] prefix in the synthesized message body — source-side
+    // [script] prefix in the synthesized message body. Source-side
     // tagging so non-rollup monitors still ship a labeled body.
     expect(y).toContain('"[" + .script + "] "');
     // Worker-failure outcomes prefix the body with outcome=<reason>.
     // Regression pin: previously, a request that logged anything
-    // before CF killed it (exceededMemory, exceededCpu, etc.) showed
-    // only the surviving info logs in Slack, hiding the real cause.
+    // before CF killed it (exceededMemory, exceededCpu, etc.)
+    // showed only the surviving info logs, hiding the real cause.
     expect(y).toContain(
       'else if worker_failed { "outcome=" + outcome + " | " + join!(parts, " | ") }',
     );
   });
-});
 
-describe("runtimeSpec", () => {
   it("declares CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID env vars", () => {
-    const spec = cloudflareWorkerTailDriver.runtimeSpec(dummyConnection);
-    const names = spec.envVars.map((e) => e.name);
+    const pipe = cloudflareWorkerTailDriver.generatePipeline({
+      connection: dummyConnection,
+      selection: { kind: "list", sources: [workerSource("src_a", "a")] },
+    });
+    const names = pipe.envVars.map((e) => e.name);
     expect(names).toContain("CLOUDFLARE_API_TOKEN");
     expect(names).toContain("CLOUDFLARE_ACCOUNT_ID");
     // The wrangler dep needs node + npm; the driver bakes this into
     // the Dockerfile contribution.
-    expect(spec.dockerfileDeps[0]?.install).toContain("wrangler@latest");
+    expect(pipe.dockerfileDeps[0]?.install).toContain("wrangler@latest");
+  });
+
+  it("manifest echoes Source.id for host UI linking", () => {
+    const pipe = cloudflareWorkerTailDriver.generatePipeline({
+      connection: dummyConnection,
+      selection: {
+        kind: "list",
+        sources: [workerSource("src_chosen", "my-worker")],
+      },
+    });
+    const sourceEntry = (pipe.manifest ?? []).find(
+      (m) => m.role === "source",
+    );
+    expect(sourceEntry?.links?.sourceId).toBe("src_chosen");
+    expect(sourceEntry?.links?.connectionId).toBe("con_x");
   });
 });
 
