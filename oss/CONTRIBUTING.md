@@ -50,6 +50,20 @@ Package id, displayName, and sourceLabel all live in the driver const. Adding a 
 
 Open a PR against `main`. The CI workflow at `.github/workflows/test.yml` runs the full test matrix on push and PR.
 
+## Releasing
+
+Every package shares one version. To cut a release:
+
+```sh
+node scripts/bump-oss.mjs 0.X.Y   # in the private monorepo
+# commit, sync to logtura/logtura, push main
+cd ../logtura-public
+git tag v0.X.Y
+git push origin v0.X.Y
+```
+
+That tag push fires `.github/workflows/release.yml`. The workflow runs the full test matrix, publishes every `@logtura/*` package to npm via the `NPM_TOKEN` repo secret, and creates the GitHub release with auto-generated notes from the commits since the previous tag. No manual `pnpm publish`, no OTP prompt.
+
 ## License
 
 Contributions are accepted under the [Apache 2.0](./LICENSE) license.
