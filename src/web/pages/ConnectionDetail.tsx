@@ -1,5 +1,6 @@
 import {
   Alert,
+  Anchor,
   Badge,
   Button,
   Card,
@@ -58,6 +59,7 @@ export function ConnectionDetail() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [reconnectOpen, setReconnectOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const pollRef = useRef<number | null>(null);
 
   const refetch = useCallback(async () => {
@@ -200,6 +202,23 @@ export function ConnectionDetail() {
               {connection.provider}
             </Badge>
             account {connection.externalAccountId ?? "—"}
+            {connection.provider === "supabase-edge-logs" && (
+              <>
+                {" "}
+                <Anchor
+                  component="button"
+                  type="button"
+                  size="xs"
+                  onClick={() => setPickerOpen((v) => !v)}
+                >
+                  {connection.externalAccountId
+                    ? pickerOpen
+                      ? "hide picker"
+                      : "change project"
+                    : "pick project"}
+                </Anchor>
+              </>
+            )}
           </Text>
         </Stack>
         <Group>
@@ -250,11 +269,13 @@ export function ConnectionDetail() {
       <DiscoveryJobBanner job={latestJob} />
 
       {connection.provider === "supabase-edge-logs" &&
-        !connection.externalAccountId && (
+        (!connection.externalAccountId || pickerOpen) && (
           <SupabaseProjectPicker
             connectionId={connection.id}
+            currentRef={connection.externalAccountId}
             onPicked={(updated) => {
               setConnection(updated);
+              setPickerOpen(false);
               notifications.show({
                 message: `Picked ${updated.externalAccountId}; discovering…`,
                 color: "teal",
@@ -509,9 +530,11 @@ function DiscoveryJobBanner({ job }: { job: ApiJob | null }) {
 
 function SupabaseProjectPicker({
   connectionId,
+  currentRef,
   onPicked,
 }: {
   connectionId: string;
+  currentRef: string | null;
   onPicked: (c: ApiConnection) => void;
 }) {
   type Project = {
@@ -580,29 +603,46 @@ function SupabaseProjectPicker({
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {projects.map((p) => (
-                <Table.Tr key={p.ref}>
-                  <Table.Td>{p.name}</Table.Td>
-                  <Table.Td>
-                    <Text size="xs" ff="monospace">
-                      {p.ref}
-                    </Text>
-                  </Table.Td>
-                  <Table.Td>
-                    {p.functionCount === null ? "?" : p.functionCount}
-                  </Table.Td>
-                  <Table.Td>
-                    <Button
-                      size="compact-sm"
-                      variant={p.functionCount === 0 ? "default" : "filled"}
-                      loading={busyRef === p.ref}
-                      onClick={() => pick(p.ref)}
-                    >
-                      Pick
-                    </Button>
-                  </Table.Td>
-                </Table.Tr>
-              ))}
+              {projects.map((p) => {
+                const isCurrent = p.ref === currentRef;
+                return (
+                  <Table.Tr key={p.ref}>
+                    <Table.Td>
+                      {p.name}
+                      {isCurrent && (
+                        <Badge size="xs" color="teal" ml="xs">
+                          current
+                        </Badge>
+                      )}
+                    </Table.Td>
+                    <Table.Td>
+                      <Text size="xs" ff="monospace">
+                        {p.ref}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      {p.functionCount === null ? "?" : p.functionCount}
+                    </Table.Td>
+                    <Table.Td>
+                      <Button
+                        size="compact-sm"
+                        variant={
+                          isCurrent
+                            ? "default"
+                            : p.functionCount === 0
+                              ? "default"
+                              : "filled"
+                        }
+                        disabled={isCurrent}
+                        loading={busyRef === p.ref}
+                        onClick={() => pick(p.ref)}
+                      >
+                        {isCurrent ? "Selected" : "Pick"}
+                      </Button>
+                    </Table.Td>
+                  </Table.Tr>
+                );
+              })}
             </Table.Tbody>
           </Table>
         )}
