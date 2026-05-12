@@ -102,13 +102,15 @@ describe("provider connect — fly-log-tail", () => {
 describe("provider connect — supabase-edge-logs", () => {
   const adapter = getProviderConnect("supabase-edge-logs")!;
 
-  it("trims pat + project_ref", () => {
+  it("trims pat and defers project pick to the picker UI", () => {
     const f = new FormData();
     f.set("pat", "  sbp_abc  ");
+    // project_ref isn't a form field anymore — the picker handles
+    // it post-create. Setting it here should have no effect.
     f.set("project_ref", " edzvfyvdtvwrnaoyupqq ");
     const out = adapter.parseFormData(f);
     expect(out.credentials).toEqual({ pat: "sbp_abc" });
-    expect(out.explicitAccountId).toBe("edzvfyvdtvwrnaoyupqq");
+    expect(out.explicitAccountId).toBeNull();
   });
 
   it("rejects missing pat", () => {

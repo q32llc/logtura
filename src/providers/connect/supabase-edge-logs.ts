@@ -32,26 +32,19 @@ export const supabaseEdgeLogsConnect: ProviderConnectAdapter<SupabaseCredentials
       type: "password",
       placeholder: "sbp_...",
       description:
-        "Issue at supabase.com/dashboard/account/tokens. The token has full account scope — Supabase doesn't offer per-project PATs today, so prefer using a token created specifically for log-forwarding and revoke it when you're done.",
+        "Issue at supabase.com/dashboard/account/tokens. Supabase PATs are full-account scope. We'll show your projects after you submit so you can pick which one to forward logs from.",
       required: true,
-    },
-    {
-      name: "project_ref",
-      label: "Project ref (optional)",
-      type: "text",
-      placeholder: "auto-detect from the first project the token can reach",
-      description:
-        "20-character lowercase id like `edzvfyvdtvwrnaoyupqq`. Leave blank to auto-pick the first project the token sees.",
-      required: false,
     },
   ],
   parseFormData(form) {
     const pat = String(form.get("pat") ?? "").trim();
-    const projectRef = String(form.get("project_ref") ?? "").trim();
     if (!pat) throw new ProviderError("Missing pat", 400);
+    // Project ref is picked on the connection detail page, not here.
+    // One connection = one project; the picker shows every project
+    // the PAT can see + each project's edge-function count.
     return {
       credentials: { pat },
-      explicitAccountId: projectRef || null,
+      explicitAccountId: null,
     };
   },
 };
