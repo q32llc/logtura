@@ -14,6 +14,7 @@
     "db:migrate:local": "wrangler d1 migrations apply logtura --local",
     "db:migrate:remote": "wrangler d1 migrations apply logtura --remote",
     "secrets:sync": "node scripts/sync-secrets.mjs",
+    "smoke:supabase": "node scripts/smoke-supabase.mjs",
     "test:workerd": "vitest run --project workerd",
     "test:core": "vitest run --project @logtura/core",
     "test:drivers": "vitest run --project '@logtura/driver-*'",

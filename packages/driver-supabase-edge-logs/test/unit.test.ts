@@ -149,15 +149,16 @@ describe("generatePipeline", () => {
     const norm = pipe.components.find((c) => c.kind === "transform")!;
     const y = norm.yaml;
     expect(y).toContain("type: remap");
-    expect(y).toContain("records = array(.result.result) ?? []");
+    expect(y).toContain("records = array(.result)");
     expect(y).toContain('"6eda78cc-fc80-40f0-bd85-05ab0388842c"');
     expect(y).toContain('script = "agent-chat"');
     expect(y).toContain('"0ab47137-d31d-45b6-a31a-bf3c90b85d9a"');
     expect(y).toContain('script = "agent-thread"');
     // List mode drops events for unselected functions.
     expect(y).toContain("# script ==");
-    expect(y).toContain("status >= 500");
-    expect(y).toContain("status >= 400");
+    // Level inference is text-based now (function_edge_logs has no
+    // HTTP status_code in metadata).
+    expect(y).toContain('match(body, r\'(?i)\\b(error|exception');
     expect(y).toContain("ts_us / 1000");
     expect(y).toContain(". = out");
     expect(y).toContain('"[" + script + "] " + body');

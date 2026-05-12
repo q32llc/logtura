@@ -74,10 +74,15 @@ interface SbEdgeFunction {
  *  overlap so a late event doesn't slip between polls; downstream
  *  `dedup` (by .id) drops the duplicates a wide window produces. */
 function buildLogsSql(): string {
+  // function_edge_logs.metadata struct exposes:
+  //   deployment_id STRING, execution_time_ms INT64,
+  //   function_id STRING, version STRING
+  // (HTTP method/status are NOT here — they live on edge_logs which
+  // is the API-gateway table; function logs only carry the
+  // invocation envelope.)
   return [
     "SELECT id, function_edge_logs.timestamp AS timestamp, event_message,",
     "  m.function_id AS function_id, m.deployment_id AS deployment_id,",
-    "  m.method AS method, m.status_code AS status_code,",
     "  m.execution_time_ms AS execution_time_ms",
     "FROM function_edge_logs",
     "CROSS JOIN UNNEST(metadata) AS m",
@@ -287,6 +292,11 @@ function execSidecarYaml(connKey: string, endpoint: string): string {
     ``,
     `[auth.token_headers]`,
     `authorization = "Bearer \${LOGTURA_TAIL_TOKEN}"`,
+    ``,
+    `[rows]`,
+    // Supabase analytics envelope is { result: [...], error: null } —
+    // single nest. Live-verified 2026-05-12 against the deployed API.
+    `json_path = "$.result"`,
   ];
   const cfgPath = `/tmp/logtura-supabase-${connKey}.toml`;
   const script = [
@@ -348,12 +358,13 @@ function edgeNormalizeYaml(
       : `  # script == "" means this event is for an unselected function; drop`;
 
   const vrl = [
-    // Wrapped shape: { result: { result: [...] } }. The outer
-    // `result` is the Management API envelope; the inner `result`
-    // is the Logflare query result. Defaults to [] if either layer
-    // is missing. Keeps a transient API hiccup from failing the
-    // whole transform.
-    `records = array(.result.result) ?? []`,
+    // Real Supabase analytics response shape is
+    //   { result: [<records>], error: null }
+    // (single-nest — the docs/older clients showed double-nest but
+    // the deployed API is flat). The exec-source path uses a JSON
+    // path of `$.result` to extract this array; the http_client
+    // path lands the whole envelope here and we unwrap inside VRL.
+    `records = array(.result) ?? array(.) ?? []`,
     `out = []`,
     `for_each(records) -> |_i, rec| {`,
     `  fn_id = string(rec.function_id) ?? ""`,
@@ -361,16 +372,18 @@ function edgeNormalizeYaml(
     ...slugLookup,
     slugMissLine,
     `  if script != "" {`,
-    `    status = int(rec.status_code) ?? 200`,
-    // Status-code based level. Supabase Edge logs don't carry a
-    // semantic level on the invocation summary, so the HTTP
-    // response is the strongest signal we have.
+    // No status_code on function_edge_logs (HTTP envelope lives on
+    // edge_logs not function_edge_logs). Default level is "info";
+    // event_message text drives warn/error escalation when it
+    // matches obvious failure tokens.
     `    level = "info"`,
-    `    if status >= 400 { level = "warn" }`,
-    `    if status >= 500 { level = "error" }`,
-    `    err = status >= 500`,
     `    body = string(rec.event_message) ?? ""`,
-    `    if body == "" { body = "supabase-edge status=" + to_string(status) }`,
+    // Order matters: warn first (less specific), then error overrides
+    // so any match on error keywords wins regardless of warn match.
+    `    if match(body, r'(?i)\\b(warn|warning|deprecated)\\b') { level = "warn" }`,
+    `    if match(body, r'(?i)\\b(error|exception|traceback|panic|failed)\\b') { level = "error" }`,
+    `    err = level == "error"`,
+    `    if body == "" { body = "supabase-edge " + script }`,
     // Microsecond to millisecond conversion. Vector accepts integer
     // epoch in either; downstream sinks formatting timestamps want
     // a consistent unit. Other drivers leave .timestamp as-is from
@@ -384,9 +397,8 @@ function edgeNormalizeYaml(
     `      "error": err,`,
     `      "message": "[" + script + "] " + body,`,
     `      "timestamp": ts_us / 1000,`,
-    `      "status_code": status,`,
-    `      "method": string(rec.method) ?? "",`,
     `      "execution_time_ms": int(rec.execution_time_ms) ?? 0,`,
+    `      "deployment_id": string(rec.deployment_id) ?? "",`,
     `      "id": string(rec.id) ?? "",`,
     `      "function_id": fn_id,`,
     `    })`,

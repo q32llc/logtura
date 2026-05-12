@@ -491,6 +491,31 @@ apiAuth.delete("/connections/:id", async (c) => {
   return c.json({ ok: true });
 });
 
+// Debug surface: mint a tail JWT for a connection so an operator
+// can curl /api/tail/supabase/token end-to-end without spinning up
+// a Fly deployment. Owner-gated; the JWT is identical to the one
+// the user's deployment env already carries, so no new privilege
+// surface beyond the connection's existing owner.
+//
+// We keep this around — production endpoints (Supabase/CF/Fly)
+// are read-only and harmless to hit, and smoke surfaces catch
+// bugs unit tests miss. See memory:
+// feedback_production_endpoints_are_fair_game.md.
+apiAuth.post("/connections/:id/debug/tail-token", async (c) => {
+  const user = c.get("user")!;
+  const conn = await getConnection(c.env.DB, user.id, c.req.param("id"));
+  if (!conn) return c.json({ error: "not_found" }, 404);
+  const { mintTailToken } = await import("./providers/tail-token");
+  const token = await mintTailToken(
+    { connectionId: conn.id, userId: user.id },
+    c.env.SESSION_SECRET,
+  );
+  return c.json({
+    tailToken: token,
+    tailTokenUrl: `${c.env.APP_URL}/api/tail/supabase/token`,
+  });
+});
+
 // Supabase project picker: lists projects visible to the stored
 // credential along with each project's edge-function count. The UI
 // shows this when a supabase connection has no external_account_id
