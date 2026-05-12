@@ -31,8 +31,8 @@ import { cloudflareWorkerTailDriver } from "../src/index";
 // `latest` alone doesn't exist on docker.io/timberio/vector — Vector
 // switched to distribution-suffixed tags (`latest-debian`,
 // `latest-alpine`, `latest-distroless-libc`). debian is the largest
-// but the most forgiving for our exec command (sh + jq are
-// preinstalled on debian only by virtue of having a shell at all).
+// but the most forgiving for our exec command because it includes a
+// shell for the small config heredoc wrapper.
 const VECTOR_IMAGE = "timberio/vector:latest-debian";
 
 const dockerAvailable = (() => {

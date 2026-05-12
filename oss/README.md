@@ -11,7 +11,7 @@ Each `@logtura/driver-*` package wraps one platform's log API (Cloudflare Worker
 | Package | What it does |
 | --- | --- |
 | [@logtura/core](./packages/core) | Renderer: typed input to Vector YAML, Dockerfile, env-var manifest |
-| [@logtura/driver-cloudflare-worker-tail](./packages/driver-cloudflare-worker-tail) | `wrangler tail <script> --format json` per worker |
+| [@logtura/driver-cloudflare-worker-tail](./packages/driver-cloudflare-worker-tail) | Cloudflare Workers Tail API via `logtura-cf-tail` |
 | [@logtura/driver-cloudflare-ai-gateway](./packages/driver-cloudflare-ai-gateway) | Cloudflare AI Gateway logs via http_client poll |
 | [@logtura/driver-fly-log-tail](./packages/driver-fly-log-tail) | `flyctl logs --json -a <app>` per Fly app |
 | [@logtura/driver-supabase-edge-logs](./packages/driver-supabase-edge-logs) | Supabase Edge Functions via the analytics API |

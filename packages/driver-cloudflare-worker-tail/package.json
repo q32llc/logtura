@@ -1,7 +1,7 @@
 {
   "name": "@logtura/driver-cloudflare-worker-tail",
   "version": "0.2.3",
-  "description": "Logtura provider driver for Cloudflare Workers — tails wrangler stdout via Vector's exec source.",
+  "description": "Logtura provider driver for Cloudflare Workers — tails the Workers Tail API via Vector's exec source.",
   "license": "Apache-2.0",
   "author": "Erik Aronesty (Logtura)",
   "homepage": "https://github.com/logtura/logtura#readme",

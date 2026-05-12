@@ -197,7 +197,7 @@ export interface ProviderCapabilities {
   /** Which selection kinds the driver accepts via generatePipeline:
    *
    *  - `"list"` only: caller must supply an explicit list of sources.
-   *    Most per-component drivers (today's wrangler tail, flyctl logs).
+   *    Most per-component drivers (today's flyctl logs, etc.).
    *  - `"all"` only: the platform exposes one account-wide stream
    *    and nothing finer-grained. The renderer passes
    *    `{ kind: "all" }`; sources are not selectable.

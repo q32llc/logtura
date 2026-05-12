@@ -130,11 +130,10 @@ describe("multi-connection deployments (source-derived)", () => {
 
     expect(bundle.selectedCount).toBe(2);
     const yaml = bundle.files.find((f) => f.name === "vector.yaml")!.content;
-    // Component keys are connection-scoped after the v0.2.0 driver
-    // contract refactor: `cf_worker_<connSlug>_<script>` and
-    // `fly_<connSlug>_<app>`. Pin via regex without nailing the
-    // exact connection id.
-    expect(yaml).toMatch(/cf_worker_con_[A-Za-z0-9_-]+_my_worker/);
+    // Component keys are connection-scoped. CF Worker tail now
+    // multiplexes all selected workers into one source:
+    // `cf_worker_<connSlug>_tail`; Fly still emits per-app sources.
+    expect(yaml).toMatch(/cf_worker_con_[A-Za-z0-9_-]+_tail/);
     expect(yaml).toMatch(/fly_con_[A-Za-z0-9_-]+_my_app/);
     expect(yaml).toMatch(/cf_worker_con_[A-Za-z0-9_-]+_norm:/);
     expect(yaml).toMatch(/fly_con_[A-Za-z0-9_-]+_norm:/);

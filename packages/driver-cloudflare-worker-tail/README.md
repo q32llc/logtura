@@ -1,6 +1,6 @@
 # @logtura/driver-cloudflare-worker-tail
 
-Logtura provider driver for Cloudflare Workers. Tails `wrangler tail <script> --format json` over Vector's `exec` source. The output has the same shape as `wrangler tail` in your terminal, but consumed by Vector for routing into your monitors and sinks.
+Logtura provider driver for Cloudflare Workers. Tails selected Workers with `logtura-cf-tail` over Vector's `exec` source. The output has the same shape as `wrangler tail --format json`, but is consumed by Vector for routing into your monitors and sinks.
 
 Captures the full tail event: console output, exception stack traces, request outcome, response status, dispatched event metadata. Cloudflare Logpush only ships request envelopes. The in-function `console.log` and stack traces are not in Logpush. This driver uses the Tail API directly so you get the debugging context.
 
@@ -47,17 +47,17 @@ const bundle = generateBundle({
 
 ## Runtime requirements
 
-The forwarder image needs `node` and `wrangler` installed. The driver's `runtimeSpec` returns the Dockerfile install lines automatically.
+The forwarder image needs the small `logtura-cf-tail` binary. The driver's runtime spec returns the Dockerfile `COPY --from=ghcr.io/logtura/logtura-cf-tail:...` line automatically.
 
 ## What it emits
 
-Per selected worker, one Vector `exec` source running:
+One Vector `exec` source per Cloudflare connection, running:
 
 ```sh
-wrangler tail <script> --format json | jq -c --unbuffered .
+logtura-cf-tail --config /tmp/logtura-cf-tail-<connection>.toml
 ```
 
-A driver-level `remap` then flattens the CF tail event into the uniform `{ .script, .message, .level, .error, .timestamp }` shape downstream filters can rely on. Console output, exceptions, and outcome all feed `.level` and `.error` so monitors with `kind: "errors"` catch what you expect.
+The helper opens one Cloudflare Tail API WebSocket per selected Worker inside a single process, merges the event stream to stdout as newline-delimited JSON, and reconnects/refreshes tail sessions as needed. A driver-level `remap` then flattens the CF tail event into the uniform `{ .script, .message, .level, .error, .timestamp }` shape downstream filters can rely on. Console output, exceptions, and outcome all feed `.level` and `.error` so monitors with `kind: "errors"` catch what you expect.
 
 ## License
 

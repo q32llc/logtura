@@ -179,11 +179,10 @@ export async function runFlyCreateOrUpdateMachine(
     // the final exec `vector vector --config …` and crash-loops with
     // "unrecognized subcommand 'vector'".
     init: { cmd: ["--config", "/etc/vector/vector.yaml"] },
-    // 2 cpus / 4096 MB. Each `wrangler tail` spawns a full node
-    // process (~30–40 MB resident) and users typically tail 10–30
-    // workers, so 1 GB OOMs hard. Fly's shared-cpu-1x caps at 2 GB,
-    // so we need shared-cpu-2x for 4 GB. Real fix is the WebSocket
-    // Tail API direct (TODO) — until then, this is a cheap seatbelt.
+    // Keep a modest default envelope for Vector plus sidecars. The
+    // Cloudflare Worker tail driver now multiplexes selected workers
+    // inside one Rust process, but other drivers and transforms still
+    // benefit from headroom during bursts.
     guest: { cpu_kind: "shared", cpus: 2, memory_mb: 4096 },
     restart: { policy: "always" },
     // TCP probe on Vector's admin API. A crash-looper that flaps

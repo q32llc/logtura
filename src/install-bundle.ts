@@ -152,7 +152,7 @@ docker rm -f logtura-forwarder
 ## What's inside
 
 - \`Dockerfile\` — pinned to \`timberio/vector\` plus any deps your
-  pipeline needs (wrangler for Cloudflare Workers tail, etc.).
+  pipeline needs (small Logtura tail helpers, provider CLIs, etc.).
 - \`vector.yaml\` — the generated pipeline (sources, transforms,
   monitors, sinks).
 - \`.env\` — credentials Vector needs to reach your sources and

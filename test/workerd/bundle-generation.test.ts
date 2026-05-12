@@ -190,11 +190,11 @@ describe("GET /api/deployments/:id/bundle", () => {
     const tokenEnv = bundle.envVars.find((v) => v.name === "CLOUDFLARE_API_TOKEN");
     expect(tokenEnv?.value).toBe("cf_test_token");
 
-    // Component manifest: two primary sources, one primary sink,
+    // Component manifest: one multiplexed CF source, one primary sink,
     // some plumbing rows. UI groups by category/role; this pins the
     // shape future tests + the metrics card depend on.
     const sources = bundle.componentManifest.filter((c) => c.role === "source");
-    expect(sources.length).toBe(2);
+    expect(sources.length).toBe(1);
     expect(sources.every((s) => s.category === "primary")).toBe(true);
     const sinks = bundle.componentManifest.filter((c) => c.role === "sink");
     expect(sinks.length).toBe(1);

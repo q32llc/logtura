@@ -1,11 +1,10 @@
 /**
  * `cloudflare-worker-tail` source driver.
  *
- * One transport: `wrangler tail <script> --format json` over an
- * `exec` source. This is the actual mechanism — naming it after
- * the transport (not "Cloudflare") makes it obvious what we do
- * and doesn't overclaim other Cloudflare surfaces (Pages, R2,
- * Analytics Engine, …) we don't yet ship.
+ * One transport: Cloudflare's Workers Tail API via logtura-cf-tail.
+ * The tail API is per-script, but the helper multiplexes all selected
+ * scripts inside one process and emits `wrangler tail --format json`-
+ * shaped events as newline-delimited JSON for Vector's exec source.
  */
 import {
   type ConnectionRef,
@@ -23,7 +22,6 @@ import {
   type CloudflareCredentials,
   cfRuntimeSpec,
   safeKey,
-  shellQuoteCfWorkerName,
   verifyCfCredentials,
 } from "@logtura/cloudflare-shared";
 
@@ -42,10 +40,10 @@ export const cloudflareWorkerTailDriver: ProviderDriver<CloudflareCredentials> =
   id: "cloudflare-worker-tail",
   displayName: "Cloudflare worker tail",
   sourceLabel: "Worker",
-  // wrangler tail is per-script. The "all workers in the account"
-  // shape needs the account-level Tail API (websocket, not exec
-  // subprocesses). Tracked as a future driver refactor; for now
-  // hosts wanting "all" expand the selection at picking time.
+  // Cloudflare tail sessions are still script-scoped, but
+  // logtura-cf-tail multiplexes the selected list in one process.
+  // Hosts wanting "all" still expand the selection at picking time
+  // because the API doesn't expose one account-wide stream.
   capabilities: { selection: "list" },
   verifyCredentials: verifyCfCredentials,
   checkCredentialFreshness: checkCfCredentialFreshness,
@@ -90,36 +88,35 @@ export const cloudflareWorkerTailDriver: ProviderDriver<CloudflareCredentials> =
     const components: VectorComponent[] = [];
     const manifest: DriverPipeline["manifest"] = [];
     const connKey = safeKey(connection.id);
-    const sourceKeys: string[] = [];
-    for (const s of sources) {
-      const key = `cf_worker_${connKey}_${safeKey(s.externalId)}`;
+    const sourceKey = `cf_worker_${connKey}_tail`;
+    if (sources.length > 0) {
       components.push({
-        key,
+        key: sourceKey,
         kind: "source",
-        yaml: workerExecSourceYaml(s),
+        yaml: workerExecSourceYaml(connKey, sources),
       });
-      sourceKeys.push(key);
       manifest.push({
-        id: key,
+        id: sourceKey,
         role: "source",
         category: "primary",
-        label: `Worker · ${s.displayName}`,
-        links: { connectionId: connection.id, sourceId: s.id },
+        label: "Workers tail",
+        detail: `${sources.length} worker${sources.length === 1 ? "" : "s"}`,
+        links: { connectionId: connection.id },
       });
     }
     const normalizeKey = `cf_worker_${connKey}_norm`;
-    if (sourceKeys.length > 0) {
+    if (sources.length > 0) {
       components.push({
         key: normalizeKey,
         kind: "transform",
-        yaml: workerNormalizeYaml(sourceKeys),
+        yaml: workerNormalizeYaml([sourceKey]),
       });
       manifest.push({
         id: normalizeKey,
         role: "normalize",
         category: "plumbing",
         label: "Normalize · Worker",
-        detail: `${sourceKeys.length} source${sourceKeys.length === 1 ? "" : "s"}`,
+        detail: `${sources.length} source${sources.length === 1 ? "" : "s"}`,
         links: { connectionId: connection.id },
       });
     }
@@ -130,9 +127,13 @@ export const cloudflareWorkerTailDriver: ProviderDriver<CloudflareCredentials> =
       // where we can't assume the user wants the worker-tail scope
       // set.
       helpUrl: "https://dash.cloudflare.com/profile/api-tokens",
-      extraDockerInstall:
-        "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y --no-install-recommends nodejs && npm install -g wrangler@latest",
     });
+    runtime.dockerfileDeps = [
+      {
+        directive:
+          "COPY --from=ghcr.io/logtura/logtura-cf-tail:v0.1.0 /logtura-cf-tail /usr/local/bin/logtura-cf-tail",
+      },
+    ];
     return {
       components,
       outputKey: normalizeKey,
@@ -143,20 +144,28 @@ export const cloudflareWorkerTailDriver: ProviderDriver<CloudflareCredentials> =
   },
 };
 
-function workerExecSourceYaml(source: SourceRef): string {
+function workerExecSourceYaml(connKey: string, sources: SourceRef[]): string {
+  const cfgPath = `/tmp/logtura-cf-tail-${connKey}.toml`;
+  const tomlLines = [
+    `account_id = "\${CLOUDFLARE_ACCOUNT_ID}"`,
+    `api_token = "\${CLOUDFLARE_API_TOKEN}"`,
+    `scripts = [${sources.map((s) => JSON.stringify(s.externalId)).join(", ")}]`,
+  ];
+  const script = [
+    `cat > ${cfgPath} <<'EOF'`,
+    ...tomlLines,
+    `EOF`,
+    `exec logtura-cf-tail --config ${cfgPath}`,
+  ].join("\n");
   return [
     `    type: exec`,
-    // wrangler picks up CLOUDFLARE_ACCOUNT_ID from env;
-    // `--account-id` is rejected by recent versions.
-    //
-    // wrangler tail --format json emits PRETTY-printed multi-line
-    // JSON. Vector's exec with codec:json + default newline_delimited
-    // framing tries one line at a time and yields a flood of parse
-    // errors. jq -c --unbuffered collapses each value to a single
-    // line.
-    `    command: ["sh", "-c", "wrangler tail ${shellQuoteCfWorkerName(source.externalId)} --format json | jq -c --unbuffered ."]`,
     `    mode: streaming`,
-    // wrangler + jq both write non-JSON status/error lines to stderr.
+    `    command:`,
+    `      - sh`,
+    `      - -c`,
+    `      - |`,
+    ...script.split("\n").map((l) => `        ${l}`),
+    // logtura-cf-tail writes diagnostics to stderr.
     // Vector's exec source feeds stderr through the same JSON decoder
     // as stdout by default, which produces "Failed deserializing
     // frame" floods. Disable stderr capture; the machine's stderr is
@@ -164,6 +173,8 @@ function workerExecSourceYaml(source: SourceRef): string {
     `    include_stderr: false`,
     `    decoding:`,
     `      codec: json`,
+    `    framing:`,
+    `      method: newline_delimited`,
   ].join("\n");
 }
 

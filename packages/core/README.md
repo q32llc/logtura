@@ -89,7 +89,7 @@ Form schemas, OAuth flows, and `FormData` parsing are intentionally not part of 
 
 ## Related packages
 
-- [@logtura/driver-cloudflare-worker-tail](../driver-cloudflare-worker-tail). `wrangler tail` over Vector's exec source.
+- [@logtura/driver-cloudflare-worker-tail](../driver-cloudflare-worker-tail). Cloudflare Workers Tail API over Vector's exec source.
 - [@logtura/driver-cloudflare-ai-gateway](../driver-cloudflare-ai-gateway). Cloudflare AI Gateway logs via http_client.
 - [@logtura/driver-fly-log-tail](../driver-fly-log-tail). `flyctl logs --json` over Vector's exec source.
 - [@logtura/driver-supabase-edge-logs](../driver-supabase-edge-logs). Supabase Edge Functions via the analytics API.

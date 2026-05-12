@@ -128,8 +128,8 @@ export function cfRuntimeSpec(input: {
       ? [
           {
             install: input.extraDockerInstall,
-            // jq is in the worker-tail exec pipeline
-            // (`wrangler tail … | jq -c --unbuffered .`).
+            // Some Cloudflare drivers still contribute shell-based
+            // install steps; keep the shared base packages here.
             aptPackages: ["curl", "ca-certificates", "gnupg", "jq"],
           },
         ]
