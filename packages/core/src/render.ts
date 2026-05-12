@@ -45,10 +45,24 @@ export function generateBundle(input: GenerateInput): GeneratedBundle {
     if (!driver) {
       throw new Error(`Unknown provider: ${c.connection.provider}`);
     }
+    // Cheap heuristic: if the caller's credentials blob has either
+    // a `refreshToken` (OAuth) or a `refresh_token` (alt naming),
+    // treat this connection as having a refreshable credential.
+    // Drivers that care use this to switch from `http_client` to
+    // an exec-based sidecar (logtura-http-client) for token refresh.
+    const credentialKind: "static" | "refreshable" =
+      c.credentials &&
+      (typeof (c.credentials as Record<string, unknown>)["refreshToken"] ===
+        "string" ||
+        typeof (c.credentials as Record<string, unknown>)["refresh_token"] ===
+          "string")
+        ? "refreshable"
+        : "static";
     const connectionRef: ConnectionRef = {
       id: c.connection.id,
       externalAccountId: c.connection.externalAccountId,
       displayName: c.connection.displayName,
+      credentialKind,
     };
     const sources: SourceRef[] = c.selectedSources.map((s) => ({
       id: s.id,

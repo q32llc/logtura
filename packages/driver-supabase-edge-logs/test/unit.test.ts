@@ -190,6 +190,52 @@ describe("generatePipeline", () => {
     ]);
     expect(pipe.dockerfileDeps).toEqual([]);
   });
+
+  it("switches to exec/logtura-http-client when credentialKind is refreshable", () => {
+    const pipe = supabaseEdgeLogsDriver.generatePipeline({
+      connection: { ...dummyConnection, credentialKind: "refreshable" },
+      selection: {
+        kind: "list",
+        sources: [
+          fnSource("src_a", "agent-chat", "6eda78cc-fc80-40f0-bd85-05ab0388842c"),
+        ],
+      },
+    });
+    const source = pipe.components.find((c) => c.kind === "source")!;
+    expect(source.yaml).toContain("type: exec");
+    expect(source.yaml).toContain("logtura-http-client");
+    expect(source.yaml).toContain('strategy = "bearer_refresh"');
+    expect(source.yaml).toContain("${LOGTURA_TAIL_TOKEN_URL}");
+    expect(source.yaml).toContain("${LOGTURA_TAIL_TOKEN}");
+    expect(source.yaml).not.toContain("SUPABASE_PAT");
+
+    const names = pipe.envVars.map((v) => v.name);
+    expect(names).toContain("LOGTURA_TAIL_TOKEN");
+    expect(names).toContain("LOGTURA_TAIL_TOKEN_URL");
+    expect(names).toContain("SUPABASE_PROJECT_REF");
+    expect(names).not.toContain("SUPABASE_PAT");
+
+    // dockerfileDeps installs the binary from the GitHub release.
+    expect(pipe.dockerfileDeps[0]?.install).toContain(
+      "logtura-http-client",
+    );
+  });
+
+  it("stays on http_client when credentialKind is static or unset", () => {
+    const pipe = supabaseEdgeLogsDriver.generatePipeline({
+      connection: dummyConnection,
+      selection: {
+        kind: "list",
+        sources: [
+          fnSource("src_a", "agent-chat", "6eda78cc-fc80-40f0-bd85-05ab0388842c"),
+        ],
+      },
+    });
+    const source = pipe.components.find((c) => c.kind === "source")!;
+    expect(source.yaml).toContain("type: http_client");
+    expect(source.yaml).toContain("${SUPABASE_PAT}");
+    expect(source.yaml).not.toContain("logtura-http-client");
+  });
 });
 
 describe("discoverSources", () => {

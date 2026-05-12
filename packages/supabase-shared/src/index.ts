@@ -114,7 +114,7 @@ export async function verifySupabaseCredentials(
 export function sbRuntimeSpec(input: {
   helpUrl: string;
   extraEnvVars?: EnvVarSpec[];
-}): { envVars: EnvVarSpec[]; dockerfileDeps: never[] } {
+}): { envVars: EnvVarSpec[]; dockerfileDeps: Array<{ install: string }> } {
   return {
     envVars: [
       {

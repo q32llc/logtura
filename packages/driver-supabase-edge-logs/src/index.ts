@@ -157,25 +157,20 @@ export const supabaseEdgeLogsDriver: ProviderDriver<SupabaseCredentials> = {
     const sql = buildLogsSql();
     const url =
       `https://api.supabase.com/v1/projects/\${SUPABASE_PROJECT_REF}/analytics/endpoints/logs.all?sql=${encodeURIComponent(sql)}`;
+    // Branch on credential kind. Static bearers (PATs) drive Vector's
+    // native http_client directly. Refreshable bearers (OAuth) need
+    // logtura-http-client as a sidecar exec source because Vector's
+    // http_client can't refresh tokens — see
+    // https://github.com/vectordotdev/vector/discussions/17192.
+    const isRefreshable = connection.credentialKind === "refreshable";
+    const sourceYaml = isRefreshable
+      ? execSidecarYaml(connKey, url)
+      : httpClientYaml(url);
     const components: VectorComponent[] = [
       {
         key: sourceKey,
         kind: "source",
-        yaml: [
-          `    type: http_client`,
-          `    endpoint: ${JSON.stringify(url)}`,
-          `    method: GET`,
-          // 30s poll matches the SQL's 90s lookback (3x overlap).
-          // One poll per connection regardless of selection size,
-          // so the analytics endpoint's rate limit stays
-          // unstressed.
-          `    interval_secs: 30`,
-          `    headers:`,
-          // http_client headers want map<string, array<string>>.
-          `      authorization: ["Bearer \${SUPABASE_PAT}"]`,
-          `    decoding:`,
-          `      codec: json`,
-        ].join("\n"),
+        yaml: sourceYaml,
       },
       {
         key: normalizeKey,
@@ -186,6 +181,36 @@ export const supabaseEdgeLogsDriver: ProviderDriver<SupabaseCredentials> = {
     const runtime = sbRuntimeSpec({
       helpUrl: "https://supabase.com/dashboard/account/tokens",
     });
+    // For refreshable credentials, swap PAT-sourced env vars for the
+    // bearer_refresh trio: a connection-scoped JWT, the SaaS token
+    // endpoint URL, and the project ref. SUPABASE_PAT goes away.
+    if (isRefreshable) {
+      runtime.envVars = [
+        {
+          name: "LOGTURA_TAIL_TOKEN",
+          description:
+            "Connection-scoped JWT the sidecar binary uses to call back into Logtura's SaaS for fresh Supabase access tokens.",
+          source: "credential",
+          credentialPath: "tailToken",
+        },
+        {
+          name: "LOGTURA_TAIL_TOKEN_URL",
+          description:
+            "URL the sidecar binary POSTs to for fresh Supabase access tokens. Logtura SaaS endpoint.",
+          source: "credential",
+          credentialPath: "tailTokenUrl",
+        },
+        ...runtime.envVars.filter((v) => v.name === "SUPABASE_PROJECT_REF"),
+      ];
+      runtime.dockerfileDeps = [
+        {
+          install: [
+            "curl -fsSL https://github.com/logtura/logtura-http-client/releases/latest/download/logtura-http-client-x86_64-unknown-linux-musl",
+            " -o /usr/local/bin/logtura-http-client && chmod +x /usr/local/bin/logtura-http-client",
+          ].join(""),
+        },
+      ];
+    }
     const manifest: DriverPipeline["manifest"] = [
       {
         id: sourceKey,
@@ -214,6 +239,74 @@ export const supabaseEdgeLogsDriver: ProviderDriver<SupabaseCredentials> = {
     };
   },
 };
+
+/** PAT path: Vector polls Supabase directly via http_client.
+ *  `${SUPABASE_PAT}` resolves at startup from the deployment env. */
+function httpClientYaml(url: string): string {
+  return [
+    `    type: http_client`,
+    `    endpoint: ${JSON.stringify(url)}`,
+    `    method: GET`,
+    // 30s poll matches the SQL's 90s lookback (3x overlap). One poll
+    // per connection regardless of selection size — the analytics
+    // endpoint rate-limits aggressively.
+    `    interval_secs: 30`,
+    `    headers:`,
+    // http_client headers want map<string, array<string>>.
+    `      authorization: ["Bearer \${SUPABASE_PAT}"]`,
+    `    decoding:`,
+    `      codec: json`,
+  ].join("\n");
+}
+
+/** Refreshable path: exec-source sidecar (logtura-http-client) holds
+ *  the connection-scoped JWT and exchanges it with Logtura's SaaS for
+ *  a fresh Supabase access token before each poll. Config is written
+ *  via a shell heredoc so the entire pipeline lives in vector.yaml
+ *  with no extra files in the deploy bundle.
+ *
+ *  Why heredoc-inline vs a separate config file: the OSS DriverPipeline
+ *  contract today emits Vector components, not auxiliary files. Inline
+ *  keeps the change minimal and lets us extend the contract later if
+ *  this approach grows arms. */
+function execSidecarYaml(connKey: string, endpoint: string): string {
+  // Single-quoted heredoc keeps shell from expanding `${LOGTURA_…}`
+  // tokens — the sidecar binary handles env interpolation itself.
+  const tomlLines = [
+    `endpoint = ${JSON.stringify(endpoint)}`,
+    `scrape_interval_secs = 30`,
+    ``,
+    `[auth]`,
+    `strategy = "bearer_refresh"`,
+    `token_url = "\${LOGTURA_TAIL_TOKEN_URL}"`,
+    `token_method = "POST"`,
+    `access_token_json_path = "$.access_token"`,
+    `expires_in_json_path = "$.expires_in"`,
+    ``,
+    `[auth.token_headers]`,
+    `authorization = "Bearer \${LOGTURA_TAIL_TOKEN}"`,
+  ];
+  const cfgPath = `/tmp/logtura-supabase-${connKey}.toml`;
+  const script = [
+    `cat > ${cfgPath} <<'EOF'`,
+    ...tomlLines,
+    `EOF`,
+    `exec logtura-http-client --config ${cfgPath}`,
+  ].join("\n");
+  return [
+    `    type: exec`,
+    `    mode: streaming`,
+    `    command:`,
+    `      - sh`,
+    `      - -c`,
+    `      - |`,
+    ...script.split("\n").map((l) => `        ${l}`),
+    `    decoding:`,
+    `      codec: json`,
+    `    framing:`,
+    `      method: newline_delimited`,
+  ].join("\n");
+}
 
 /** Build the normalize remap. Logflare's response is wrapped
  *  (`{ result: { result: [...] } }`), so we extract the array,

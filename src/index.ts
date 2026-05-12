@@ -165,6 +165,46 @@ api.get("/providers", (c) => {
   return c.json({ providers });
 });
 
+// Tail-token endpoint: the deployed logtura-http-client binary
+// authenticates with the Authorization header carrying a connection-
+// scoped JWT (minted by `mintTailToken`). It exchanges that for a
+// fresh Supabase access_token, which it then uses to hit Supabase's
+// analytics endpoint. Rotation + storage of the refresh_token happens
+// inside `ensureFreshAccessToken`, transparent to the binary.
+api.post("/tail/supabase/token", async (c) => {
+  const header = c.req.header("authorization");
+  const token = header?.startsWith("Bearer ")
+    ? header.slice("Bearer ".length).trim()
+    : null;
+  if (!token) return c.json({ error: "missing_authorization" }, 401);
+  const { verifyTailToken } = await import("./providers/tail-token");
+  const payload = await verifyTailToken(token, c.env.SESSION_SECRET);
+  if (!payload) return c.json({ error: "invalid_token" }, 401);
+  const conn = await getConnection(c.env.DB, payload.userId, payload.connectionId);
+  if (!conn) return c.json({ error: "connection_not_found" }, 404);
+  if (conn.provider !== "supabase-edge-logs") {
+    return c.json({ error: "wrong_provider" }, 400);
+  }
+  try {
+    const { ensureFreshAccessToken } = await import("./providers/supabase-token");
+    const accessToken = await ensureFreshAccessToken(c.env, conn);
+    // Cache headers: the access token is good for ~24h; tell the
+    // binary it can cache for 23h before re-asking. The binary's
+    // own skew-before-expiry handles the rest.
+    return c.json({ access_token: accessToken, expires_in: 23 * 3600 });
+  } catch (err) {
+    console.error("supabase tail token refresh failed", err);
+    return c.json(
+      {
+        error: "refresh_failed",
+        message:
+          err instanceof Error ? err.message : "could not refresh token",
+      },
+      503,
+    );
+  }
+});
+
 const apiAuth = new Hono<AppContext>();
 apiAuth.use("*", requireAuth);
 

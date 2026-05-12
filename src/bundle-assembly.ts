@@ -126,6 +126,25 @@ export async function assembleDeploymentBundle(
     const sources = sourcesByConnId.get(c.id) ?? [];
     const credentials =
       await decryptConnectionCredentials<Record<string, unknown>>(env, c);
+    // For OAuth-derived Supabase credentials, inject a tail-token
+    // (signed JWT scoped to this connection) + the URL of the SaaS
+    // refresh endpoint. The driver consumes these via credentialPath
+    // env-var bindings; values never persist to D1, they're minted
+    // fresh on every bundle assembly. The actual Supabase OAuth
+    // secrets (refresh_token, expiresAt) stay in D1 — only the
+    // sidecar's bootstrap envelope lands in the deployment env.
+    if (
+      c.provider === "supabase-edge-logs" &&
+      typeof credentials.refreshToken === "string"
+    ) {
+      const { mintTailToken } = await import("./providers/tail-token");
+      const tailToken = await mintTailToken(
+        { connectionId: c.id, userId: c.user_id },
+        env.SESSION_SECRET,
+      );
+      credentials.tailToken = tailToken;
+      credentials.tailTokenUrl = `${env.APP_URL}/api/tail/supabase/token`;
+    }
     let fresh = true;
     let staleReason: string | undefined;
     let expiresAt: number | null | undefined;
