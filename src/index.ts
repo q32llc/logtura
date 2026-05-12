@@ -137,22 +137,21 @@ api.get("/providers", (c) => {
     // Pair each OSS driver with its SaaS-side connect adapter so the
     // UI gets form/OAuth metadata alongside the driver identity.
     const connect = getProviderConnect(p.id);
-    let connectFlow = connect?.connectFlow ?? null;
-    let formFields = connect?.formFields ?? [];
-    // Supabase OAuth shim: when SUPABASE_CLIENT_ID/SECRET are
-    // configured, swap the static PAT-paste adapter for an
-    // oauth_redirect flow. PAT paste still works for self-hosted
-    // SaaS without the integration registered.
-    if (p.id === "supabase-edge-logs" && isSupabaseOauthConfigured(c.env)) {
-      connectFlow = {
-        kind: "oauth_redirect",
-        startPath: "/api/providers/supabase-edge-logs/start",
-        buttonLabel: "Connect Supabase",
-        buttonDescription:
-          "Sign in to Supabase and grant Logtura read access to your projects' edge functions and analytics. We never see your database or service-role keys.",
-      };
-      formFields = [];
-    }
+    const connectFlow = connect?.connectFlow ?? null;
+    const formFields = connect?.formFields ?? [];
+    // For supabase-edge-logs, OAuth is offered *alongside* the
+    // PAT-paste form when SUPABASE_CLIENT_ID/SECRET are configured.
+    // PAT-paste stays available either way so self-hosted SaaS or
+    // users who prefer pasting can still connect.
+    const oauthShortcut =
+      p.id === "supabase-edge-logs" && isSupabaseOauthConfigured(c.env)
+        ? {
+            startPath: "/api/providers/supabase-edge-logs/start",
+            buttonLabel: "Connect Supabase",
+            buttonDescription:
+              "Sign in to Supabase and grant Logtura read access to your projects' edge functions and analytics.",
+          }
+        : null;
     return {
       id: p.id,
       displayName: p.displayName,
@@ -160,6 +159,7 @@ api.get("/providers", (c) => {
       capabilities: p.capabilities,
       connectFlow,
       formFields,
+      oauthShortcut,
     };
   });
   return c.json({ providers });
@@ -245,8 +245,15 @@ apiAuth.post("/connections", async (c) => {
     throw err;
   }
 
-  let accountId = explicitAccountId;
-  if (!accountId) {
+  let accountId: string | null = explicitAccountId;
+  // For supabase-edge-logs, leave external_account_id null when the
+  // user didn't pick a project ref — auto-picking has a high false
+  // rate when multiple projects share an org but only one has edge
+  // functions. ConnectionDetail's picker fills it in afterwards.
+  // Other providers retain the original auto-pick-first behavior.
+  const deferAccountPick =
+    !accountId && driver.id === "supabase-edge-logs";
+  if (!accountId && !deferAccountPick) {
     if (accounts.length === 0) {
       return c.json({ error: "no_accounts" }, 400);
     }
@@ -265,14 +272,17 @@ apiAuth.post("/connections", async (c) => {
   // "Errors" monitor before discovery returns. Idempotent.
   await ensureDefaultErrorsMonitor(c.env.DB, user.id);
 
-  // Queue an initial discovery instead of running it inline.
-  const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
-  await jobs.enqueue({
-    userId: user.id,
-    kind: "discovery",
-    payload: { connectionId: connection.id },
-    lockKey: lockKeyForDiscovery(connection.id),
-  });
+  // Only queue discovery when we have a project ref. Pending-pick
+  // connections discover on selection.
+  if (accountId) {
+    const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
+    await jobs.enqueue({
+      userId: user.id,
+      kind: "discovery",
+      payload: { connectionId: connection.id },
+      lockKey: lockKeyForDiscovery(connection.id),
+    });
+  }
 
   return c.json({ connection: toApiConnection(connection) });
 });
@@ -439,6 +449,119 @@ apiAuth.delete("/connections/:id", async (c) => {
   const id = c.req.param("id");
   await deleteConnection(c.env.DB, user.id, id);
   return c.json({ ok: true });
+});
+
+// Supabase project picker: lists projects visible to the stored
+// credential along with each project's edge-function count. The UI
+// shows this when a supabase connection has no external_account_id
+// yet (post-OAuth or post-PAT-paste-without-project-ref). Refreshes
+// the OAuth access_token transparently if expired.
+apiAuth.get("/connections/:id/supabase-projects", async (c) => {
+  const user = c.get("user")!;
+  const conn = await getConnection(c.env.DB, user.id, c.req.param("id"));
+  if (!conn) return c.json({ error: "not_found" }, 404);
+  if (conn.provider !== "supabase-edge-logs") {
+    return c.json({ error: "wrong_provider" }, 400);
+  }
+  let token: string;
+  try {
+    const { ensureFreshAccessToken } = await import(
+      "./providers/supabase-token"
+    );
+    token = await ensureFreshAccessToken(c.env, conn);
+  } catch (err) {
+    console.error("supabase token refresh failed", err);
+    return c.json(
+      {
+        error: "token_refresh_failed",
+        message:
+          "Stored Supabase token is no longer valid. Reconnect this connection.",
+      },
+      400,
+    );
+  }
+  const projRes = await fetch("https://api.supabase.com/v1/projects", {
+    headers: { authorization: `Bearer ${token}`, accept: "application/json" },
+  });
+  if (!projRes.ok) {
+    return c.json(
+      { error: "list_failed", message: `HTTP ${projRes.status}` },
+      400,
+    );
+  }
+  const projects = (await projRes.json()) as Array<{
+    ref: string;
+    name: string;
+    organization_id?: string;
+  }>;
+  const enriched = await Promise.all(
+    projects.map(async (p) => {
+      const fnRes = await fetch(
+        `https://api.supabase.com/v1/projects/${p.ref}/functions`,
+        {
+          headers: {
+            authorization: `Bearer ${token}`,
+            accept: "application/json",
+          },
+        },
+      );
+      let functionCount: number | null = null;
+      if (fnRes.ok) {
+        try {
+          const arr = (await fnRes.json()) as unknown[];
+          functionCount = Array.isArray(arr) ? arr.length : null;
+        } catch {
+          functionCount = null;
+        }
+      }
+      return {
+        ref: p.ref,
+        name: p.name,
+        organizationId: p.organization_id ?? null,
+        functionCount,
+      };
+    }),
+  );
+  return c.json({ projects: enriched });
+});
+
+apiAuth.post("/connections/:id/supabase-pick-project", async (c) => {
+  const user = c.get("user")!;
+  const id = c.req.param("id");
+  const conn = await getConnection(c.env.DB, user.id, id);
+  if (!conn) return c.json({ error: "not_found" }, 404);
+  if (conn.provider !== "supabase-edge-logs") {
+    return c.json({ error: "wrong_provider" }, 400);
+  }
+  const body = (await c.req.json().catch(() => null)) as {
+    projectRef?: string;
+  } | null;
+  const projectRef = body?.projectRef?.trim();
+  if (!projectRef || !/^[a-z0-9]{20}$/.test(projectRef)) {
+    return c.json({ error: "invalid_project_ref" }, 400);
+  }
+  // Re-use updateConnectionCredentials to bump external_account_id;
+  // we don't actually re-write the credentials blob (pass through).
+  const creds = await decryptConnectionCredentials(c.env, conn);
+  const updated = await updateConnectionCredentials(
+    c.env.DB,
+    c.env,
+    user.id,
+    id,
+    {
+      credentials: creds,
+      externalAccountId: projectRef,
+    },
+  );
+  if (!updated) return c.json({ error: "not_found" }, 404);
+  const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
+  await jobs.enqueue({
+    userId: user.id,
+    kind: "discovery",
+    payload: { connectionId: id },
+    lockKey: lockKeyForDiscovery(id),
+  });
+  return c.json({ connection: toApiConnection(updated) });
 });
 
 // Reconnect: swap credentials in place. Same form payload as create,
@@ -1190,7 +1313,17 @@ api.get("/providers/supabase-edge-logs/start", async (c) => {
       303,
     );
   }
-  const displayName = c.req.query("display_name")?.trim();
+  const reconnectId = c.req.query("reconnect_id")?.trim() || null;
+  let displayName = c.req.query("display_name")?.trim();
+  // Reconnect mode: pull displayName from the existing connection so
+  // the user doesn't have to retype it.
+  if (reconnectId && !displayName) {
+    const existing = await getConnection(c.env.DB, userId, reconnectId);
+    if (!existing || existing.provider !== "supabase-edge-logs") {
+      return c.redirect("/app?error=bad_reconnect", 303);
+    }
+    displayName = existing.display_name;
+  }
   if (!displayName) {
     return c.redirect(
       "/app/connections/new?error=missing_display_name",
@@ -1203,7 +1336,13 @@ api.get("/providers/supabase-edge-logs/start", async (c) => {
   );
   const state = newToken();
   const { verifier, challenge } = await generatePkcePair();
-  const stateBlob = JSON.stringify({ state, userId, displayName, verifier });
+  const stateBlob = JSON.stringify({
+    state,
+    userId,
+    displayName,
+    verifier,
+    reconnectId,
+  });
   const signed = await signCookie(stateBlob, c.env.SESSION_SECRET);
   setCookie(c, SUPABASE_STATE_COOKIE, signed, {
     httpOnly: true,
@@ -1237,6 +1376,7 @@ api.get("/providers/supabase-edge-logs/callback", async (c) => {
         userId?: string;
         displayName?: string;
         verifier?: string;
+        reconnectId?: string | null;
       };
     } catch {
       return null;
@@ -1285,9 +1425,12 @@ api.get("/providers/supabase-edge-logs/callback", async (c) => {
     refreshToken: tokens.refresh_token,
     expiresAt: Date.now() + tokens.expires_in * 1000,
   };
-  let accounts;
+  // Verify the token works, but DON'T auto-pick a project. With
+  // multiple projects per Supabase org, auto-picking has a high
+  // chance of grabbing the wrong one. ConnectionDetail's picker
+  // takes over once we land back there.
   try {
-    accounts = await driver.verifyCredentials(credentials);
+    await driver.verifyCredentials(credentials);
   } catch (err) {
     console.error("supabase oauth verify failed", err);
     return c.redirect(
@@ -1295,29 +1438,33 @@ api.get("/providers/supabase-edge-logs/callback", async (c) => {
       303,
     );
   }
-  if (accounts.length === 0) {
-    return c.redirect(
-      "/app/connections/new?error=supabase_oauth_no_projects",
-      303,
+
+  // Reconnect path: swap credentials on the existing row, reset
+  // external_account_id so the picker runs again.
+  if (parsed.reconnectId) {
+    const updated = await updateConnectionCredentials(
+      c.env.DB,
+      c.env,
+      parsed.userId,
+      parsed.reconnectId,
+      { credentials, externalAccountId: null },
     );
+    if (!updated) {
+      return c.redirect("/app?error=bad_reconnect", 303);
+    }
+    return c.redirect(`/app/connections/${parsed.reconnectId}`, 303);
   }
-  const accountId = accounts[0]!.id;
 
   const connection = await createConnection(c.env.DB, c.env, {
     userId: parsed.userId,
     provider: driver.id,
     displayName: parsed.displayName,
-    externalAccountId: accountId,
+    externalAccountId: null,
     credentials,
   });
   await ensureDefaultErrorsMonitor(c.env.DB, parsed.userId);
-  const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
-  await jobs.enqueue({
-    userId: parsed.userId,
-    kind: "discovery",
-    payload: { connectionId: connection.id },
-    lockKey: lockKeyForDiscovery(connection.id),
-  });
+  // Don't queue discovery yet — no project ref is set. Discovery
+  // fires after the user picks a project in ConnectionDetail.
 
   return c.redirect(`/app/connections/${connection.id}`, 303);
 });

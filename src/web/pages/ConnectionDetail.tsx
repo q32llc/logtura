@@ -21,6 +21,7 @@ import {
   IconCheck,
   IconClock,
   IconCloudUpload,
+  IconExternalLink,
   IconKey,
   IconRefresh,
   IconRoute,
@@ -247,6 +248,21 @@ export function ConnectionDetail() {
       </Group>
 
       <DiscoveryJobBanner job={latestJob} />
+
+      {connection.provider === "supabase-edge-logs" &&
+        !connection.externalAccountId && (
+          <SupabaseProjectPicker
+            connectionId={connection.id}
+            onPicked={(updated) => {
+              setConnection(updated);
+              notifications.show({
+                message: `Picked ${updated.externalAccountId}; discovering…`,
+                color: "teal",
+              });
+              void refetch();
+            }}
+          />
+        )}
 
       {sources.length > 0 && destinations.length === 0 && (
         <Alert
@@ -491,6 +507,110 @@ function DiscoveryJobBanner({ job }: { job: ApiJob | null }) {
   return null;
 }
 
+function SupabaseProjectPicker({
+  connectionId,
+  onPicked,
+}: {
+  connectionId: string;
+  onPicked: (c: ApiConnection) => void;
+}) {
+  type Project = {
+    ref: string;
+    name: string;
+    organizationId: string | null;
+    functionCount: number | null;
+  };
+  const [projects, setProjects] = useState<Project[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busyRef, setBusyRef] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .listSupabaseProjects(connectionId)
+      .then((r) => setProjects(r.projects))
+      .catch((e) =>
+        setErr(e instanceof ApiError ? e.message : "Failed to list projects"),
+      );
+  }, [connectionId]);
+
+  async function pick(ref: string) {
+    setBusyRef(ref);
+    setErr(null);
+    try {
+      const res = await api.pickSupabaseProject(connectionId, ref);
+      onPicked(res.connection);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Pick failed");
+    } finally {
+      setBusyRef(null);
+    }
+  }
+
+  return (
+    <Card withBorder p="lg" mt="md">
+      <Stack gap="sm">
+        <Title order={3} size="h4">
+          Pick a Supabase project
+        </Title>
+        <Text size="sm" c="dimmed">
+          The connected Supabase account can see {projects?.length ?? "…"}{" "}
+          project{projects?.length === 1 ? "" : "s"}. Pick the one whose edge
+          functions you want logs from. You can change this later by
+          reconnecting.
+        </Text>
+        {err && (
+          <Alert color="red" variant="light">
+            {err}
+          </Alert>
+        )}
+        {!projects && !err && <Loader size="sm" />}
+        {projects && projects.length === 0 && (
+          <Text size="sm" c="dimmed">
+            No projects visible to this token.
+          </Text>
+        )}
+        {projects && projects.length > 0 && (
+          <Table withTableBorder withColumnBorders>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Project</Table.Th>
+                <Table.Th>Ref</Table.Th>
+                <Table.Th>Edge functions</Table.Th>
+                <Table.Th />
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {projects.map((p) => (
+                <Table.Tr key={p.ref}>
+                  <Table.Td>{p.name}</Table.Td>
+                  <Table.Td>
+                    <Text size="xs" ff="monospace">
+                      {p.ref}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    {p.functionCount === null ? "?" : p.functionCount}
+                  </Table.Td>
+                  <Table.Td>
+                    <Button
+                      size="compact-sm"
+                      variant={p.functionCount === 0 ? "default" : "filled"}
+                      loading={busyRef === p.ref}
+                      onClick={() => pick(p.ref)}
+                    >
+                      Pick
+                    </Button>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        )}
+      </Stack>
+    </Card>
+  );
+}
+
 function relativeTime(ms: number): string {
   const diff = (Date.now() - ms) / 1000;
   if (diff < 60) return "just now";
@@ -530,6 +650,7 @@ function ReconnectModal({
 
   const formFields = provider?.formFields ?? [];
   const connectFlow = provider?.connectFlow ?? null;
+  const oauthShortcut = provider?.oauthShortcut ?? null;
 
   // Match NewConnection's flow: until the user clicks "Connect
   // <Provider>", hide the paste-token field so the call-to-action
@@ -591,6 +712,35 @@ function ReconnectModal({
           the stored credentials and re-runs discovery. Useful after
           you rotate a token or add missing scopes.
         </Text>
+
+        {oauthShortcut && (
+          <Card withBorder p="md" radius="sm">
+            <Stack gap="xs">
+              <Text fw={600} size="sm">
+                {oauthShortcut.buttonLabel}
+              </Text>
+              <Text size="xs" c="dimmed">
+                {oauthShortcut.buttonDescription}
+              </Text>
+              <Group>
+                <Button
+                  component="a"
+                  leftSection={<IconExternalLink size={16} />}
+                  href={`${oauthShortcut.startPath}?reconnect_id=${connection.id}`}
+                >
+                  {oauthShortcut.buttonLabel}
+                </Button>
+              </Group>
+            </Stack>
+          </Card>
+        )}
+
+        {oauthShortcut && (
+          <Divider
+            label="Or paste a Personal Access Token"
+            labelPosition="center"
+          />
+        )}
 
         {connectFlow && provider && (
           <ConnectSection

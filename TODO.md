@@ -25,6 +25,11 @@
 - [ ] GCP Cloud Run — driver exists; no managed deploy yet.
 
 ### Memory / sources
+- [ ] **`logtura-http-client`** — new Rust crate (separate repo `logtura/logtura-http-client`). Clone of Vector's `http_client` source distributed as a static binary, with two new auth strategies the upstream doesn't have:
+    - `bearer_refresh` — POST to a configurable `token_url` for a fresh bearer (the response is `{access_token, expires_in}`-shaped). Logtura's SaaS implements that endpoint for managed deploys. Generic; works for any backend that issues short-lived tokens.
+    - `oauth_refresh` — RFC 6749 directly. Operator holds `client_id`/`client_secret`/`refresh_token`. **Supabase rotates refresh_tokens on every use** (probed 2026-05-12) — original is invalidated within a second. So `oauth_refresh` requires `refresh_token_file` on a persistent volume for the binary to write the new token. Optional and document the volume requirement; many use cases work fine with `bearer_refresh` instead.
+    Both strategies handle the `401 → refresh → retry once → exit non-zero` cycle so Vector's exec source restarts on hard auth failures. Vector source config the driver emits is `type: exec` calling `logtura-http-client --config <path>`. TOML config shape mirrors upstream `http_client` so the eventual upstream PR is mechanical: add `bearer_refresh`/`oauth_refresh` to `auth.strategy`. Context: https://github.com/vectordotdev/vector/discussions/17192 — upstream maintainers acknowledged the gap.
+    Once `logtura-http-client` ships, the supabase-edge-logs driver switches from `http_client` (24h-only OAuth) to `exec`-with-this-binary so OAuth-managed forwarders survive token rotation. PAT-paste path stays as the offline-friendly alternative.
 - [ ] **CF tail bridge** (replaces `wrangler tail` subprocess-per-worker). A small Node/Go binary in `containers/cf-tail-bridge/` that:
     - calls `POST /accounts/<id>/workers/scripts/<script>/tails` per selected worker, holds N WebSockets in one process, streams the merged event stream to stdout in `wrangler tail --format json` shape
     - handles tail TTL refresh (CF tails expire ~10min) — call create-tail again before TTL, hand-off cleanly

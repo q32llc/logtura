@@ -12,7 +12,7 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
-import { IconBolt } from "@tabler/icons-react";
+import { IconBolt, IconExternalLink } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useSearchParams } from "react-router-dom";
@@ -85,7 +85,7 @@ export function NewConnection() {
 
   const driver = providers?.find((p) => p.id === providerId) ?? null;
   const connect = driver?.connectFlow ?? null;
-  const isOauth = connect?.kind === "oauth_redirect";
+  const oauthShortcut = driver?.oauthShortcut ?? null;
   const pasteFieldName =
     connect?.kind === "external_token" ? connect.pasteFieldName : null;
 
@@ -227,6 +227,45 @@ export function NewConnection() {
               </Alert>
             )}
 
+            {oauthShortcut && driver && (
+              <Card withBorder p="md" radius="sm">
+                <Stack gap="xs">
+                  <Text fw={600} size="sm">
+                    {oauthShortcut.buttonLabel}
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    {oauthShortcut.buttonDescription}
+                  </Text>
+                  <Group>
+                    <Button
+                      component="a"
+                      leftSection={<IconExternalLink size={16} />}
+                      href={
+                        displayName.trim()
+                          ? `${oauthShortcut.startPath}?display_name=${encodeURIComponent(displayName)}`
+                          : undefined
+                      }
+                      disabled={!displayName.trim()}
+                    >
+                      {oauthShortcut.buttonLabel}
+                    </Button>
+                    {!displayName.trim() && (
+                      <Text size="xs" c="dimmed">
+                        Pick a connection name first.
+                      </Text>
+                    )}
+                  </Group>
+                </Stack>
+              </Card>
+            )}
+
+            {oauthShortcut && (
+              <Divider
+                label="Or paste a Personal Access Token"
+                labelPosition="center"
+              />
+            )}
+
             {connect && driver && (
               <ConnectSection
                 providerName={driver.displayName}
@@ -272,11 +311,9 @@ export function NewConnection() {
               >
                 Cancel
               </Button>
-              {!isOauth && (
-                <Button type="submit" loading={submitting} disabled={!driver}>
-                  Verify &amp; continue
-                </Button>
-              )}
+              <Button type="submit" loading={submitting} disabled={!driver}>
+                Verify &amp; continue
+              </Button>
             </Group>
           </Stack>
         </form>

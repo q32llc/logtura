@@ -97,6 +97,23 @@ export const api = {
       `/connections/${id}/discover`,
       { method: "POST" },
     ),
+  listSupabaseProjects: (id: string) =>
+    request<{
+      projects: Array<{
+        ref: string;
+        name: string;
+        organizationId: string | null;
+        functionCount: number | null;
+      }>;
+    }>(`/connections/${id}/supabase-projects`),
+  pickSupabaseProject: (id: string, projectRef: string) =>
+    request<{ connection: ApiConnection }>(
+      `/connections/${id}/supabase-pick-project`,
+      {
+        method: "POST",
+        body: JSON.stringify({ projectRef }),
+      },
+    ),
   getJob: (id: string) => request<{ job: ApiJob }>(`/jobs/${id}`),
   deleteConnection: (id: string) =>
     request<{ ok: true }>(`/connections/${id}`, { method: "DELETE" }),

@@ -80,6 +80,17 @@ export interface ApiProvider {
   displayName: string;
   connectFlow: ApiConnectFlow | null;
   formFields: ApiFormField[];
+  /** Optional OAuth shortcut that lives alongside connectFlow. When
+   *  present, UI renders an OAuth button above the regular PAT-paste
+   *  form so both options are reachable from one screen. Today only
+   *  supabase-edge-logs surfaces this; the field is generic for
+   *  future providers that gain a SaaS-managed OAuth alongside
+   *  user-pasted credentials. */
+  oauthShortcut?: {
+    startPath: string;
+    buttonLabel: string;
+    buttonDescription: string;
+  } | null;
 }
 
 export interface ApiEnvVar {
