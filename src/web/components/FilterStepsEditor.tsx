@@ -1,4 +1,5 @@
 import {
+  ActionIcon,
   Badge,
   Button,
   Group,
@@ -10,7 +11,12 @@ import {
   Text,
   TextInput,
 } from "@mantine/core";
-import { IconPlus, IconX } from "@tabler/icons-react";
+import {
+  IconChevronLeft,
+  IconChevronRight,
+  IconPlus,
+  IconX,
+} from "@tabler/icons-react";
 import { useState } from "react";
 import type { FilterStep } from "../types";
 
@@ -109,6 +115,14 @@ export function FilterStepsEditor({
     onChange(steps.filter((_, i) => i !== idx));
   }
 
+  function move(idx: number, delta: -1 | 1) {
+    const target = idx + delta;
+    if (target < 0 || target >= steps.length) return;
+    const next = [...steps];
+    [next[idx], next[target]] = [next[target]!, next[idx]!];
+    onChange(next);
+  }
+
   return (
     <Stack gap={6}>
       {steps.length === 0 && (
@@ -118,26 +132,45 @@ export function FilterStepsEditor({
       )}
       <Group gap={6} wrap="wrap">
         {steps.map((step, idx) => (
-          <Badge
-            key={idx}
-            size={size === "xs" ? "sm" : "md"}
-            variant="light"
-            radius="sm"
-            rightSection={
-              <IconX
-                size={10}
-                style={{ cursor: "pointer" }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  remove(idx);
-                }}
-              />
-            }
-            style={{ cursor: "pointer", textTransform: "none" }}
-            onClick={() => setEditing({ index: idx, step, isNew: false })}
-          >
-            {chipLabel(step)}
-          </Badge>
+          <Group key={idx} gap={2} wrap="nowrap">
+            <ActionIcon
+              size="xs"
+              variant="subtle"
+              disabled={idx === 0}
+              onClick={() => move(idx, -1)}
+              aria-label="Move left"
+            >
+              <IconChevronLeft size={12} />
+            </ActionIcon>
+            <Badge
+              size={size === "xs" ? "sm" : "md"}
+              variant="light"
+              radius="sm"
+              rightSection={
+                <IconX
+                  size={10}
+                  style={{ cursor: "pointer" }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    remove(idx);
+                  }}
+                />
+              }
+              style={{ cursor: "pointer", textTransform: "none" }}
+              onClick={() => setEditing({ index: idx, step, isNew: false })}
+            >
+              {chipLabel(step)}
+            </Badge>
+            <ActionIcon
+              size="xs"
+              variant="subtle"
+              disabled={idx === steps.length - 1}
+              onClick={() => move(idx, 1)}
+              aria-label="Move right"
+            >
+              <IconChevronRight size={12} />
+            </ActionIcon>
+          </Group>
         ))}
         <Menu position="bottom-start" shadow="md">
           <Menu.Target>
