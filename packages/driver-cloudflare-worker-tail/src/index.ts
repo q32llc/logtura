@@ -145,12 +145,15 @@ function workerNormalizeYaml(inputKeys: string[]): string {
     `  msg = string(ex.message) ?? ""`,
     `  parts = push(parts, name + ": " + msg)`,
     `}`,
-    // Some CF events trip .error via outcome alone (canceled,
-    // exceededCpu, scriptNotFound) without logs/exceptions —
-    // parts ends up empty. Synthesize a body so .message is never
-    // bare. Slack returns 400 on {"text":""} so we also need it
-    // non-empty even after the prefix.
-    `body = if length(parts) == 0 { "outcome=" + outcome } else { join!(parts, " | ") }`,
+    // When the worker actually failed (exceededMemory, exceededCpu,
+    // exception with no JS-level exception body, scriptNotFound,
+    // daemonDown), prefix the rendered body with outcome=<reason>.
+    // Without this, a request that logged anything before CF killed
+    // it shows only the surviving info logs in Slack, masking the
+    // real cause. Also covers the empty-parts case (CF killed before
+    // anything logged) so the body is never bare. Slack returns 400
+    // on {"text":""} so the body has to be non-empty.
+    `body = if length(parts) == 0 { "outcome=" + outcome } else if worker_failed { "outcome=" + outcome + " | " + join!(parts, " | ") } else { join!(parts, " | ") }`,
     // Prefix with [script] so monitors WITHOUT a rollup step still
     // deliver tagged messages to Slack. Without this, a console.log
     // of a structured object lands in Slack as a bare JSON fragment

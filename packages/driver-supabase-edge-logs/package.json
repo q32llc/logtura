@@ -1,6 +1,6 @@
 {
   "name": "@logtura/driver-supabase-edge-logs",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Logtura provider driver for Supabase Edge Functions — polls /v1/projects/{ref}/analytics/endpoints/logs.all via Vector's http_client source.",
   "license": "Apache-2.0",
   "author": "Erik Hinterbichler (Logtura)",

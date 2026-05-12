@@ -1,7 +1,7 @@
 {
   "name": "logtura",
   "version": "0.1.0",
-  "description": "Compose Vector configs from typed driver inputs — provider + destination packages for the @logtura/* namespace.",
+  "description": "Compose Vector configs from typed driver inputs. Provider and destination packages for the @logtura/* namespace.",
   "license": "Apache-2.0",
   "author": "Erik Hinterbichler (Logtura)",
   "homepage": "https://github.com/logtura/logtura#readme",
@@ -21,6 +21,7 @@
     "test:destinations": "vitest run --project '@logtura/destination-*'"
   },
   "devDependencies": {
+    "@types/node": "^22",
     "@vitest/coverage-istanbul": "4.1.5",
     "typescript": "^5.6.3",
     "vitest": "^4.1.5"

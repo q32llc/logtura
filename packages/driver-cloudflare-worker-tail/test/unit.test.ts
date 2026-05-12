@@ -79,6 +79,13 @@ describe("generateNormalize", () => {
     // [script] prefix in the synthesized message body — source-side
     // tagging so non-rollup monitors still ship a labeled body.
     expect(y).toContain('"[" + .script + "] "');
+    // Worker-failure outcomes prefix the body with outcome=<reason>.
+    // Regression pin: previously, a request that logged anything
+    // before CF killed it (exceededMemory, exceededCpu, etc.) showed
+    // only the surviving info logs in Slack, hiding the real cause.
+    expect(y).toContain(
+      'else if worker_failed { "outcome=" + outcome + " | " + join!(parts, " | ") }',
+    );
   });
 });
 
