@@ -1,6 +1,6 @@
 {
   "name": "@logtura/supabase-shared",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Shared Supabase Management API plumbing used by the supabase-* logtura drivers.",
   "license": "Apache-2.0",
   "author": "Erik Aronesty (Logtura)",

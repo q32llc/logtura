@@ -1,6 +1,6 @@
 {
   "name": "@logtura/cli",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "OSS CLI for validating Logtura configs and generating Vector forwarder bundles.",
   "license": "Apache-2.0",
   "author": "Erik Aronesty (Logtura)",
@@ -14,9 +14,6 @@
     "url": "https://github.com/logtura/logtura/issues"
   },
   "type": "module",
-  "bin": {
-    "logtura": "./src/main.ts"
-  },
   "main": "./src/main.ts",
   "types": "./src/main.ts",
   "exports": {
@@ -53,5 +50,8 @@
     "@types/node": "^22",
     "typescript": "^5.6.3",
     "vitest": "^4.1.5"
+  },
+  "bin": {
+    "logtura": "./src/main.ts"
   }
 }
