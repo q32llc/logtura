@@ -1419,8 +1419,18 @@ api.get("/providers/vercel/start", async (c) => {
   }
 
   const state = newToken();
+  const { buildVercelAuthorizeUrl, createVercelPkcePair } = await import(
+    "./providers/vercel-oauth"
+  );
+  const pkce = await createVercelPkcePair();
   const signed = await signCookie(
-    JSON.stringify({ state, userId, displayName, reconnectId }),
+    JSON.stringify({
+      state,
+      userId,
+      displayName,
+      reconnectId,
+      codeVerifier: pkce.codeVerifier,
+    }),
     c.env.SESSION_SECRET,
   );
   setCookie(c, VERCEL_STATE_COOKIE, signed, {
@@ -1430,12 +1440,12 @@ api.get("/providers/vercel/start", async (c) => {
     path: "/",
     maxAge: 600,
   });
-  const { buildVercelAuthorizeUrl } = await import("./providers/vercel-oauth");
   return c.redirect(
     buildVercelAuthorizeUrl({
       clientId: c.env.VERCEL_CLIENT_ID!,
       redirectUri: `${c.env.APP_URL}/api/providers/vercel/callback`,
       state,
+      codeChallenge: pkce.codeChallenge,
     }),
     303,
   );
@@ -1457,6 +1467,7 @@ api.get("/providers/vercel/callback", async (c) => {
         userId?: string;
         displayName?: string;
         reconnectId?: string | null;
+        codeVerifier?: string;
       };
     } catch {
       return null;
@@ -1466,7 +1477,8 @@ api.get("/providers/vercel/callback", async (c) => {
     !parsed ||
     parsed.state !== state ||
     !parsed.userId ||
-    !parsed.displayName
+    !parsed.displayName ||
+    !parsed.codeVerifier
   ) {
     return c.redirect("/app/connections/new?error=vercel_oauth_state", 303);
   }
@@ -1483,6 +1495,7 @@ api.get("/providers/vercel/callback", async (c) => {
       clientId: c.env.VERCEL_CLIENT_ID!,
       clientSecret: c.env.VERCEL_CLIENT_SECRET!,
       code,
+      codeVerifier: parsed.codeVerifier,
       redirectUri: `${c.env.APP_URL}/api/providers/vercel/callback`,
     });
   } catch (err) {

@@ -202,21 +202,25 @@ describe("Vercel OAuth", () => {
     expect(authorizeUrl.searchParams.get("scope")).toBe(
       "openid offline_access",
     );
+    expect(authorizeUrl.searchParams.get("code_challenge")).toBeTruthy();
+    expect(authorizeUrl.searchParams.get("code_challenge_method")).toBe("S256");
     const state = authorizeUrl.searchParams.get("state")!;
     const stateCookie = start.headers.get("set-cookie")!;
 
     mockFetch("https://api.vercel.com", async (req) => {
       const url = new URL(req.url);
-      if (url.pathname === "/v2/oauth/access_token") {
+      if (url.pathname === "/login/oauth/token") {
         const body = await req.formData();
+        expect(body.get("grant_type")).toBe("authorization_code");
         expect(body.get("code")).toBe("oauth_code");
         expect(body.get("client_id")).toBe("test_vercel_client");
+        expect(body.get("code_verifier")).toBeTruthy();
         expect(body.get("redirect_uri")).toBe(
           `${env.APP_URL}/api/providers/vercel/callback`,
         );
         return Response.json({
           access_token: "vercel_oauth_token",
-          team_id: "team_oauth",
+          refresh_token: "vercel_refresh_token",
         });
       }
       if (url.pathname === "/v2/user") {
@@ -251,7 +255,7 @@ describe("Vercel OAuth", () => {
       user_id: userId,
       provider: "vercel-logs",
       display_name: "Prod Vercel",
-      external_account_id: "team_oauth",
+      external_account_id: null,
     });
 
     const job = await env.DB.prepare(
