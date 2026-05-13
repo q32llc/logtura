@@ -36,10 +36,18 @@ const OAUTH_ERROR_LABELS: Record<string, string> = {
   auth_required: "Sign in first, then try connecting again.",
 };
 
+function normalizeProviderParam(value: string | null): string | null {
+  if (!value) return null;
+  if (value === "vercel") return "vercel-logs";
+  return value;
+}
+
 export function NewConnection() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const oauthError = searchParams.get("error");
+  const requestedProviderId = normalizeProviderParam(searchParams.get("provider"));
+  const configurationId = searchParams.get("configurationId");
   const [providers, setProviders] = useState<ApiProvider[] | null>(null);
   const [deployTargets, setDeployTargets] = useState<ApiDeployTarget[]>([]);
   const [providerId, setProviderId] = useState<string | null>(null);
@@ -56,7 +64,10 @@ export function NewConnection() {
       .then((r) => {
         setProviders(r.providers);
         if (r.providers.length > 0 && !providerId) {
-          setProviderId(r.providers[0]!.id);
+          const requestedProvider = r.providers.find(
+            (p) => p.id === requestedProviderId,
+          );
+          setProviderId(requestedProvider?.id ?? r.providers[0]!.id);
         }
       })
       .catch(() => setError("Failed to load providers"));
@@ -88,6 +99,18 @@ export function NewConnection() {
   const oauthShortcut = driver?.oauthShortcut ?? null;
   const pasteFieldName =
     connect?.kind === "external_token" ? connect.pasteFieldName : null;
+  const oauthStartHref =
+    oauthShortcut && displayName.trim()
+      ? (() => {
+          const params = new URLSearchParams({
+            display_name: displayName,
+          });
+          if (configurationId) {
+            params.set("configurationId", configurationId);
+          }
+          return `${oauthShortcut.startPath}?${params.toString()}`;
+        })()
+      : undefined;
 
   // Step state for the visual stepper.
   const pasteValue = pasteFieldName ? (fieldValues[pasteFieldName] ?? "") : "";
@@ -240,11 +263,7 @@ export function NewConnection() {
                     <Button
                       component="a"
                       leftSection={<IconExternalLink size={16} />}
-                      href={
-                        displayName.trim()
-                          ? `${oauthShortcut.startPath}?display_name=${encodeURIComponent(displayName)}`
-                          : undefined
-                      }
+                      href={oauthStartHref}
                       disabled={!displayName.trim()}
                     >
                       {oauthShortcut.buttonLabel}
@@ -326,4 +345,3 @@ export function NewConnection() {
     </Container>
   );
 }
-
