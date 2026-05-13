@@ -29,8 +29,8 @@ describe("flyAuthHeader", () => {
   });
 });
 
-// parseFormData + connectFlow + formFields live in the SaaS-side
-// connect adapter (src/providers/connect/fly-log-tail.ts).
+// parseFormData + connectFlow + formFields are intentionally outside
+// the driver; the CLI passes explicit credentials.
 
 describe("capabilities", () => {
   it("declares list-only selection (per-app flyctl)", () => {
@@ -127,7 +127,7 @@ describe("generatePipeline", () => {
     expect(pipe.dockerfileDeps[0]?.install).toContain("fly.io/install.sh");
   });
 
-  it("manifest echoes Source.id for host UI linking", () => {
+  it("manifest echoes Source.id for component linking", () => {
     const pipe = flyLogTailDriver.generatePipeline({
       connection: dummyConnection,
       selection: {

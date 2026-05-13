@@ -2,7 +2,7 @@ import { type DestinationDriver, type SinkBundle } from "@logtura/core";
 
 /**
  * Prometheus remote-write — Vector's native sink for any Prometheus-
- * compatible TSDB: Mimir, VictoriaMetrics, Thanos, Cortex, self-hosted
+ * compatible TSDB: Mimir, VictoriaMetrics, Thanos, Cortex, Prometheus
  * Prometheus with the remote_write receiver enabled, Grafana Cloud,
  * etc.
  */
@@ -18,7 +18,7 @@ export const prometheusRemoteWriteDriver: DestinationDriver<PrometheusRemoteWrit
     id: "prometheus_remote_write",
     displayName: "Prometheus remote-write",
     description:
-      "Push Vector internal metrics to any Prometheus-compatible TSDB (Mimir, VictoriaMetrics, Thanos, Grafana Cloud, self-hosted Prom with remote_write enabled).",
+      "Push Vector internal metrics to any Prometheus-compatible TSDB (Mimir, VictoriaMetrics, Thanos, Grafana Cloud, Prometheus with remote_write enabled).",
     flows: ["metrics"],
 
     generateSinkBundle({ config, inputs, sinkKey, envVarName }): SinkBundle {

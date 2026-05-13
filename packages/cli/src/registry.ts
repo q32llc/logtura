@@ -2,6 +2,7 @@ import { cloudflareAiGatewayDriver } from "@logtura/driver-cloudflare-ai-gateway
 import { cloudflareWorkerTailDriver } from "@logtura/driver-cloudflare-worker-tail";
 import { flyLogTailDriver } from "@logtura/driver-fly-log-tail";
 import { supabaseEdgeLogsDriver } from "@logtura/driver-supabase-edge-logs";
+import { vercelLogsDriver } from "@logtura/driver-vercel-logs";
 import { datadogMetricsDriver } from "@logtura/destination-datadog-metrics";
 import { prometheusRemoteWriteDriver } from "@logtura/destination-prometheus-remote-write";
 import { slackDriver } from "@logtura/destination-slack";
@@ -19,6 +20,7 @@ export function listProviders(): ProviderDriver[] {
     flyLogTailDriver,
     supabaseEdgeLogsDriver,
     customVectorProvider,
+    vercelLogsDriver,
   ] as ProviderDriver[];
 }
 

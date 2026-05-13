@@ -17,10 +17,9 @@
  * when both are picked a converging transform fans them into a
  * single output key for downstream tag_conn / monitors.
  *
- * Auth: PAT path emits Vector `http_client` directly. OAuth path
- * (refreshable credentials) emits an `exec` source running
- * `logtura-http-client` which calls back into Logtura's SaaS for
- * fresh access tokens. Same auth-path branching applies to both
+ * Auth: PAT path emits Vector `http_client` directly. Refreshable
+ * credentials emit an `exec` source running `logtura-http-client`
+ * for fresh access tokens. Same auth-path branching applies to both
  * surfaces.
  *
  * Response envelope on real Supabase analytics is single-nest
@@ -338,14 +337,14 @@ export const supabaseEdgeLogsDriver: ProviderDriver<SupabaseCredentials> = {
         {
           name: "LOGTURA_TAIL_TOKEN",
           description:
-            "Connection-scoped JWT the sidecar binary uses to call back into Logtura's SaaS for fresh Supabase access tokens.",
+            "Connection-scoped JWT the sidecar binary uses to request fresh Supabase access tokens.",
           source: "credential",
           credentialPath: "tailToken",
         },
         {
           name: "LOGTURA_TAIL_TOKEN_URL",
           description:
-            "URL the sidecar binary POSTs to for fresh Supabase access tokens. Logtura SaaS endpoint.",
+            "URL the sidecar binary POSTs to for fresh Supabase access tokens.",
           source: "credential",
           credentialPath: "tailTokenUrl",
         },

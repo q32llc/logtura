@@ -15,8 +15,8 @@ const fnSource = (id: string, slug: string, uuid: string) => ({
   metadata: { function_id: uuid },
 });
 
-// parseFormData + connectFlow + formFields live in the SaaS-side
-// connect adapter (src/providers/connect/supabase-edge-logs.ts).
+// parseFormData + connectFlow + formFields are intentionally outside
+// the driver; the CLI passes explicit credentials.
 
 describe("capabilities", () => {
   it("declares both selection modes (one poll handles list or all)", () => {

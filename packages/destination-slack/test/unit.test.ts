@@ -4,9 +4,8 @@ import {
   slackDriver,
 } from "../src/index";
 
-// parseFormData moved to the SaaS-side connect adapter
-// (src/destinations/connect/slack.ts); see
-// test/workerd/connect-adapters.test.ts.
+// parseFormData is intentionally outside the destination driver; the
+// CLI passes explicit Slack config.
 
 describe("generateSinkBundle", () => {
   it("emits a {text} remap + http sink with newline_delimited framing", () => {

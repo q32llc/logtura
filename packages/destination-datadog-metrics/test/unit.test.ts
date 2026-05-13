@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { datadogMetricsDriver } from "../src/index";
 
-// parseFormData moved to the SaaS-side connect adapter.
+// parseFormData is intentionally outside the destination driver.
 
 describe("generateSinkBundle", () => {
   it("emits datadog_metrics with site + api key env-injection", () => {

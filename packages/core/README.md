@@ -6,8 +6,7 @@ and produces a complete `vector.yaml`, Dockerfile, env-var manifest, and
 component manifest describing the pipeline.
 
 Pure TypeScript. No I/O. Drivers (providers and destinations) plug in via small
-contracts. This package is the renderer used by both the hosted product and
-`@logtura/cli`.
+contracts. This package is the renderer behind `@logtura/cli`.
 
 ```bash
 npm install @logtura/core @logtura/driver-fly-log-tail @logtura/destination-slack
@@ -105,7 +104,7 @@ only wires the returned `outputKey` into downstream monitor/sink transforms.
 A destination driver is similar. `DestinationDriver<TConfig>` declares
 `generateSinkBundle`, `runtimeEnvVars`, and `envVarValue`.
 
-Form schemas, OAuth flows, and `FormData` parsing are intentionally not part of this contract. They live host-side in whatever app is rendering a UI on top of the renderer.
+Form schemas, OAuth flows, and `FormData` parsing are intentionally not part of this contract. The CLI supplies plain typed inputs from `logtura.yaml`.
 
 ## Logtura Event Shape
 
@@ -130,6 +129,7 @@ event unless a driver intentionally drops them.
 - [@logtura/driver-cloudflare-ai-gateway](../driver-cloudflare-ai-gateway). Cloudflare AI Gateway logs via http_client.
 - [@logtura/driver-fly-log-tail](../driver-fly-log-tail). `flyctl logs --json` over Vector's exec source.
 - [@logtura/driver-supabase-edge-logs](../driver-supabase-edge-logs). Supabase Edge Functions via the analytics API.
+- [@logtura/driver-vercel-logs](../driver-vercel-logs). Vercel Runtime Logs via the REST API.
 - [@logtura/custom-vector](../custom-vector). Bring-your-own Vector source, transform, and sink fragments.
 - [@logtura/destination-slack](../destination-slack). Incoming-webhook.
 - [@logtura/destination-webhook](../destination-webhook). Generic HTTPS POST.

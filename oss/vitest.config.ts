@@ -2,9 +2,7 @@ import { defineConfig } from "vitest/config";
 
 /**
  * Root vitest config for the public @logtura/* monorepo. Fans into
- * every package's own vitest config via `test.projects`. The hosted
- * product has additional workerd-based integration tests that don't
- * live in this repo.
+ * every package's own vitest config via `test.projects`.
  */
 export default defineConfig({
   test: {

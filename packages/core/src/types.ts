@@ -116,19 +116,19 @@ export interface ConnectionRef {
    *  exposing the secret itself. `"static"` means a stable bearer
    *  (PAT, long-lived API key) — drivers can poll the endpoint
    *  directly with the env-injected value. `"refreshable"` means
-   *  the credential rotates and a host-managed sidecar (e.g.
+   *  the credential rotates and a companion sidecar (e.g.
    *  logtura-http-client) is responsible for keeping a fresh token
    *  available. Drivers that don't care leave the default
    *  ("static") behavior.
    *
-   *  Hosts set this from credential shape (e.g. "is there a
+   *  Callers set this from credential shape (e.g. "is there a
    *  refresh_token field?"). The OSS surface only sees the kind. */
   credentialKind?: "static" | "refreshable";
 }
 
 /** Caller view of a single source row for the driver. `id` is the
  *  caller's opaque identifier for the source; drivers echo it back
- *  into `manifest.links.sourceId` so a host UI can connect picked
+ *  into `manifest.links.sourceId` so callers can connect picked
  *  rows to live components. Drivers don't otherwise interpret it. */
 export interface SourceRef {
   id: string;
@@ -152,7 +152,7 @@ export interface ProviderAccount {
   name: string;
 }
 
-/** Env-var the bundle expects at runtime. The host fills `value`
+/** Env-var the bundle expects at runtime. The caller fills `value`
  *  from stored credentials / external account / user input. */
 export interface EnvVarSpec {
   name: string;
@@ -171,6 +171,22 @@ export interface DockerfileDep {
   install?: string;
   directive?: string;
   aptPackages?: string[];
+}
+
+export interface RuntimeAsset {
+  /** Driver-relative POSIX path. Core writes it under assets/<driver-id>/. */
+  path: string;
+  content: string | Uint8Array;
+  mode?: number;
+}
+
+export interface GeneratedRuntimeAsset extends RuntimeAsset {
+  driverId: string;
+}
+
+export interface RenderDockerfileOptions {
+  mountVectorYamlAtRuntime?: boolean;
+  includeRuntimeAssets?: boolean;
 }
 
 /** A single Vector component emitted by a driver. */
@@ -206,20 +222,20 @@ export interface DriverPipeline {
    *  output stream. Downstream tag_conn / tag_received transforms
    *  read from this key. Must match one of the `components[].key`. */
   outputKey: string;
-  /** Env vars the driver needs at runtime. The host fills `value`
+  /** Env vars the driver needs at runtime. The caller fills `value`
    *  from stored credentials / external account / user input. */
   envVars: EnvVarSpec[];
   /** Dockerfile install steps the forwarder image needs. */
   dockerfileDeps: DockerfileDep[];
+  /** Runtime helper files this driver needs. Written under assets/<driver-id>. */
+  runtimeAssets?: RuntimeAsset[];
   /** Optional manifest entries describing the emitted components.
-   *  Each entry's id should match a `components[].key`. Hosts that
-   *  display per-component status (deployment dashboards, throughput
-   *  panels) consume these. Hosts that don't display anything can
-   *  ignore the field. */
+   *  Each entry's id should match a `components[].key`. Consumers that
+   *  display per-component status can use these; others can ignore them. */
   manifest?: ComponentManifestEntry[];
 }
 
-/** Static metadata about a driver's runtime behavior. Hosts read
+/** Static metadata about a driver's runtime behavior. Callers read
  *  this to gate UI affordances and set user expectations without
  *  trying inputs against `generatePipeline` to see what works.
  *
@@ -246,9 +262,9 @@ export interface ProviderCapabilities {
  *
  *  This is the OSS surface: pure renderer + API client. Anything
  *  web-shaped (form schemas, OAuth start paths, paste button copy)
- *  lives in a host-side adapter, not here. That keeps the
+ *  lives outside these driver packages. That keeps the
  *  @logtura/driver-* packages narrow enough for outside contributors
- *  to ship driver PRs without touching host routing. */
+ *  to ship driver PRs without touching routing code. */
 export interface ProviderDriver<TCreds = unknown> {
   readonly id: string;
   readonly displayName: string;
@@ -317,8 +333,7 @@ export interface SinkBundle {
 }
 
 /** The destination-driver contract. Pure renderer + (optional)
- *  config verifier; form schemas + OAuth flows live in a
- *  host-side adapter (see DestinationConnectAdapter SaaS-side). */
+ *  config verifier. The CLI passes parsed destination config. */
 export interface DestinationDriver<TConfig = unknown> {
   readonly id: string;
   readonly displayName: string;
@@ -388,14 +403,14 @@ export interface GenerateInput {
   /** Monitor definitions with their sinks pre-joined. */
   monitors: GeneratorMonitor[];
 
-  /** Heartbeat config — host-side; one of two shapes today. */
+  /** Heartbeat config; one of two shapes today. */
   heartbeat?: {
     kind: "logtura" | "none";
     deploymentId: string;
     appUrl: string;
   };
 
-  /** Metrics-target config — none / a host-mediated sink / a
+  /** Metrics-target config — none / a built-in Logtura sink / a
    *  destination that accepts the "metrics" flow. */
   metrics?:
     | { kind: "none" }
@@ -448,6 +463,7 @@ export interface ComponentManifestEntry {
 export interface GeneratedBundle {
   vectorYaml: string;
   dockerfile: string;
+  runtimeAssets: GeneratedRuntimeAsset[];
   runCommand: string;
   envVars: BundleEnvVar[];
   selectedCount: number;

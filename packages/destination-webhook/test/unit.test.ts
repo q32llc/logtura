@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { webhookDriver } from "../src/index";
 
-// parseFormData moved to the SaaS-side connect adapter.
+// parseFormData is intentionally outside the destination driver.
 
 describe("generateSinkBundle", () => {
   it("emits http sink fed directly from upstream inputs", () => {

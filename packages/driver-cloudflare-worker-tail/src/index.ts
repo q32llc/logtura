@@ -30,11 +30,8 @@ interface CfWorkerScript {
   modified_on?: string;
 }
 
-// Token-page URL with permissionGroupKeys pre-checked, the OAuth
-// button labels, and the FormData parser all live in the SaaS-side
-// connect adapter (src/providers/connect/cloudflare-worker-tail.ts).
-// This package only carries what the renderer + a self-hoster CLI
-// would consume: id, discovery, codegen, runtime spec.
+// This package only carries what the renderer and CLI consume:
+// id, discovery, codegen, and runtime spec.
 
 export const cloudflareWorkerTailDriver: ProviderDriver<CloudflareCredentials> = {
   id: "cloudflare-worker-tail",
@@ -42,7 +39,7 @@ export const cloudflareWorkerTailDriver: ProviderDriver<CloudflareCredentials> =
   sourceLabel: "Worker",
   // Cloudflare tail sessions are still script-scoped, but
   // logtura-cf-tail multiplexes the selected list in one process.
-  // Hosts wanting "all" still expand the selection at picking time
+  // Callers wanting "all" still expand the selection at picking time
   // because the API doesn't expose one account-wide stream.
   capabilities: { selection: "list" },
   verifyCredentials: verifyCfCredentials,
@@ -162,11 +159,8 @@ export const cloudflareWorkerTailDriver: ProviderDriver<CloudflareCredentials> =
       });
     }
     const runtime = cfRuntimeSpec({
-      // Bare token-page URL; the connect-time pre-checked scopes URL
-      // lives in the host's connect adapter. helpUrl is rendered
-      // next to the env var on a deploy's "missing creds" view,
-      // where we can't assume the user wants the worker-tail scope
-      // set.
+      // Bare token-page URL. The CLI renders this next to the env var;
+      // a pre-scoped token URL belongs outside the driver.
       helpUrl: "https://dash.cloudflare.com/profile/api-tokens",
     });
     runtime.dockerfileDeps = [

@@ -19,8 +19,8 @@ const workerSource = (id: string, name: string) => ({
   metadata: null,
 });
 
-// parseFormData + connectFlow + formFields live in the SaaS-side
-// connect adapter (src/providers/connect/cloudflare-worker-tail.ts).
+// parseFormData + connectFlow + formFields are intentionally outside
+// the driver; the CLI passes explicit credentials.
 
 describe("capabilities", () => {
   it("declares list-only selection (Cloudflare tail sessions are script-scoped)", () => {

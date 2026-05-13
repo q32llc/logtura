@@ -15,9 +15,8 @@ logtura install-zip -c logtura.yaml -o logtura-forwarder.tgz
 ```
 
 The CLI includes the current Logtura drivers and destinations. Under the hood
-it parses `logtura.yaml`, calls `@logtura/core`, and writes the same style of
-`vector.yaml`, Dockerfile, env manifest, and component manifest used by the
-hosted product.
+it parses `logtura.yaml`, calls `@logtura/core`, and writes `vector.yaml`,
+Dockerfile, env manifest, and component manifest artifacts.
 
 ## logtura.yaml
 
@@ -86,7 +85,7 @@ and renderer path are otherwise valid.
 | [@logtura/destination-slack](./packages/destination-slack) | Slack incoming-webhook |
 | [@logtura/destination-webhook](./packages/destination-webhook) | Generic HTTPS POST |
 | [@logtura/destination-datadog-metrics](./packages/destination-datadog-metrics) | Datadog metrics intake |
-| [@logtura/destination-prometheus-remote-write](./packages/destination-prometheus-remote-write) | Mimir, VictoriaMetrics, Grafana Cloud, self-hosted Prometheus |
+| [@logtura/destination-prometheus-remote-write](./packages/destination-prometheus-remote-write) | Mimir, VictoriaMetrics, Grafana Cloud, Prometheus remote-write receiver |
 | [@logtura/cloudflare-shared](./packages/cloudflare-shared) | Shared CF API-token plumbing |
 | [@logtura/supabase-shared](./packages/supabase-shared) | Shared Supabase Management API plumbing |
 

@@ -50,6 +50,11 @@ export async function buildInstallBundle(
       name: `${dirName}/vector.yaml`,
       content: bundle.vectorYaml,
     },
+    ...bundle.runtimeAssets.map((asset) => ({
+      name: `${dirName}/assets/${asset.driverId}/${asset.path}`,
+      content: asset.content,
+      mode: asset.mode,
+    })),
     { name: `${dirName}/.env`, content: envFile, mode: 0o600 },
     { name: `${dirName}/install.sh`, content: installSh, mode: 0o755 },
     { name: `${dirName}/README.md`, content: readme },

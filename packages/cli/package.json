@@ -43,6 +43,7 @@
     "@logtura/driver-cloudflare-worker-tail": "workspace:*",
     "@logtura/driver-fly-log-tail": "workspace:*",
     "@logtura/driver-supabase-edge-logs": "workspace:*",
+    "@logtura/driver-vercel-logs": "workspace:*",
     "@logtura/supabase-shared": "workspace:*",
     "tsx": "^4.21.0",
     "yaml": "^2.8.1"

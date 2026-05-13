@@ -1,6 +1,6 @@
 # @logtura/destination-prometheus-remote-write
 
-Logtura destination driver for any Prometheus-compatible TSDB that accepts remote-write: Mimir, VictoriaMetrics, Thanos, Cortex, self-hosted Prometheus with the remote_write receiver enabled, Grafana Cloud, etc.
+Logtura destination driver for any Prometheus-compatible TSDB that accepts remote-write: Mimir, VictoriaMetrics, Thanos, Cortex, Prometheus with the remote_write receiver enabled, Grafana Cloud, etc.
 
 ```bash
 npm install @logtura/destination-prometheus-remote-write @logtura/core

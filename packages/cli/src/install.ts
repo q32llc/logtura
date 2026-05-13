@@ -10,6 +10,11 @@ export function installBundleFiles(
   return [
     { name: `${dirName}/Dockerfile`, content: bundle.dockerfile },
     { name: `${dirName}/vector.yaml`, content: bundle.vectorYaml },
+    ...bundle.runtimeAssets.map((asset) => ({
+      name: `${dirName}/assets/${asset.driverId}/${asset.path}`,
+      content: asset.content,
+      mode: asset.mode,
+    })),
     { name: `${dirName}/manifest.json`, content: JSON.stringify(bundle.componentManifest, null, 2) },
     { name: `${dirName}/.env`, content: renderEnvFile(bundle.envVars), mode: 0o600 },
     { name: `${dirName}/install.sh`, content: renderInstallSh(dirName, bundle.envVars), mode: 0o755 },

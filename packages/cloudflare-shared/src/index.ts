@@ -1,7 +1,7 @@
 /**
  * Cloudflare API token plumbing shared between cloudflare-* drivers.
  * Auth (verify, freshness) + the runtime env var spec. Form schemas
- * and FormData parsing live host-side in the SaaS connect adapter.
+ * and FormData parsing are intentionally outside these packages.
  */
 import {
   type ConnectionRef,

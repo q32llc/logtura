@@ -8,6 +8,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 COPY --from=ghcr.io/logtura/logtura-cf-tail:v0.1.2 /logtura-cf-tail /usr/local/bin/logtura-cf-tail
 RUN curl -L https://fly.io/install.sh | sh && cp /root/.fly/bin/flyctl /usr/local/bin/flyctl
 COPY --from=ghcr.io/logtura/logtura-http-client:v0.1.2 /logtura-http-client /usr/local/bin/logtura-http-client
+COPY --from=oven/bun:1.3.3-debian /usr/local/bin/bun /usr/local/bin/bun
+
+COPY assets/ /opt/logtura/assets/
+RUN chmod -R a+rX /opt/logtura/assets
 
 
 # Heartbeat (Prometheus exporter) — scrape from your monitoring stack.

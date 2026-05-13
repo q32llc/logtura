@@ -99,6 +99,25 @@ describe("provider connect — fly-log-tail", () => {
   });
 });
 
+describe("provider connect — vercel-logs", () => {
+  const adapter = getProviderConnect("vercel-logs")!;
+
+  it("trims access token and accepts optional team id", () => {
+    const f = new FormData();
+    f.set("api_token", "  vcp_abc  ");
+    f.set("team_id", " team_123 ");
+    const out = adapter.parseFormData(f);
+    expect(out.credentials).toEqual({ apiToken: "vcp_abc" });
+    expect(out.explicitAccountId).toBe("team_123");
+  });
+
+  it("rejects missing api_token", () => {
+    const f = new FormData();
+    f.set("api_token", "");
+    expect(() => adapter.parseFormData(f)).toThrow(/Missing api_token/);
+  });
+});
+
 describe("provider connect — supabase-edge-logs", () => {
   const adapter = getProviderConnect("supabase-edge-logs")!;
 

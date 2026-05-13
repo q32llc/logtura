@@ -1,11 +1,11 @@
 # @logtura/cli
 
-OSS command-line host for the Logtura renderer.
+OSS command-line tool for the Logtura renderer.
 
 The CLI includes the current Logtura source drivers and destinations. It parses
 a human-authored `logtura.yaml`, feeds the existing `@logtura/core` renderer,
-and writes the same forwarder artifacts used by the hosted product:
-`vector.yaml`, Dockerfile, `.env`, install script, and component manifest.
+and writes complete forwarder artifacts: `vector.yaml`, Dockerfile, `.env`,
+install script, and component manifest.
 
 ```sh
 npm install -g @logtura/cli
@@ -102,6 +102,19 @@ sources:
     gateways: [my-gateway]
 ```
 
+Vercel Runtime Logs:
+
+```yaml
+sources:
+  vercel:
+    provider: vercel-logs
+    # Optional for team-owned projects.
+    team_id: env:VERCEL_TEAM_ID
+    api_token: env:VERCEL_API_TOKEN
+    projects:
+      - prj_xxx
+```
+
 Custom Vector source and sink:
 
 ```yaml
@@ -150,6 +163,5 @@ cd dist/logtura-forwarder
 
 ## Notes
 
-The CLI is intentionally small. Hosted OAuth, managed Fly deploys, and
-database-backed source discovery live in the SaaS host. The OSS CLI starts from
-explicit config and environment variables.
+The CLI starts from explicit config and environment variables. It validates,
+bundles, and installs a local forwarder from `logtura.yaml`.

@@ -41,6 +41,9 @@ importers:
       '@logtura/driver-supabase-edge-logs':
         specifier: workspace:*
         version: link:packages/driver-supabase-edge-logs
+      '@logtura/driver-vercel-logs':
+        specifier: workspace:*
+        version: link:packages/driver-vercel-logs
       '@logtura/supabase-shared':
         specifier: workspace:*
         version: link:packages/supabase-shared
@@ -159,6 +162,9 @@ importers:
       '@logtura/driver-supabase-edge-logs':
         specifier: workspace:*
         version: link:../driver-supabase-edge-logs
+      '@logtura/driver-vercel-logs':
+        specifier: workspace:*
+        version: link:../driver-vercel-logs
       '@logtura/supabase-shared':
         specifier: workspace:*
         version: link:../supabase-shared
@@ -310,6 +316,18 @@ importers:
       '@logtura/supabase-shared':
         specifier: workspace:*
         version: link:../supabase-shared
+    devDependencies:
+      '@logtura/core':
+        specifier: workspace:*
+        version: link:../core
+      typescript:
+        specifier: ^5.6.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.5
+        version: 4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+
+  packages/driver-vercel-logs:
     devDependencies:
       '@logtura/core':
         specifier: workspace:*

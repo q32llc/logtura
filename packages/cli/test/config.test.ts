@@ -172,4 +172,48 @@ monitors:
     expect(bundle.vectorYaml).toContain("custom_sink_snk_bob_to_joe_joe_joe_sink:");
     expect(bundle.vectorYaml).toContain("- monitor_mon_bob_to_joe_0_errors");
   });
+
+  it("parses Vercel Runtime Logs sources", () => {
+    process.env.VERCEL_TOKEN = "vercel_test";
+    process.env.VERCEL_TEAM = "team_test";
+    const parsed = parseConfig(`
+sources:
+  vercel:
+    provider: vercel-logs
+    team_id: env:VERCEL_TEAM
+    api_token: env:VERCEL_TOKEN
+    projects:
+      - prj_test
+
+sinks:
+  slack:
+    type: slack
+    webhook_url: https://hooks.slack.test/services/x/y/z
+
+monitors:
+  - name: vercel-errors
+    filter: [errors]
+    sinks: [slack]
+`);
+
+    const connection = parsed.input.connections[0]!;
+    expect(connection.connection.provider).toBe("vercel-logs");
+    expect(connection.connection.externalAccountId).toBe("team_test");
+    expect(connection.credentials).toEqual({ apiToken: "vercel_test" });
+    expect(connection.selectedSources).toEqual([
+      {
+        id: "src_vercel_prj_test",
+        externalId: "prj_test",
+        displayName: "prj_test",
+        sourceKind: "vercel_project",
+        metadata: null,
+      },
+    ]);
+    const bundle = generateBundle(parsed.input);
+    expect(bundle.vectorYaml).toContain("vercel_con_vercel_tail:");
+    expect(bundle.vectorYaml).toContain('"id":"prj_test"');
+    expect(bundle.runtimeAssets[0]?.driverId).toBe("vercel-logs");
+    expect(bundle.runtimeAssets[0]?.path).toBe("logtura-vercel-tail.mjs");
+    expect(bundle.dockerfile).toContain("COPY assets/ /opt/logtura/assets/");
+  });
 });

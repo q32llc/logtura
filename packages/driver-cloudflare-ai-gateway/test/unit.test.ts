@@ -80,7 +80,7 @@ describe("generatePipeline", () => {
     expect(pipe.dockerfileDeps).toEqual([]);
   });
 
-  it("manifest echoes Source.id for host UI linking", () => {
+  it("manifest echoes Source.id for component linking", () => {
     const pipe = cloudflareAiGatewayDriver.generatePipeline({
       connection: dummyConnection,
       selection: {

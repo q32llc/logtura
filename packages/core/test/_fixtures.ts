@@ -83,6 +83,24 @@ export const mockProvider: ProviderDriver<{ apiToken: string }> = {
   },
 };
 
+export const mockProviderWithAsset: ProviderDriver<{ apiToken: string }> = {
+  ...mockProvider,
+  id: "mock-source-with-asset",
+  generatePipeline(input) {
+    const pipe = mockProvider.generatePipeline(input);
+    return {
+      ...pipe,
+      runtimeAssets: [
+        {
+          path: "bin/mock-helper.sh",
+          content: "#!/bin/sh\necho mock\n",
+          mode: 0o755,
+        },
+      ],
+    };
+  },
+};
+
 
 export const mockDestination: DestinationDriver<{ url: string }> = {
   id: "mock-sink",

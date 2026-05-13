@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { prometheusRemoteWriteDriver } from "../src/index";
 
-// parseFormData moved to the SaaS-side connect adapter.
+// parseFormData is intentionally outside the destination driver.
 
 describe("generateSinkBundle", () => {
   it("emits an unauthenticated prometheus_remote_write sink", () => {

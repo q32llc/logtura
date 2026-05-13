@@ -1,5 +1,5 @@
 #!/usr/bin/env -S node --import tsx
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { generateBundle } from "@logtura/core";
@@ -50,6 +50,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const dest = resolve(outDir, rel);
         mkdirSync(dirname(dest), { recursive: true });
         writeFileSync(dest, f.content);
+        if (f.mode !== undefined) chmodSync(dest, f.mode);
       }
       console.log(`wrote ${outDir}`);
       return 0;

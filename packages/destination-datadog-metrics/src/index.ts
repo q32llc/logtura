@@ -7,7 +7,7 @@ import { type DestinationDriver, type SinkBundle } from "@logtura/core";
  */
 export interface DatadogMetricsConfig {
   apiKey: string;
-  /** Datadog site host (datadoghq.com, datadoghq.eu, etc.). Defaults
+  /** Datadog site hostname (datadoghq.com, datadoghq.eu, etc.). Defaults
    *  to US1 since that's the most common. */
   site: string;
 }

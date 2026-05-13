@@ -59,7 +59,13 @@ function parseSources(
     if (!provider) throw new Error(`sources.${id}.provider is required`);
     const displayName = stringField(s, "display_name", id) ?? id;
     const externalAccountId =
-      stringValue(env(s.account_id ?? s.external_account_id)) ?? null;
+      stringValue(
+        env(
+          s.account_id ??
+            s.external_account_id ??
+            (provider === "vercel-logs" ? s.team_id ?? s.teamId : undefined),
+        ),
+      ) ?? null;
     const credentials = sourceCredentials(provider, s, env);
     const selectedSources = sourceRows(id, provider, s, baseDir);
     const selectAll = boolField(s, "all", false);
@@ -87,6 +93,7 @@ function sourceProviderAlias(id: string): string | null {
   if (id === "ai_gateway" || id === "cloudflare_ai_gateway") {
     return "cloudflare-ai-gateway";
   }
+  if (id === "vercel" || id === "vercel_logs") return "vercel-logs";
   return null;
 }
 
@@ -105,6 +112,9 @@ function sourceCredentials(
     return { pat: stringValue(from("pat")) ?? "" };
   }
   if (provider === "fly-log-tail") {
+    return { apiToken: stringValue(from("api_token")) ?? "" };
+  }
+  if (provider === "vercel-logs") {
     return { apiToken: stringValue(from("api_token")) ?? "" };
   }
   return Object.fromEntries(
@@ -143,6 +153,11 @@ function sourceRows(
   if (provider === "cloudflare-ai-gateway") {
     return stringList(s.gateways ?? s.sources, `sources.${id}.gateways`).map(
       (name) => source(id, name, "cf_ai_gateway"),
+    );
+  }
+  if (provider === "vercel-logs") {
+    return stringList(s.projects ?? s.sources, `sources.${id}.projects`).map(
+      (projectId) => source(id, projectId, "vercel_project"),
     );
   }
   if (provider === "supabase-edge-logs") {

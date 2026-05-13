@@ -6,7 +6,11 @@ import type {
   GeneratorMonitor,
   Source,
 } from "../src";
-import { mockDestination, mockProvider } from "./_fixtures";
+import {
+  mockDestination,
+  mockProvider,
+  mockProviderWithAsset,
+} from "./_fixtures";
 
 /** Pure-logic tests for the renderer. No D1, no auth, no I/O —
  *  feed plain shapes in, assert on the structured output and the
@@ -120,7 +124,7 @@ describe("generateBundle", () => {
     const tokenEnv = bundle.envVars.find((v) => v.name === "MOCK_API_TOKEN");
     expect(tokenEnv?.value).toBe("tok_inline");
     // Primary manifest row. The driver echoed back Source.id via
-    // links.sourceId, so a host UI can pair the manifest entry with
+    // links.sourceId, so consumers can pair the manifest entry with
     // the picked source.
     const sources = bundle.componentManifest.filter((c) => c.role === "source");
     expect(sources).toHaveLength(1);
@@ -212,5 +216,28 @@ describe("generateBundle", () => {
     const sinks = bundle.componentManifest.filter((c) => c.role === "sink");
     expect(sinks).toHaveLength(1);
     expect(sinks[0]!.label).toBe("Mock sink · Test");
+  });
+
+  it("collects driver runtime assets and copies assets in the Dockerfile", () => {
+    const bundle = generateBundle({
+      providers: [mockProviderWithAsset],
+      destinations: [mockDestination],
+      connections: [
+        {
+          connection: conn("con_a", "mock-source-with-asset", "A"),
+          selectedSources: [src("s_a", "alpha")],
+        },
+      ],
+      monitors: [],
+    });
+    expect(bundle.runtimeAssets).toEqual([
+      {
+        driverId: "mock-source-with-asset",
+        path: "bin/mock-helper.sh",
+        content: "#!/bin/sh\necho mock\n",
+        mode: 0o755,
+      },
+    ]);
+    expect(bundle.dockerfile).toContain("COPY assets/ /opt/logtura/assets/");
   });
 });

@@ -5,12 +5,6 @@
  * Identity is a Fly API token (preferably read-only, minted via
  * `fly tokens create readonly -o <org>`); discovery hits Fly's
  * Machines API to list apps.
- *
- * The macaroon-attenuation helper that mints read-only tokens from
- * an existing deploy-target session lives in the host SaaS-side
- * fly-machines module — when a `@logtura/fly-shared` package
- * extracts (alongside a future fly deploy-target driver) the
- * shared bits move there.
  */
 import {
   type ConnectionRef,
@@ -45,9 +39,7 @@ interface FlyOrgNode {
   slug?: string;
 }
 
-/** Minimal listFlyOrgs — just what the driver needs (slugs). The
- *  full id+slug variant lives SaaS-side; macaroon attenuation
- *  needs ids, but the driver only needs slugs for verify. */
+/** Minimal listFlyOrgs — just what the driver needs (slugs). */
 async function listFlyOrgSlugs(authHeader: string): Promise<string[]> {
   const query = `query($admin: Boolean!) {
     organizations(admin: $admin) {
@@ -92,7 +84,7 @@ export const flyLogTailDriver: ProviderDriver<FlyCredentials> = {
   displayName: "Fly.io log tail",
   sourceLabel: "App",
   // No native "subscribe to all apps in the org". flyctl logs is
-  // per-app. Hosts wanting "all" semantics expand the selection at
+  // per-app. Callers wanting "all" semantics expand the selection at
   // picking time.
   capabilities: { selection: "list" },
 

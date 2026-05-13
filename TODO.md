@@ -39,7 +39,7 @@
 
 ### Providers
 - [ ] Render — Vercel-style log streaming. Driver + discovery + tailing source.
-- [ ] Vercel — log drains.
+- [ ] Vercel OAuth / Integration install flow — `vercel-logs` currently supports Hobby-compatible Runtime Logs through a Vercel Access Token + optional Team ID. True OAuth requires creating a Vercel Integration and selecting REST API scopes (`user`, `team`, `project`, `deployment`); wire this once the integration credentials/slug exist.
 - [ ] Heroku — `heroku logs --tail` / log drains.
 - [ ] AWS CloudWatch Logs — most-requested.
 - [ ] Generic syslog / file-tail — for self-hosted users.
@@ -63,6 +63,7 @@
 - [ ] Mobile/narrow-viewport layout pass.
 
 ### Architecture
+- [ ] **Config naming idea: `filter` → `steps` and maybe `monitors` → `pipelines`.** Current CLI grammar keeps `monitors[].filter` because it is shipped and documented. But the chain can include `rollup`, `dedup`, `sample`, and `rate_limit`, so "filter" is semantically narrow. If/when we revise config language, support `steps` as the preferred alias and keep `filter` as backward-compatible input. Larger rename from `monitors` to `pipelines` needs product/UI review first.
 - [ ] **`staticDockerfileDeps` on the driver contract.** Today the kitchen-sink build script (`scripts/build-forwarder-dockerfile.mjs`) instantiates each driver with mock connection + selection just to harvest `generatePipeline()`'s `dockerfileDeps`. Works but feels wrong — drivers shouldn't need to tolerate "called for dep introspection" inputs. The fix is a top-level `staticDockerfileDeps?: DockerfileDep[]` field on `ProviderDriver` that the build script reads directly. Defer until we add a 4th provider or a 3rd party writes a driver and trips over the mock-call convention.
 - [ ] **Per-deploy image builds (instead of one kitchen-sink).** Today every managed deploy uses the same forwarder image with every driver's deps baked in. Heavy for users who only need one provider. Path forward when we want this: stand up a build broker (GH Actions `workflow_dispatch` is fine), the deploy job POSTs Dockerfile + vector.yaml, builder pushes to `ghcr.io/q32llc/logtura-deployment:<id>-<sha>`, deploy job pins Fly to that digest. The renderer already supports per-deploy Dockerfile gen via `renderDockerfile()` — only the build-and-push step is missing. Defer until image size or build time becomes a UX complaint, or until a 3rd-party driver author needs the path.
 - [ ] **Hybrid forwarder base image.** Publish `ghcr.io/logtura/forwarder:vX.Y.Z` as a small floor — Vector + the set of *our own* small Rust pollers (`logtura-http-client` already; future `logtura-cf-tail`, `logtura-fly-tail`). Drivers that use those tools stop contributing dockerfileDeps; per-deployment Dockerfile becomes `FROM forwarder:tag` + `COPY vector.yaml`. Heavy third-party CLIs (wrangler, flyctl) stay opt-in via per-driver dockerfileDeps — they're large enough that baking them in costs everyone for a subset's benefit, and they update on their own cadence. The bundle/no-bundle decision is per-tool: small + universal + ours → bundle; large + driver-specific + third-party → inject. Worth doing once the CF/Fly Rust tailers are real candidates for the base.

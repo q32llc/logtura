@@ -24,7 +24,7 @@
  * Output: containers/forwarder/Dockerfile.generated. The
  * build-forwarder workflow consumes this file.
  */
-import { writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -33,12 +33,13 @@ import { listProviders } from "../src/providers/index.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUTPUT = resolve(__dirname, "..", "containers", "forwarder", "Dockerfile.generated");
+const ASSETS_DIR = resolve(__dirname, "..", "containers", "forwarder", "assets");
 
 /** Try a sequence of `generatePipeline` invocations until one
  *  doesn't throw, capturing the dockerfileDeps. We want the widest
  *  set, so we prefer refreshable credentials and try "all" first
  *  (most drivers' deps don't depend on selection contents). */
-function harvestDeps(driver) {
+function harvestPipeline(driver) {
   const baseConnection = {
     id: "con_kitchen_sink",
     externalAccountId: "acct_kitchen_sink",
@@ -70,14 +71,12 @@ function harvestDeps(driver) {
         connection: baseConnection,
         selection,
       });
-      return pipe.dockerfileDeps ?? [];
+      return pipe;
     } catch (err) {
       lastErr = err;
     }
   }
-  throw new Error(
-    `harvest failed for driver ${driver.id}: ${lastErr?.message ?? "unknown"}`,
-  );
+  throw new Error(`harvest failed for driver ${driver.id}: ${lastErr?.message ?? "unknown"}`);
 }
 
 function dedupeDeps(deps) {
@@ -103,18 +102,24 @@ const providers = listProviders();
 console.log(`harvesting deps from ${providers.length} providers...`);
 
 const allDeps = [];
+const allAssets = [];
+let hasRuntimeAssets = false;
 for (const p of providers) {
-  let deps;
+  let pipe;
   try {
-    deps = harvestDeps(p);
+    pipe = harvestPipeline(p);
   } catch (err) {
     console.error(`  ✗ ${p.id}: ${err.message}`);
     process.exit(2);
   }
+  const deps = pipe.dockerfileDeps ?? [];
+  const assets = pipe.runtimeAssets ?? [];
+  if (assets.length > 0) hasRuntimeAssets = true;
   console.log(
-    `  ✓ ${p.id} → ${deps.length} dep(s)`,
+    `  ✓ ${p.id} → ${deps.length} dep(s), ${assets.length} asset(s)`,
   );
   allDeps.push(...deps);
+  for (const asset of assets) allAssets.push({ ...asset, driverId: p.id });
 }
 
 const deduped = dedupeDeps(allDeps);
@@ -122,6 +127,29 @@ console.log(`\n${allDeps.length} deps → ${deduped.length} after dedup`);
 
 // vector.yaml is mounted at runtime by the Fly machine config, not
 // COPYed into the image.
-const dockerfile = renderDockerfile(deduped, { mountVectorYamlAtRuntime: true });
+const dockerfile = renderDockerfile(deduped, {
+  mountVectorYamlAtRuntime: true,
+  includeRuntimeAssets: hasRuntimeAssets,
+});
 writeFileSync(OUTPUT, dockerfile);
 console.log(`\nwrote ${OUTPUT} (${dockerfile.length} bytes)`);
+
+rmSync(ASSETS_DIR, { recursive: true, force: true });
+for (const asset of allAssets) {
+  validateAssetPath(asset.path, asset.driverId);
+  const outPath = resolve(ASSETS_DIR, asset.driverId, asset.path);
+  mkdirSync(dirname(outPath), { recursive: true });
+  writeFileSync(outPath, asset.content, { mode: asset.mode ?? 0o644 });
+  console.log(`wrote ${outPath}`);
+}
+
+function validateAssetPath(path, driverId) {
+  if (
+    path === "" ||
+    path.startsWith("/") ||
+    path.includes("\\") ||
+    path.split("/").some((part) => part === "" || part === "." || part === "..")
+  ) {
+    throw new Error(`invalid runtime asset path for ${driverId}: ${path}`);
+  }
+}

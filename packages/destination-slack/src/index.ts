@@ -8,11 +8,9 @@ export const DEFAULT_SLACK_MAX_MESSAGE_CHARS = 12000;
 /**
  * Slack incoming-webhook destination.
  *
- * Host-side OAuth flow (slack.com/oauth/v2/authorize redirect)
- * plants the `webhookUrl`, `teamName`, `channel` into a SlackConfig;
- * this driver just renders the http sink. OAuth UX + form parsing
- * live in the SaaS-side connect adapter
- * (src/destinations/connect/slack.ts).
+ * OAuth flow (slack.com/oauth/v2/authorize redirect) can produce the
+ * `webhookUrl`, `teamName`, and `channel` fields in SlackConfig; this
+ * driver just renders the http sink. The CLI accepts explicit config.
  */
 export interface SlackConfig {
   webhookUrl: string;

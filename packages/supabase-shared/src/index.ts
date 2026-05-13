@@ -28,9 +28,8 @@ export interface SupabaseCredentials {
    *  Bearer <pat>` against api.supabase.com. */
   pat: string;
   /** OAuth refresh token. Present only when the credential came
-   *  from the SaaS-side OAuth flow; the SaaS uses this to mint a
-   *  fresh `pat` when expiry approaches. PAT-paste credentials
-   *  leave this unset. */
+   *  from an OAuth flow; callers use this to mint a fresh `pat`
+   *  when expiry approaches. PAT-paste credentials leave this unset. */
   refreshToken?: string;
   /** Unix-ms expiry for `pat`. Set by the OAuth callback;
    *  PAT-paste credentials leave this unset (PATs are long-lived
