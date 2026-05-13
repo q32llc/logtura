@@ -39,6 +39,7 @@ export default defineConfig({
       "./packages/driver-fly-log-tail",
       "./packages/driver-railway-logs",
       "./packages/driver-supabase-edge-logs",
+      "./packages/driver-vercel-logs",
     ],
     // Coverage rolls up across projects. Istanbul because workerd
     // doesn't emit V8 profile data; istanbul instruments via the

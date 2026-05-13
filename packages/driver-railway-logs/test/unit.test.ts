@@ -38,7 +38,7 @@ describe("railwayLogsDriver", () => {
     const sources = pipe.components.filter((c) => c.kind === "source");
     const transforms = pipe.components.filter((c) => c.kind === "transform");
     expect(sources).toHaveLength(1);
-    expect(transforms).toHaveLength(1);
+    expect(transforms).toHaveLength(4);
     expect(sources[0]!.key).toBe("railway_con_x_env_test_tail");
     expect(sources[0]!.yaml).toContain(
       "exec bun /opt/logtura/assets/railway-logs/logtura-railway-tail.mjs",
@@ -48,6 +48,12 @@ describe("railwayLogsDriver", () => {
     expect(sources[0]!.yaml).toContain('"id":"svc_b"');
     expect(transforms[0]!.yaml).toContain(".attrs.level");
     expect(transforms[0]!.yaml).toContain(".error_reason");
+    expect(transforms.map((c) => c.key)).toContain("railway_con_x_src_svc_a");
+    expect(transforms.map((c) => c.key)).toContain("railway_con_x_src_svc_b");
+    expect(pipe.outputKey).toBe("railway_con_x_by_service");
+    expect(pipe.manifest?.find((m) => m.id === "railway_con_x_src_svc_a")?.links?.parentId).toBe(
+      "railway_con_x_env_test_tail",
+    );
     expect(pipe.envVars.map((env) => env.name)).toEqual([
       "RAILWAY_API_TOKEN",
     ]);

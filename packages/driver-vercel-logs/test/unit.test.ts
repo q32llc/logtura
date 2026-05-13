@@ -20,7 +20,7 @@ describe("vercelLogsDriver", () => {
     expect(vercelLogsDriver.capabilities.selection).toBe("list");
   });
 
-  it("emits one REST runtime-log exec source and normalize transform for all projects", () => {
+  it("emits one REST runtime-log exec source and per-project transforms", () => {
     const pipe = vercelLogsDriver.generatePipeline({
       connection: dummyConnection,
       selection: {
@@ -34,7 +34,7 @@ describe("vercelLogsDriver", () => {
     const sources = pipe.components.filter((c) => c.kind === "source");
     const transforms = pipe.components.filter((c) => c.kind === "transform");
     expect(sources).toHaveLength(1);
-    expect(transforms).toHaveLength(1);
+    expect(transforms).toHaveLength(4);
     expect(sources[0]!.key).toBe("vercel_con_x_tail");
     expect(sources[0]!.yaml).toContain(
       "exec bun /opt/logtura/assets/vercel-logs/logtura-vercel-tail.mjs",
@@ -45,6 +45,12 @@ describe("vercelLogsDriver", () => {
     expect(sources[0]!.yaml).not.toContain("/v6/deployments");
     expect(transforms[0]!.yaml).toContain(".error_reason");
     expect(transforms[0]!.yaml).toContain(".exceptions");
+    expect(transforms.map((c) => c.key)).toContain("vercel_con_x_src_prj_test");
+    expect(transforms.map((c) => c.key)).toContain("vercel_con_x_src_prj_other");
+    expect(pipe.outputKey).toBe("vercel_con_x_by_project");
+    expect(pipe.manifest?.find((m) => m.id === "vercel_con_x_src_prj_test")?.links?.parentId).toBe(
+      "vercel_con_x_tail",
+    );
     expect(pipe.envVars.map((env) => env.name)).toEqual([
       "VERCEL_API_TOKEN",
       "VERCEL_TEAM_ID",

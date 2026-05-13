@@ -199,6 +199,7 @@ export const railwayLogsDriver: ProviderDriver<RailwayCredentials> = {
     const components: VectorComponent[] = [];
     const manifest: DriverPipeline["manifest"] = [];
     const sourceKeys: string[] = [];
+    const perServiceKeys: string[] = [];
 
     for (const [environmentId, sources] of envs) {
       assertSafeRailwayId(environmentId, "environment id");
@@ -218,13 +219,18 @@ export const railwayLogsDriver: ProviderDriver<RailwayCredentials> = {
         links: { connectionId: connection.id },
       });
       for (const source of sources) {
+        const serviceKey = `railway_${connKey}_${safeKey(source.id)}`;
         manifest.push({
-          id: `railway_${connKey}_${safeKey(source.externalId)}`,
+          id: serviceKey,
           role: "source",
           category: "primary",
           label: `Railway · ${source.displayName}`,
           detail: source.externalId,
-          links: { connectionId: connection.id, sourceId: source.id },
+          links: {
+            connectionId: connection.id,
+            sourceId: source.id,
+            parentId: sourceKey,
+          },
         });
       }
     }
@@ -244,11 +250,40 @@ export const railwayLogsDriver: ProviderDriver<RailwayCredentials> = {
         detail: `${sourceKeys.length} environment${sourceKeys.length === 1 ? "" : "s"}`,
         links: { connectionId: connection.id },
       });
+      for (const source of selection.sources) {
+        const serviceKey = `railway_${connKey}_${safeKey(source.id)}`;
+        perServiceKeys.push(serviceKey);
+        components.push({
+          key: serviceKey,
+          kind: "transform",
+          yaml: railwayServiceFilterYaml(normalizeKey, railwayServiceId(source)),
+        });
+      }
+    }
+
+    const outputKey =
+      perServiceKeys.length > 0
+        ? `railway_${connKey}_by_service`
+        : normalizeKey;
+    if (perServiceKeys.length > 0) {
+      components.push({
+        key: outputKey,
+        kind: "transform",
+        yaml: passThroughMergeYaml(perServiceKeys),
+      });
+      manifest.push({
+        id: outputKey,
+        role: "normalize",
+        category: "plumbing",
+        label: "Merge · Railway services",
+        detail: `${perServiceKeys.length} service${perServiceKeys.length === 1 ? "" : "s"}`,
+        links: { connectionId: connection.id },
+      });
     }
 
     return {
       components,
-      outputKey: normalizeKey,
+      outputKey,
       envVars: [
         {
           name: "RAILWAY_API_TOKEN",
@@ -870,6 +905,24 @@ function railwayNormalizeYaml(inputKeys: string[]): string {
     `    inputs: [${inputKeys.map((key) => `"${key}"`).join(", ")}]`,
     "    source: |-",
     ...vrl.map((line) => `      ${line}`),
+  ].join("\n");
+}
+
+function railwayServiceFilterYaml(inputKey: string, serviceId: string): string {
+  return [
+    "    type: filter",
+    `    inputs: ["${inputKey}"]`,
+    "    condition: |-",
+    `      (string(.serviceId) ?? "") == ${JSON.stringify(serviceId)}`,
+  ].join("\n");
+}
+
+function passThroughMergeYaml(inputKeys: string[]): string {
+  return [
+    "    type: remap",
+    `    inputs: [${inputKeys.map((key) => `"${key}"`).join(", ")}]`,
+    "    source: |-",
+    "      . = .",
   ].join("\n");
 }
 

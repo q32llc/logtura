@@ -17,6 +17,7 @@ import {
   type ProviderDriver,
   ProviderError,
   type ProviderSelection,
+  type SourceRef,
   type VectorComponent,
 } from "@logtura/core";
 
@@ -103,18 +104,24 @@ export const vercelLogsDriver: ProviderDriver<VercelCredentials> = {
     const components: VectorComponent[] = [];
     const manifest: DriverPipeline["manifest"] = [];
     const sources = selection.sources;
+    const perProjectKeys: string[] = [];
     for (const source of selection.sources) {
       if (source.sourceKind !== "vercel_project") {
         throw new Error(`Unknown Vercel source kind: ${source.sourceKind}`);
       }
       assertSafeVercelId(source.externalId, "project id");
+      const projectKey = `vercel_${connKey}_${safeKey(source.id)}`;
       manifest.push({
-        id: `vercel_${connKey}_${safeKey(source.id)}`,
+        id: projectKey,
         role: "source",
         category: "primary",
         label: `Vercel · ${source.displayName}`,
         detail: source.externalId,
-        links: { connectionId: connection.id, sourceId: source.id },
+        links: {
+          connectionId: connection.id,
+          sourceId: source.id,
+          parentId: `vercel_${connKey}_tail`,
+        },
       });
     }
     const sourceKey = `vercel_${connKey}_tail`;
@@ -148,10 +155,38 @@ export const vercelLogsDriver: ProviderDriver<VercelCredentials> = {
         detail: `${sources.length} project${sources.length === 1 ? "" : "s"}`,
         links: { connectionId: connection.id },
       });
+      for (const source of selection.sources) {
+        const projectKey = `vercel_${connKey}_${safeKey(source.id)}`;
+        perProjectKeys.push(projectKey);
+        components.push({
+          key: projectKey,
+          kind: "transform",
+          yaml: vercelProjectFilterYaml(normalizeKey, source.externalId),
+        });
+      }
+    }
+    const outputKey =
+      perProjectKeys.length > 0
+        ? `vercel_${connKey}_by_project`
+        : normalizeKey;
+    if (perProjectKeys.length > 0) {
+      components.push({
+        key: outputKey,
+        kind: "transform",
+        yaml: passThroughMergeYaml(perProjectKeys),
+      });
+      manifest.push({
+        id: outputKey,
+        role: "normalize",
+        category: "plumbing",
+        label: "Merge · Vercel projects",
+        detail: `${perProjectKeys.length} project${perProjectKeys.length === 1 ? "" : "s"}`,
+        links: { connectionId: connection.id },
+      });
     }
     return {
       components,
-      outputKey: normalizeKey,
+      outputKey,
       envVars: [
         {
           name: "VERCEL_API_TOKEN",
@@ -195,7 +230,7 @@ function vercelHeaders(token: string): HeadersInit {
 }
 
 function vercelExecSourceYaml(
-  sources: Array<{ externalId: string; displayName: string }>,
+  sources: SourceRef[],
   teamId: string,
 ): string {
   const projectsJson = JSON.stringify(
@@ -387,6 +422,24 @@ function vercelNormalizeYaml(inputKeys: string[]): string {
     `    inputs: [${inputKeys.map((key) => `"${key}"`).join(", ")}]`,
     "    source: |-",
     ...vrl.map((line) => `      ${line}`),
+  ].join("\n");
+}
+
+function vercelProjectFilterYaml(inputKey: string, projectId: string): string {
+  return [
+    "    type: filter",
+    `    inputs: ["${inputKey}"]`,
+    "    condition: |-",
+    `      (string(.projectId) ?? "") == ${JSON.stringify(projectId)}`,
+  ].join("\n");
+}
+
+function passThroughMergeYaml(inputKeys: string[]): string {
+  return [
+    "    type: remap",
+    `    inputs: [${inputKeys.map((key) => `"${key}"`).join(", ")}]`,
+    "    source: |-",
+    "      . = .",
   ].join("\n");
 }
 
