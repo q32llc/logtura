@@ -130,6 +130,7 @@ event unless a driver intentionally drops them.
 - [@logtura/driver-cloudflare-ai-gateway](../driver-cloudflare-ai-gateway). Cloudflare AI Gateway logs via http_client.
 - [@logtura/driver-fly-log-tail](../driver-fly-log-tail). `flyctl logs --json` over Vector's exec source.
 - [@logtura/driver-supabase-edge-logs](../driver-supabase-edge-logs). Supabase Edge Functions via the analytics API.
+- [@logtura/custom-vector](../custom-vector). Bring-your-own Vector source, transform, and sink fragments.
 - [@logtura/destination-slack](../destination-slack). Incoming-webhook.
 - [@logtura/destination-webhook](../destination-webhook). Generic HTTPS POST.
 - [@logtura/destination-datadog-metrics](../destination-datadog-metrics)

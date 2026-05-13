@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type {
   FilterStep,
@@ -26,9 +27,10 @@ export function parseConfig(text: string, filename = "logtura.yaml"): ParsedConf
   if (!isRecord(doc)) throw new Error(`${filename}: expected a YAML object`);
   const missingEnv = new Set<string>();
   const env = (value: unknown): unknown => resolveEnv(value, missingEnv);
+  const baseDir = dirname(resolve(filename));
 
-  const connections = parseSources(asRecord(doc.sources, "sources"), env);
-  const destinations = parseSinks(asRecord(doc.sinks, "sinks"), env);
+  const connections = parseSources(asRecord(doc.sources, "sources"), env, baseDir);
+  const destinations = parseSinks(asRecord(doc.sinks, "sinks"), env, baseDir);
   const monitors = parseMonitors(asArray(doc.monitors, "monitors"), destinations);
   const metrics = parseMetrics(doc.metrics, destinations);
 
@@ -48,6 +50,7 @@ export function parseConfig(text: string, filename = "logtura.yaml"): ParsedConf
 function parseSources(
   sources: UnknownRecord,
   env: (value: unknown) => unknown,
+  baseDir: string,
 ): GeneratorConnection[] {
   const out: GeneratorConnection[] = [];
   for (const [id, raw] of Object.entries(sources)) {
@@ -58,7 +61,7 @@ function parseSources(
     const externalAccountId =
       stringValue(env(s.account_id ?? s.external_account_id)) ?? null;
     const credentials = sourceCredentials(provider, s, env);
-    const selectedSources = sourceRows(id, provider, s);
+    const selectedSources = sourceRows(id, provider, s, baseDir);
     const selectAll = boolField(s, "all", false);
     out.push({
       connection: {
@@ -109,7 +112,24 @@ function sourceCredentials(
   );
 }
 
-function sourceRows(id: string, provider: string, s: UnknownRecord): Source[] {
+function sourceRows(
+  id: string,
+  provider: string,
+  s: UnknownRecord,
+  baseDir: string,
+): Source[] {
+  if (provider === "custom-vector") {
+    const vector = customVectorSourceConfig(s, baseDir, `sources.${id}.vector`);
+    return [
+      {
+        id: `src_${safeId(id)}_custom_vector`,
+        externalId: vector.feed,
+        displayName: stringField(s, "display_name", id) ?? id,
+        sourceKind: "custom_vector",
+        metadata: { customVector: vector },
+      },
+    ];
+  }
   if (provider === "cloudflare-worker-tail") {
     return stringList(s.scripts ?? s.sources, `sources.${id}.scripts`).map(
       (name) => source(id, name, "cf_worker"),
@@ -175,6 +195,7 @@ function source(
 function parseSinks(
   sinks: UnknownRecord,
   env: (value: unknown) => unknown,
+  baseDir: string,
 ): Map<string, { destination: { id: string; kind: string; displayName: string }; config: unknown }> {
   const out = new Map<
     string,
@@ -190,7 +211,7 @@ function parseSinks(
         kind,
         displayName: stringField(s, "display_name", id) ?? id,
       },
-      config: sinkConfig(kind, s, env),
+      config: sinkConfig(kind, s, env, baseDir, `sinks.${id}`),
     });
   }
   return out;
@@ -200,6 +221,8 @@ function sinkConfig(
   kind: string,
   s: UnknownRecord,
   env: (value: unknown) => unknown,
+  baseDir: string,
+  path: string,
 ): unknown {
   const config = isRecord(s.config) ? s.config : s;
   if (kind === "slack") {
@@ -213,6 +236,9 @@ function sinkConfig(
         numberOrNullField(config, "maxMessageChars"),
       ),
     };
+  }
+  if (kind === "custom-vector") {
+    return customVectorDestinationConfig(config, baseDir, `${path}.vector`);
   }
   return deepResolveEnv(config, env);
 }
@@ -291,6 +317,47 @@ function parseMetrics(
     };
   }
   return { kind: "none" };
+}
+
+function customVectorSourceConfig(
+  owner: UnknownRecord,
+  baseDir: string,
+  path: string,
+): { fragment: UnknownRecord; feed: string } {
+  const vector = asRecord(owner.vector, path);
+  const include = stringField(vector, "include");
+  if (!include) throw new Error(`${path}.include is required`);
+  const feed = stringField(vector, "feed");
+  if (!feed) throw new Error(`${path}.feed is required`);
+  return {
+    fragment: readVectorFragment(include, baseDir, `${path}.include`),
+    feed,
+  };
+}
+
+function customVectorDestinationConfig(
+  owner: UnknownRecord,
+  baseDir: string,
+  path: string,
+): { fragment: UnknownRecord; input: string | null } {
+  const vector = asRecord(owner.vector, path);
+  const include = stringField(vector, "include");
+  if (!include) throw new Error(`${path}.include is required`);
+  return {
+    fragment: readVectorFragment(include, baseDir, `${path}.include`),
+    input: stringField(vector, "input"),
+  };
+}
+
+function readVectorFragment(
+  include: string,
+  baseDir: string,
+  path: string,
+): UnknownRecord {
+  const includePath = resolve(baseDir, include);
+  const parsed = parseYaml(readFileSync(includePath, "utf8")) as unknown;
+  if (!isRecord(parsed)) throw new Error(`${path}: included file must be a YAML object`);
+  return parsed;
 }
 
 function resolveEnv(value: unknown, missing: Set<string>): unknown {

@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { generateBundle } from "@logtura/core";
 import { parseConfig } from "../src/config";
@@ -98,5 +101,75 @@ monitors:
       maxMessageChars?: number | null;
     };
     expect(config.maxMessageChars).toBeNull();
+  });
+
+  it("parses custom-vector source and sink includes", () => {
+    const dir = mkdtempSync(join(tmpdir(), "logtura-custom-vector-"));
+    mkdirSync(join(dir, "vector"));
+    writeFileSync(
+      join(dir, "vector", "bob.yaml"),
+      `
+sources:
+  bob_http:
+    type: http_server
+    address: 0.0.0.0:9000
+    decoding:
+      codec: json
+transforms:
+  bob_norm:
+    type: remap
+    inputs: [bob_http]
+    source: |
+      .message = string(.message) ?? encode_json(.)
+      .level = string(.level) ?? "info"
+      .error = (bool(.error) ?? false) || .level == "error"
+`,
+    );
+    writeFileSync(
+      join(dir, "vector", "joe.yaml"),
+      `
+sinks:
+  joe_sink:
+    type: blackhole
+    inputs: [joe_in]
+    print_interval_secs: 0
+`,
+    );
+
+    const parsed = parseConfig(
+      `
+sources:
+  bob:
+    provider: custom-vector
+    display_name: Bob
+    vector:
+      include: ./vector/bob.yaml
+      feed: bob_norm
+
+sinks:
+  joe:
+    type: custom-vector
+    vector:
+      include: ./vector/joe.yaml
+
+monitors:
+  - name: bob-to-joe
+    filter: [errors]
+    sinks: [joe]
+`,
+      join(dir, "logtura.yaml"),
+    );
+
+    expect(parsed.input.connections[0]!.connection.provider).toBe(
+      "custom-vector",
+    );
+    expect(parsed.input.monitors[0]!.sinks[0]!.destination.kind).toBe(
+      "custom-vector",
+    );
+    const bundle = generateBundle(parsed.input);
+    expect(bundle.vectorYaml).toContain("custom_con_bob_bob_http:");
+    expect(bundle.vectorYaml).toContain("custom_con_bob_bob_norm:");
+    expect(bundle.vectorYaml).toContain("custom_sink_snk_bob_to_joe_joe_joe_sink:");
+    expect(bundle.vectorYaml).toContain("- monitor_mon_bob_to_joe_0_errors");
   });
 });

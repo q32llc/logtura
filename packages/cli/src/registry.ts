@@ -6,6 +6,10 @@ import { datadogMetricsDriver } from "@logtura/destination-datadog-metrics";
 import { prometheusRemoteWriteDriver } from "@logtura/destination-prometheus-remote-write";
 import { slackDriver } from "@logtura/destination-slack";
 import { webhookDriver } from "@logtura/destination-webhook";
+import {
+  customVectorDestination,
+  customVectorProvider,
+} from "@logtura/custom-vector";
 import type { DestinationDriver, ProviderDriver } from "@logtura/core";
 
 export function listProviders(): ProviderDriver[] {
@@ -14,6 +18,7 @@ export function listProviders(): ProviderDriver[] {
     cloudflareAiGatewayDriver,
     flyLogTailDriver,
     supabaseEdgeLogsDriver,
+    customVectorProvider,
   ] as ProviderDriver[];
 }
 
@@ -23,6 +28,7 @@ export function listDestinations(): DestinationDriver[] {
     webhookDriver,
     datadogMetricsDriver,
     prometheusRemoteWriteDriver,
+    customVectorDestination,
   ] as DestinationDriver[];
 }
 

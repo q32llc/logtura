@@ -312,7 +312,8 @@ export type DestinationFlow = "logs" | "metrics";
 
 export interface SinkBundle {
   preSinkTransforms?: Array<{ key: string; yaml: string }>;
-  sink: { key: string; yaml: string };
+  sink?: { key: string; yaml: string };
+  sinks?: Array<{ key: string; yaml: string }>;
 }
 
 /** The destination-driver contract. Pure renderer + (optional)

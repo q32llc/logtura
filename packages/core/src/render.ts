@@ -527,18 +527,27 @@ function renderVectorYaml(
           },
         });
       }
-      sinkSinkKeys.push({ sinkKey: bundle.sink.key, yaml: bundle.sink.yaml });
-      componentManifest.push({
-        id: bundle.sink.key,
-        role: "sink",
-        category: "primary",
-        label: `${dDriver.displayName} · ${sinkSpec.destination.displayName}`,
-        links: {
-          sinkId: sinkSpec.sink.id,
-          destinationId: sinkSpec.destination.id,
-          monitorId: m.monitor.id,
-        },
-      });
+      const emittedSinks = [
+        ...(bundle.sink ? [bundle.sink] : []),
+        ...(bundle.sinks ?? []),
+      ];
+      if (emittedSinks.length === 0) {
+        throw new Error(`Destination ${dDriver.id} did not emit a sink`);
+      }
+      for (const emittedSink of emittedSinks) {
+        sinkSinkKeys.push({ sinkKey: emittedSink.key, yaml: emittedSink.yaml });
+        componentManifest.push({
+          id: emittedSink.key,
+          role: "sink",
+          category: "primary",
+          label: `${dDriver.displayName} · ${sinkSpec.destination.displayName}`,
+          links: {
+            sinkId: sinkSpec.sink.id,
+            destinationId: sinkSpec.destination.id,
+            monitorId: m.monitor.id,
+          },
+        });
+      }
     }
   }
 
@@ -665,17 +674,26 @@ function renderVectorYaml(
         lines.push(t.yaml);
         lines.push("");
       }
-      lines.push(`  ${bundle.sink.key}:`);
-      lines.push(bundle.sink.yaml);
-      lines.push("");
-      componentManifest.push({
-        id: bundle.sink.key,
-        role: "metrics",
-        category: "plumbing",
-        label: `Metrics · ${m.destination.displayName}`,
-        detail: dDriver.displayName,
-        links: { destinationId: m.destination.id },
-      });
+      const emittedSinks = [
+        ...(bundle.sink ? [bundle.sink] : []),
+        ...(bundle.sinks ?? []),
+      ];
+      if (emittedSinks.length === 0) {
+        throw new Error(`Destination ${dDriver.id} did not emit a metrics sink`);
+      }
+      for (const emittedSink of emittedSinks) {
+        lines.push(`  ${emittedSink.key}:`);
+        lines.push(emittedSink.yaml);
+        lines.push("");
+        componentManifest.push({
+          id: emittedSink.key,
+          role: "metrics",
+          category: "plumbing",
+          label: `Metrics · ${m.destination.displayName}`,
+          detail: dDriver.displayName,
+          links: { destinationId: m.destination.id },
+        });
+      }
     }
   }
 

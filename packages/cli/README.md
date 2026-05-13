@@ -102,6 +102,34 @@ sources:
     gateways: [my-gateway]
 ```
 
+Custom Vector source and sink:
+
+```yaml
+sources:
+  bob:
+    provider: custom-vector
+    display_name: Bob
+    vector:
+      include: ./vector/bob.yaml
+      feed: bob_norm
+
+sinks:
+  joe:
+    type: custom-vector
+    vector:
+      include: ./vector/joe.yaml
+
+monitors:
+  - name: bob-to-joe
+    filter: [errors]
+    sinks: [joe]
+```
+
+`bob.yaml` may define `sources` and `transforms`; `feed` names the component
+Logtura reads from. `joe.yaml` may define `transforms` and `sinks`; Logtura
+rewrites its single dangling input reference to the monitor output. Set
+`vector.input` when the sink graph has more than one dangling input.
+
 ## Output
 
 `logtura bundle -o dist/logtura-forwarder` writes:
