@@ -250,10 +250,15 @@ function workerNormalizeYaml(inputKeys: string[]): string {
     `}`,
     `normalized_exceptions = []`,
     `parts = []`,
+    `error_parts = []`,
+    `warn_parts = []`,
     `for_each(array(.logs) ?? []) -> |_, log| {`,
+    `  lvl = string(log.level) ?? ""`,
     `  for_each(array(log.message) ?? []) -> |_, m| {`,
     `    s = if is_string(m) { string!(m) } else { encode_json(m) }`,
     `    parts = push(parts, s)`,
+    `    if lvl == "error" { error_parts = push(error_parts, s) }`,
+    `    if lvl == "warn" { warn_parts = push(warn_parts, s) }`,
     `  }`,
     `}`,
     `for_each(array(.exceptions) ?? []) -> |_, ex| {`,
@@ -278,7 +283,7 @@ function workerNormalizeYaml(inputKeys: string[]): string {
     // real cause. Also covers the empty-parts case (CF killed before
     // anything logged) so the body is never bare. Slack returns 400
     // on {"text":""} so the body has to be non-empty.
-    `body = if length(parts) == 0 { "outcome=" + outcome } else if worker_failed { "outcome=" + outcome + " | " + join!(parts, " | ") } else { join!(parts, " | ") }`,
+    `body = if length(parts) == 0 { "outcome=" + outcome } else if worker_failed { "outcome=" + outcome + " | " + join!(parts, " | ") } else if length(error_parts) > 0 { join!(error_parts, " | ") } else if length(warn_parts) > 0 { join!(warn_parts, " | ") } else { join!(parts, " | ") }`,
     // Prefix with [script] so monitors WITHOUT a rollup step still
     // deliver tagged messages to Slack. Without this, a console.log
     // of a structured object lands in Slack as a bare JSON fragment
