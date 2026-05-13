@@ -39,6 +39,7 @@ const OAUTH_ERROR_LABELS: Record<string, string> = {
 function normalizeProviderParam(value: string | null): string | null {
   if (!value) return null;
   if (value === "vercel") return "vercel-logs";
+  if (value === "railway") return "railway-logs";
   return value;
 }
 

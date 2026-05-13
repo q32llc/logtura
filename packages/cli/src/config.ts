@@ -63,11 +63,14 @@ function parseSources(
         env(
           s.account_id ??
             s.external_account_id ??
-            (provider === "vercel-logs" ? s.team_id ?? s.teamId : undefined),
+            (provider === "vercel-logs" ? s.team_id ?? s.teamId : undefined) ??
+            (provider === "railway-logs"
+              ? s.environment_id ?? s.environmentId
+              : undefined),
         ),
       ) ?? null;
     const credentials = sourceCredentials(provider, s, env);
-    const selectedSources = sourceRows(id, provider, s, baseDir);
+    const selectedSources = sourceRows(id, provider, s, baseDir, externalAccountId);
     const selectAll = boolField(s, "all", false);
     out.push({
       connection: {
@@ -90,6 +93,7 @@ function sourceProviderAlias(id: string): string | null {
   }
   if (id === "edge" || id === "supabase_edge") return "supabase-edge-logs";
   if (id === "fly" || id === "fly_apps") return "fly-log-tail";
+  if (id === "railway" || id === "railway_logs") return "railway-logs";
   if (id === "ai_gateway" || id === "cloudflare_ai_gateway") {
     return "cloudflare-ai-gateway";
   }
@@ -114,6 +118,13 @@ function sourceCredentials(
   if (provider === "fly-log-tail") {
     return { apiToken: stringValue(from("api_token")) ?? "" };
   }
+  if (provider === "railway-logs") {
+    return {
+      apiToken: stringValue(from("api_token")) ?? "",
+      projectId: stringValue(from("project_id")),
+      environmentId: stringValue(from("environment_id")),
+    };
+  }
   if (provider === "vercel-logs") {
     return { apiToken: stringValue(from("api_token")) ?? "" };
   }
@@ -127,6 +138,7 @@ function sourceRows(
   provider: string,
   s: UnknownRecord,
   baseDir: string,
+  externalAccountId: string | null,
 ): Source[] {
   if (provider === "custom-vector") {
     const vector = customVectorSourceConfig(s, baseDir, `sources.${id}.vector`);
@@ -148,6 +160,17 @@ function sourceRows(
   if (provider === "fly-log-tail") {
     return stringList(s.apps ?? s.sources, `sources.${id}.apps`).map((name) =>
       source(id, name, "fly_app"),
+    );
+  }
+  if (provider === "railway-logs") {
+    const environmentId =
+      externalAccountId ??
+      stringField(s, "environment_id", stringField(s, "environmentId"));
+    return railwayServiceRows(
+      id,
+      s.services ?? s.sources,
+      `sources.${id}.services`,
+      environmentId,
     );
   }
   if (provider === "cloudflare-ai-gateway") {
@@ -205,6 +228,40 @@ function source(
     sourceKind,
     metadata,
   };
+}
+
+function railwayServiceRows(
+  owner: string,
+  raw: unknown,
+  path: string,
+  environmentId: string | null,
+): Source[] {
+  const rows: Source[] = [];
+  for (const item of asArray(raw ?? [], path)) {
+    if (typeof item === "string") {
+      rows.push(
+        source(owner, item, "railway_service", {
+          environment_id: environmentId,
+        }),
+      );
+      continue;
+    }
+    const rec = asRecord(item, `${path}[]`);
+    const id = stringField(rec, "id", stringField(rec, "service_id"));
+    if (!id) throw new Error(`${path}[].id is required`);
+    rows.push({
+      id: `src_${safeId(owner)}_${safeId(id)}`,
+      externalId: id,
+      displayName: stringField(rec, "name", id) ?? id,
+      sourceKind: "railway_service",
+      metadata: {
+        environment_id:
+          stringField(rec, "environment_id", stringField(rec, "environmentId")) ??
+          environmentId,
+      },
+    });
+  }
+  return rows;
 }
 
 function parseSinks(

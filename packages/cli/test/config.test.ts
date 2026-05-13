@@ -216,4 +216,52 @@ monitors:
     expect(bundle.runtimeAssets[0]?.path).toBe("logtura-vercel-tail.mjs");
     expect(bundle.dockerfile).toContain("COPY assets/ /opt/logtura/assets/");
   });
+
+  it("parses Railway Logs sources", () => {
+    process.env.RAILWAY_TOKEN = "railway_test";
+    process.env.RAILWAY_ENV = "env_test";
+    const parsed = parseConfig(`
+sources:
+  railway:
+    provider: railway-logs
+    environment_id: env:RAILWAY_ENV
+    api_token: env:RAILWAY_TOKEN
+    services:
+      - id: svc_test
+        name: api
+
+sinks:
+  slack:
+    type: slack
+    webhook_url: https://hooks.slack.test/services/x/y/z
+
+monitors:
+  - name: railway-errors
+    filter: [errors]
+    sinks: [slack]
+`);
+
+    const connection = parsed.input.connections[0]!;
+    expect(connection.connection.provider).toBe("railway-logs");
+    expect(connection.connection.externalAccountId).toBe("env_test");
+    expect(connection.credentials).toEqual({
+      apiToken: "railway_test",
+      projectId: null,
+      environmentId: "env_test",
+    });
+    expect(connection.selectedSources).toEqual([
+      {
+        id: "src_railway_svc_test",
+        externalId: "svc_test",
+        displayName: "api",
+        sourceKind: "railway_service",
+        metadata: { environment_id: "env_test" },
+      },
+    ]);
+    const bundle = generateBundle(parsed.input);
+    expect(bundle.vectorYaml).toContain("railway_con_railway_env_test_tail:");
+    expect(bundle.vectorYaml).toContain('"id":"svc_test"');
+    expect(bundle.runtimeAssets[0]?.driverId).toBe("railway-logs");
+    expect(bundle.runtimeAssets[0]?.path).toBe("logtura-railway-tail.mjs");
+  });
 });

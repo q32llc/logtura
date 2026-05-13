@@ -37,6 +37,7 @@ export default defineConfig({
       "./packages/driver-cloudflare-ai-gateway",
       "./packages/driver-cloudflare-worker-tail",
       "./packages/driver-fly-log-tail",
+      "./packages/driver-railway-logs",
       "./packages/driver-supabase-edge-logs",
     ],
     // Coverage rolls up across projects. Istanbul because workerd

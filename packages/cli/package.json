@@ -42,6 +42,7 @@
     "@logtura/driver-cloudflare-ai-gateway": "workspace:*",
     "@logtura/driver-cloudflare-worker-tail": "workspace:*",
     "@logtura/driver-fly-log-tail": "workspace:*",
+    "@logtura/driver-railway-logs": "workspace:*",
     "@logtura/driver-supabase-edge-logs": "workspace:*",
     "@logtura/driver-vercel-logs": "workspace:*",
     "@logtura/supabase-shared": "workspace:*",

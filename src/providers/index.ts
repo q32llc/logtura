@@ -1,11 +1,13 @@
 import { cloudflareAiGatewayDriver } from "@logtura/driver-cloudflare-ai-gateway";
 import { cloudflareWorkerTailDriver } from "@logtura/driver-cloudflare-worker-tail";
 import { flyLogTailDriver } from "@logtura/driver-fly-log-tail";
+import { railwayLogsDriver } from "@logtura/driver-railway-logs";
 import { supabaseEdgeLogsDriver } from "@logtura/driver-supabase-edge-logs";
 import { vercelLogsDriver } from "@logtura/driver-vercel-logs";
 import { cloudflareAiGatewayConnect } from "./connect/cloudflare-ai-gateway";
 import { cloudflareWorkerTailConnect } from "./connect/cloudflare-worker-tail";
 import { flyLogTailConnect } from "./connect/fly-log-tail";
+import { railwayLogsConnect } from "./connect/railway-logs";
 import { supabaseEdgeLogsConnect } from "./connect/supabase-edge-logs";
 import { vercelLogsConnect } from "./connect/vercel-logs";
 import type { ProviderConnectAdapter } from "./connect/types";
@@ -15,6 +17,7 @@ const REGISTRY: Record<string, ProviderDriver> = {
   [cloudflareWorkerTailDriver.id]: cloudflareWorkerTailDriver as ProviderDriver,
   [cloudflareAiGatewayDriver.id]: cloudflareAiGatewayDriver as ProviderDriver,
   [flyLogTailDriver.id]: flyLogTailDriver as ProviderDriver,
+  [railwayLogsDriver.id]: railwayLogsDriver as ProviderDriver,
   [supabaseEdgeLogsDriver.id]: supabaseEdgeLogsDriver as ProviderDriver,
   [vercelLogsDriver.id]: vercelLogsDriver as ProviderDriver,
 };
@@ -29,6 +32,8 @@ const CONNECT: Record<string, ProviderConnectAdapter> = {
   [cloudflareAiGatewayConnect.driverId]:
     cloudflareAiGatewayConnect as ProviderConnectAdapter,
   [flyLogTailConnect.driverId]: flyLogTailConnect as ProviderConnectAdapter,
+  [railwayLogsConnect.driverId]:
+    railwayLogsConnect as ProviderConnectAdapter,
   [supabaseEdgeLogsConnect.driverId]:
     supabaseEdgeLogsConnect as ProviderConnectAdapter,
   [vercelLogsConnect.driverId]: vercelLogsConnect as ProviderConnectAdapter,

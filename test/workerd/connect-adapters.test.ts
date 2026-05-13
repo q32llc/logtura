@@ -99,6 +99,34 @@ describe("provider connect — fly-log-tail", () => {
   });
 });
 
+describe("provider connect — railway-logs", () => {
+  const adapter = getProviderConnect("railway-logs")!;
+
+  it("trims token and requires environment id", () => {
+    const f = new FormData();
+    f.set("api_token", "  railway_token  ");
+    f.set("environment_id", " env_123 ");
+    f.set("project_id", " prj_123 ");
+    const out = adapter.parseFormData(f);
+    expect(out.credentials).toEqual({
+      apiToken: "railway_token",
+      projectId: "prj_123",
+      environmentId: "env_123",
+    });
+    expect(out.explicitAccountId).toBe("env_123");
+  });
+
+  it("rejects missing token or environment id", () => {
+    const f = new FormData();
+    f.set("api_token", "");
+    f.set("environment_id", "env_123");
+    expect(() => adapter.parseFormData(f)).toThrow(/Missing api_token/);
+    f.set("api_token", "tok");
+    f.set("environment_id", "");
+    expect(() => adapter.parseFormData(f)).toThrow(/Missing environment_id/);
+  });
+});
+
 describe("provider connect — vercel-logs", () => {
   const adapter = getProviderConnect("vercel-logs")!;
 

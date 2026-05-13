@@ -1,6 +1,7 @@
 import { cloudflareAiGatewayDriver } from "@logtura/driver-cloudflare-ai-gateway";
 import { cloudflareWorkerTailDriver } from "@logtura/driver-cloudflare-worker-tail";
 import { flyLogTailDriver } from "@logtura/driver-fly-log-tail";
+import { railwayLogsDriver } from "@logtura/driver-railway-logs";
 import { supabaseEdgeLogsDriver } from "@logtura/driver-supabase-edge-logs";
 import { vercelLogsDriver } from "@logtura/driver-vercel-logs";
 import { datadogMetricsDriver } from "@logtura/destination-datadog-metrics";
@@ -18,6 +19,7 @@ export function listProviders(): ProviderDriver[] {
     cloudflareWorkerTailDriver,
     cloudflareAiGatewayDriver,
     flyLogTailDriver,
+    railwayLogsDriver,
     supabaseEdgeLogsDriver,
     customVectorProvider,
     vercelLogsDriver,
