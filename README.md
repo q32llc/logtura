@@ -1,125 +1,126 @@
-# logtura v0
+# logtura
 
-Multi-provider log forwarder control plane. v0 covers: GitHub sign-in,
-add a Cloudflare connection, discover Workers + AI Gateways, pick
-sources, generate a Vector + Dockerfile bundle the user runs themselves.
+This repository is the hosted Logtura control plane plus the OSS package
+workspace.
 
-## Stack
+The hosted app lets a user connect log sources, choose monitors and sinks,
+generate Vector forwarder bundles, deploy managed Fly Machines forwarders, and
+inspect Vector internal metrics. The OSS packages under `packages/` contain the
+renderer, drivers, destinations, and CLI that can be synced to
+`github.com/logtura/logtura`.
 
-- Hono on Cloudflare Workers (API)
-- React + Mantine + Vite (UI)
-- D1 (SQLite) for users, connections, discovered sources
-- React Router for client routing
-- Vector for the generated forwarder
+## Main Surfaces
 
-## Provider model
+- Hosted SaaS app: Hono on Cloudflare Workers, React/Mantine/Vite UI, D1,
+  Queues, managed Fly deploy jobs.
+- OSS renderer: `@logtura/core`.
+- OSS drivers/destinations: `@logtura/driver-*`, `@logtura/destination-*`.
+- OSS CLI: `@logtura/cli`, parsing `logtura.yaml` into the same renderer input
+  the SaaS builds from D1 rows.
 
-The whole point of the abstraction is that adding a new provider (Fly,
-AWS, Supabase, …) is a single new file under `src/providers/`. See
-`src/providers/types.ts` for the `ProviderDriver` contract; each driver
-owns:
-
-1. Form fields shown when adding a connection
-2. Parsing those fields into a credential shape
-3. Verifying credentials against the upstream API
-4. Discovering log sources
-5. Emitting Vector source-block YAML for each selected source
-6. Declaring runtime env vars and Dockerfile install steps
-
-The control plane does not branch on `provider === "cloudflare"` anywhere.
-If you're tempted to do that, push the logic onto the driver instead.
-
-## First-time setup
+## Development
 
 ```bash
 pnpm install
-
-# 1. Create the D1 database (one-time). Copy the printed database_id
-#    into wrangler.toml under [[d1_databases]].
-pnpm db:create
-
-# 2. Apply migrations to the local D1.
-pnpm db:migrate:local
-
-# 3. Make sure .dev.vars has GITHUB_CLIENT_ID/SECRET, SESSION_SECRET,
-#    and CREDENTIAL_ENCRYPTION_KEY set. (.dev.vars is git-ignored.)
-#    The GitHub OAuth app must register
-#    http://localhost:8787/auth/github/callback as a callback URL.
-```
-
-## Dev
-
-```bash
 pnpm dev
 ```
 
-Runs Vite (port 5173, with HMR) and Wrangler (port 8787) concurrently.
-Vite proxies `/api`, `/login`, `/auth`, `/logout` to Wrangler.
+`pnpm dev` runs Vite on port 5173 and Wrangler on port 8787. Vite proxies API
+routes to Wrangler.
 
-Visit http://localhost:5173 for the dev experience with hot reload.
-
-## Build & deploy
+First-time local setup:
 
 ```bash
-pnpm build       # vite build → ./dist
-pnpm deploy      # vite build + wrangler deploy
+pnpm db:create
+pnpm db:migrate:local
 ```
 
-Wrangler serves `./dist` as static assets and runs the Worker for the
-API routes. SPA fallback is configured so client-side routes resolve to
-`index.html`.
+Make sure `.dev.vars` contains:
 
-## Schema
+- `GITHUB_CLIENT_ID`
+- `GITHUB_CLIENT_SECRET`
+- `SESSION_SECRET`
+- `CREDENTIAL_ENCRYPTION_KEY`
 
-See `migrations/0001_init.sql`. Provider-agnostic shape:
+The GitHub OAuth app must allow:
 
-- `users` — one row per GitHub identity
-- `connections` — one row per linked provider account; `provider` is a
-  string id (e.g. "cloudflare"), `credentials_encrypted` is an opaque
-  AES-GCM blob holding the JSON-serialized credential object the driver
-  defined
-- `log_sources` — one row per discovered source; `source_kind` is
-  driver-namespaced (e.g. `cf_worker`, `cf_ai_gateway`); `selected`
-  drives whether the source goes into the generated config
+```text
+http://localhost:8787/auth/github/callback
+```
 
-Adding a new provider does not require schema changes.
-
-## Adding a Cloudflare connection
-
-After signing in, click "Add connection" and paste a Cloudflare API
-token with permissions to read:
-
-- Account → Workers Scripts (Read)
-- Account → AI Gateway (Read), if you use it
-
-Account ID auto-detects from the token's accessible accounts. Submit;
-discovery runs immediately.
-
-## Generated forwarder bundle
-
-From a connection's detail page, click "Generate Dockerfile" — get a
-`Dockerfile`, a `vector.yaml`, the `docker run` command, and the env
-var spec (which the driver produces). Save the files into a directory
-and:
+## Tests
 
 ```bash
-docker build -t logtura-forwarder .
-docker run --rm \
-  -e CLOUDFLARE_API_TOKEN="<token>" \
-  -e CLOUDFLARE_ACCOUNT_ID="<account-id>" \
-  logtura-forwarder
+pnpm typecheck
+pnpm test
+pnpm test:workerd
+pnpm test:drivers
+pnpm test:destinations
 ```
 
-Logs stream to stdout as JSON. Add a Vector sink (HTTP, S3, Loki, etc.)
-in `vector.yaml` to point at your destination of choice.
+The full test suite includes workerd integration tests, package unit tests, and
+Docker-backed Vector validation tests where available.
 
-## What v0 does NOT do
+## Deploy SaaS
 
-- No anomaly detection (that's the `logtura-novelty` track).
-- No deploy automation — you build and run the container yourself.
-- No destinations UX yet; Vector output is stdout.
-- Only Cloudflare as a provider.
-- No team accounts; everything is per-user.
+```bash
+pnpm run deploy
+```
 
-These are deferred deliberately. See
-`log-source-forwarder-product.md` for the full roadmap.
+This builds the Vite app and deploys the Cloudflare Worker.
+
+When generated Vector topology or runtime Docker deps change, also redeploy the
+affected managed forwarder so the running machine picks up the new bundle.
+
+## OSS CLI
+
+Example config is in [example.yml](./example.yml):
+
+```bash
+CLOUDFLARE_ACCOUNT_ID=acct \
+CLOUDFLARE_API_TOKEN=token \
+SLACK_WEBHOOK_URL=https://hooks.slack.test/x \
+pnpm tsx packages/cli/src/main.ts validate -c example.yml
+```
+
+Generate an unpacked local forwarder:
+
+```bash
+pnpm tsx packages/cli/src/main.ts bundle -c example.yml -o dist/logtura-forwarder
+```
+
+## OSS Sync
+
+The public OSS repo is a sibling checkout, synced one-way for now:
+
+```bash
+scripts/sync-oss.sh
+```
+
+That copies `oss/` root files and mirrors `packages/` into
+`../logtura-public`. Until the first real external OSS PR, this is the accepted
+sync mechanism.
+
+## Release Notes
+
+Every OSS package shares one version. Release flow:
+
+```bash
+node scripts/bump-oss.mjs 0.X.Y
+pnpm install
+git add packages/*/package.json pnpm-lock.yaml
+git commit -m "Bump OSS packages to 0.X.Y"
+scripts/sync-oss.sh
+cd ../logtura-public
+pnpm install
+pnpm -r typecheck
+pnpm vitest run
+git add .
+git commit -m "Bump packages to v0.X.Y"
+git push origin main
+git tag v0.X.Y
+git push origin v0.X.Y
+```
+
+The public tag runs `.github/workflows/release.yml`, which publishes via npm
+Trusted Publishing and creates the GitHub release.

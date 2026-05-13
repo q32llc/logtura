@@ -1,8 +1,13 @@
 # @logtura/core
 
-Compose Vector configs from typed driver inputs. The renderer takes a typed input (connections, selected sources, monitors, sinks, heartbeat and metrics targets) and produces a complete `vector.yaml`, a Dockerfile fragment, an env-var manifest, and a component manifest describing the pipeline.
+Compose Vector configs from typed driver inputs. The renderer takes a typed input
+(connections, selected sources, monitors, sinks, heartbeat and metrics targets)
+and produces a complete `vector.yaml`, Dockerfile, env-var manifest, and
+component manifest describing the pipeline.
 
-Pure TypeScript. No I/O. Drivers (providers and destinations) plug in via small contracts. This package is the renderer they feed.
+Pure TypeScript. No I/O. Drivers (providers and destinations) plug in via small
+contracts. This package is the renderer used by both the hosted product and
+`@logtura/cli`.
 
 ```bash
 npm install @logtura/core @logtura/driver-fly-log-tail @logtura/destination-slack
@@ -66,7 +71,7 @@ const bundle = generateBundle({
 // bundle.componentManifest   primary + plumbing components for a UI
 ```
 
-## Driver contract
+## Provider Driver Contract
 
 A provider driver is a single TypeScript object satisfying `ProviderDriver<TCreds>`:
 
@@ -74,16 +79,31 @@ A provider driver is a single TypeScript object satisfying `ProviderDriver<TCred
 {
   id: string;
   displayName: string;
-  sourceLabel: string;                                // friendly UI noun
+  sourceLabel: string;
+  capabilities: { selection: "all" | "list" | "both" };
   verifyCredentials(creds): Promise<ProviderAccount[]>;
   discoverSources({ credentials, accountId }): Promise<DiscoveredSource[]>;
-  generateSourceBlock({ source, connection }): SourceBlock;
-  generateNormalize?({ inputKeys, connection, sources }): { key, yaml } | null;
-  runtimeSpec(connection): { envVars, dockerfileDeps };
+  checkCredentialFreshness?(creds): Promise<{ fresh: boolean; reason?: string }>;
+  generatePipeline({
+    connection,
+    selection,
+  }): {
+    components: VectorComponent[];
+    outputKey: string;
+    envVars: EnvVarSpec[];
+    dockerfileDeps: DockerfileDep[];
+    manifest?: ComponentManifestEntry[];
+  };
 }
 ```
 
-A destination driver is similar. `DestinationDriver<TConfig>` declares `generateSinkBundle`, `runtimeEnvVars`, and `envVarValue`.
+`generatePipeline` owns the driver's whole internal subgraph. Simple drivers can
+emit one Vector source per selected source. Multiplexed drivers can emit one
+transport plus per-logical-source filters and merge transforms. The renderer
+only wires the returned `outputKey` into downstream monitor/sink transforms.
+
+A destination driver is similar. `DestinationDriver<TConfig>` declares
+`generateSinkBundle`, `runtimeEnvVars`, and `envVarValue`.
 
 Form schemas, OAuth flows, and `FormData` parsing are intentionally not part of this contract. They live host-side in whatever app is rendering a UI on top of the renderer.
 
@@ -100,9 +120,9 @@ Form schemas, OAuth flows, and `FormData` parsing are intentionally not part of 
 
 ## Status
 
-`0.1.0`. The renderer and driver contract surface area will continue to change as more platforms get added.
-
-Packages currently ship raw TypeScript sources. Consumers need a TS-aware toolchain such as Bun, tsx, Vite, Webpack with ts-loader, or esbuild. Compiled `.js` + `.d.ts` distribution is on the roadmap for `0.2.0`.
+`0.2.x`. Packages currently ship raw TypeScript sources. Consumers need a
+TS-aware toolchain such as `tsx`, Bun, Vite, Webpack with ts-loader, or esbuild.
+Compiled `.js` + `.d.ts` distribution is still on the roadmap.
 
 ## License
 

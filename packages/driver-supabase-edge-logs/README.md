@@ -1,8 +1,19 @@
 # @logtura/driver-supabase-edge-logs
 
-Logtura provider driver for Supabase Edge Functions. Polls the Management API's analytics endpoint (`GET /v1/projects/<ref>/analytics/endpoints/logs.all`) over Vector's `http_client` source. Same SQL the Supabase dashboard runs under the hood.
+Logtura provider driver for Supabase Edge Functions and the project HTTP
+gateway. Polls the Management API's analytics endpoint
+(`GET /v1/projects/<ref>/analytics/endpoints/logs.all`) over Vector's
+`http_client` source. Same SQL family the Supabase dashboard runs under the
+hood.
 
-**One poll per connection**, regardless of how many functions are selected. The analytics endpoint rate-limits hard. The driver pulls every edge-function event for the project and the normalize remap routes by `function_id` against a codegen-time UUID-to-slug map.
+The driver exposes two selectable surfaces:
+
+- one source per Edge Function runtime log stream (`function_edge_logs`)
+- one synthetic `Project HTTP gateway` source for inbound HTTP (`edge_logs`)
+
+Function runtime logs are multiplexed through one poller per connection, then
+split into per-function metric rows after normalization. Gateway logs use a
+separate poller because they come from a different table.
 
 ```bash
 npm install @logtura/driver-supabase-edge-logs @logtura/core
@@ -21,7 +32,7 @@ import { supabaseEdgeLogsDriver } from "@logtura/driver-supabase-edge-logs";
 const projects = await supabaseEdgeLogsDriver.verifyCredentials({
   pat: process.env.SUPABASE_PAT!,
 });
-const functions = await supabaseEdgeLogsDriver.discoverSources({
+const sources = await supabaseEdgeLogsDriver.discoverSources({
   credentials: { pat: process.env.SUPABASE_PAT! },
   accountId: projects[0].id, // project ref
 });
@@ -34,7 +45,7 @@ const bundle = generateBundle({
       id: "con_a", provider: "supabase-edge-logs",
       displayName: "askthe prod", externalAccountId: projects[0].id,
     },
-    selectedSources: functions,
+    selectedSources: sources,
     credentials: { pat: process.env.SUPABASE_PAT! },
   }],
   monitors: [/* ... */],
@@ -45,15 +56,26 @@ const bundle = generateBundle({
 
 None beyond Vector itself. The `http_client` source is built in.
 
-## What it emits
+## What It Emits
 
-One Vector `http_client` source per connection, polling every 30s with a 90s lookback window (3x overlap; downstream `dedup` by event id drops duplicates).
+For function runtime logs:
 
-The normalize remap unwraps Logflare's `{ result: { result: [...] } }` envelope and per-record:
-- Maps `function_id` (UUID) to the human slug via a codegen-time dict. Drops events for functions not in the selected set.
-- Derives `.level` from `.status_code` (>=500 becomes error, >=400 becomes warn, else info). Supabase does not surface a semantic level on the invocation summary, so the HTTP response is the strongest signal.
+- one `http_client` or refresh-sidecar `exec` source per connection
+- one normalize transform mapping `function_id` UUIDs to selected slugs
+- per-function filter transforms so Vector metrics can show throughput per selected function
+
+For project gateway logs:
+
+- one `http_client` or refresh-sidecar `exec` source
+- one normalize transform that derives surface from the HTTP path (`rest`, `auth`, `storage`, `functions`, etc.)
+
+The normalize remaps unwrap Supabase's real `{ result: [...] }` envelope and:
+- Drop unselected function events in list mode.
+- In all-selection mode, tag unknown function IDs with the UUID.
+- For function runtime logs, infer `.level` from `event_message` text because `function_edge_logs` does not expose HTTP status.
+- For gateway logs, infer `.level` from `status_code` (>=500 error, >=400 warn, else info).
 - Converts the microsecond `timestamp` to milliseconds.
-- Prefixes `.message` with `[<slug>]` so non-rollup monitors still ship tagged events.
+- Prefixes `.message` with `[<script>]` so non-rollup monitors still ship tagged events.
 
 ## License
 

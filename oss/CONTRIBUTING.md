@@ -4,13 +4,14 @@ The easiest contribution is a new driver. Most platforms with a CLI-based or HTT
 
 ## Adding a provider driver
 
-A provider driver is a single TypeScript object satisfying the `ProviderDriver<TCreds>` contract from `@logtura/core`. It does five things:
+A provider driver is a single TypeScript object satisfying the `ProviderDriver<TCreds>` contract from `@logtura/core`. It does four things:
 
 1. `verifyCredentials(creds)` returns the accounts, orgs, or projects the credential can reach. Lets consumers validate a token before generating a config and pick which account to target.
 2. `discoverSources({ credentials, accountId })` lists the log sources available for a given account (workers, apps, edge functions, etc.) as `DiscoveredSource[]`. Source `metadata` can carry anything the driver needs later: IDs, expiry hints, region.
-3. `generateSourceBlock({ source, connection })` emits one Vector source YAML block per selected source. Keys must be unique within a bundle. Drivers that consolidate multiple selections into one Vector component (Supabase-style) return the same key per connection, and the renderer deduplicates.
-4. `generateNormalize?({ inputKeys, connection, sources })` emits a single Vector `remap` that flattens every source's events into the uniform shape `{ .script, .message, .level, .error, .timestamp }`. The renderer's filter steps (`errors`, `level`, `match`, `rate_limit`, `dedup`, `sample`, `rollup`) operate on this shape.
-5. `runtimeSpec(connection)` declares the env vars the source needs at runtime (API tokens, account IDs) and any Dockerfile install steps. The renderer rolls these up into `bundle.envVars` and `bundle.dockerfile` so the forwarder image carries what it needs.
+3. `generatePipeline({ connection, selection })` emits the driver's complete Vector subgraph: sources, transforms, `outputKey`, env vars, Dockerfile deps, and optional component manifest rows. Simple drivers can emit one source per selected app. Multiplexed drivers can emit one transport plus per-logical-source filter transforms.
+4. `checkCredentialFreshness?(creds)` optionally lets hosts detect stale stored credentials before generating/deploying a bundle.
+
+Every driver's `outputKey` should produce the uniform event shape `{ .script, .message, .level, .error, .timestamp }`. The renderer's filter steps (`errors`, `level`, `match`, `rate_limit`, `dedup`, `sample`, `rollup`) operate on that shape.
 
 Form fields, OAuth flows, and UI copy live in whatever hosting layer wraps the renderer. They are not part of the driver contract.
 
@@ -19,7 +20,7 @@ The fastest path is to copy `packages/driver-fly-log-tail`, which is the smalles
 ```sh
 cp -r packages/driver-fly-log-tail packages/driver-railway-logs
 # Rename inside: package.json, src/index.ts driver constant, test files.
-# Replace the Fly-specific verify/discover/source/normalize/runtime logic.
+# Replace the Fly-specific verify/discover/generatePipeline logic.
 ```
 
 Test with `pnpm vitest run --project @logtura/driver-railway-logs`. Add a `test/vector-validate.test.ts` that pipes the generated bundle through `docker run timberio/vector:latest-debian validate`. Every existing driver has one. It is the only check that catches VRL syntax errors before deploy.
@@ -64,7 +65,13 @@ git push origin v0.X.Y
 
 That tag push fires `.github/workflows/release.yml`. The workflow runs the full test matrix, publishes every `@logtura/*` package to npm via OIDC trusted publishing (no long-lived token to rotate), and creates the GitHub release with auto-generated notes from the commits since the previous tag. No manual `pnpm publish`, no OTP prompt.
 
-Each `@logtura/*` package has its trusted publisher configured on npmjs.com pointing at this repo's `release.yml`. To add a new package to the workspace: publish it once interactively (`pnpm publish --otp=...`), then on npmjs.com under that package's Settings -> Trusted Publishers, add `logtura / logtura / release.yml`. From then on it ships through the workflow.
+Each `@logtura/*` package needs a trusted publisher configured on npmjs.com pointing at this repo's `release.yml`. To add a new package to the workspace: publish it once interactively (`pnpm publish --access public --otp=...`), then configure trusted publishing with:
+
+```sh
+npm trust github @logtura/<package> --repo logtura/logtura --file release.yml
+```
+
+From then on it ships through the workflow.
 
 ## License
 
