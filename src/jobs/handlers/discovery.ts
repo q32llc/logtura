@@ -27,7 +27,11 @@ export async function runDiscovery(
   if (!connection) {
     throw new Error(`connection ${payload.connectionId} not found`);
   }
-  if (!connection.external_account_id && connection.provider !== "vercel-logs") {
+  if (
+    !connection.external_account_id &&
+    connection.provider !== "vercel-logs" &&
+    connection.provider !== "railway-logs"
+  ) {
     throw new Error("connection has no external_account_id");
   }
 

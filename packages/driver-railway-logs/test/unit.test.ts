@@ -68,8 +68,14 @@ describe("railwayLogsDriver", () => {
       selection: {
         kind: "list",
         sources: [
-          railwayService("svc_a", "api", { environment_id: "env_a" }),
-          railwayService("svc_b", "worker", { environment_id: "env_b" }),
+          railwayService("env_a:svc_a", "project/production/api", {
+            environment_id: "env_a",
+            service_id: "svc_a",
+          }),
+          railwayService("env_b:svc_a", "project/staging/api", {
+            environment_id: "env_b",
+            service_id: "svc_a",
+          }),
         ],
       },
     });
@@ -107,21 +113,34 @@ describe("railwayLogsDriver", () => {
     ).toThrow(/unsafe Railway service id/);
   });
 
-  it("maps environment service instances to discovered sources", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+  it("maps project environment service instances to discovered sources", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
       new Response(
         JSON.stringify({
           data: {
-            environment: {
-              id: "env_test",
-              name: "production",
-              serviceInstances: {
+            project: {
+              id: "prj_test",
+              name: "project",
+              environments: {
                 edges: [
                   {
                     node: {
-                      serviceId: "svc_a",
-                      serviceName: "api",
-                      latestDeployment: { id: "dep_a", status: "SUCCESS" },
+                      id: "env_test",
+                      name: "production",
+                      serviceInstances: {
+                        edges: [
+                          {
+                            node: {
+                              serviceId: "svc_a",
+                              serviceName: "api",
+                              latestDeployment: {
+                                id: "dep_a",
+                                status: "SUCCESS",
+                              },
+                            },
+                          },
+                        ],
+                      },
                     },
                   },
                 ],
@@ -134,7 +153,7 @@ describe("railwayLogsDriver", () => {
     );
     const sources = await railwayLogsDriver.discoverSources({
       credentials: { apiToken: "tok", projectId: "prj_test" },
-      accountId: "env_test",
+      accountId: "",
     });
     expect(String(fetchSpy.mock.calls[0]![0])).toBe(
       "https://backboard.railway.com/graphql/v2",
@@ -142,12 +161,15 @@ describe("railwayLogsDriver", () => {
     expect(sources).toEqual([
       {
         sourceKind: "railway_service",
-        externalId: "svc_a",
-        displayName: "api",
+        externalId: "env_test:svc_a",
+        displayName: "project/production/api",
         metadata: {
           project_id: "prj_test",
+          project_name: "project",
           environment_id: "env_test",
           environment_name: "production",
+          service_id: "svc_a",
+          service_name: "api",
           latest_deployment_id: "dep_a",
           latest_deployment_status: "SUCCESS",
         },

@@ -27,9 +27,9 @@ export interface RailwayCredentials {
   apiToken: string;
   refreshToken?: string;
   expiresAt?: number;
-  /** Optional helper for discovery in CLI/API callers. Runtime does not need it. */
+  /** Optional discovery filter. Runtime does not need it. */
   projectId?: string;
-  /** Optional helper for discovery in CLI/API callers. Runtime uses connection.externalAccountId. */
+  /** Optional discovery filter for project/environment-scoped tokens. */
   environmentId?: string;
 }
 
@@ -138,64 +138,47 @@ export const railwayLogsDriver: ProviderDriver<RailwayCredentials> = {
   },
 
   async discoverSources({ credentials, accountId }) {
-    const projectId = credentials.projectId ?? projectIdFromAccountId(accountId);
-    const environmentId =
-      credentials.environmentId ?? environmentIdFromAccountId(accountId);
-    if (!projectId || !environmentId) {
-      throw new ProviderError(
-        "Railway discovery requires projectId and environmentId",
-        400,
-      );
-    }
-    const data = await railwayGraphql<{
-      environment?: {
-        id?: string;
-        name?: string;
-        serviceInstances?: {
-          edges?: Array<{
-            node?: {
-              serviceId?: string;
-              serviceName?: string;
-              latestDeployment?: { id?: string; status?: string } | null;
-            };
-          }>;
-        };
-      };
-    }>(
-      credentials.apiToken,
-      `query EnvironmentInstances($projectId: String!, $environmentId: String!) {
-        environment(id: $environmentId, projectId: $projectId) {
-          id
-          name
-          serviceInstances(first: 200) {
-            edges {
-              node {
-                serviceId
-                serviceName
-                latestDeployment { id status }
-              }
-            }
-          }
-        }
-      }`,
-      { projectId, environmentId },
-    );
     const out: DiscoveredSource[] = [];
-    for (const edge of data.environment?.serviceInstances?.edges ?? []) {
-      const node = edge.node;
-      if (!node?.serviceId) continue;
-      out.push({
-        sourceKind: "railway_service",
-        externalId: node.serviceId,
-        displayName: node.serviceName ?? node.serviceId,
-        metadata: {
-          project_id: projectId,
-          environment_id: environmentId,
-          environment_name: data.environment?.name ?? null,
-          latest_deployment_id: node.latestDeployment?.id ?? null,
-          latest_deployment_status: node.latestDeployment?.status ?? null,
-        },
-      });
+    const projectTokenScope = await getRailwayProjectTokenScope(
+      credentials.apiToken,
+    );
+    const requestedProjectId =
+      credentials.projectId ||
+      projectIdFromAccountId(accountId) ||
+      projectTokenScope?.projectId;
+    const requestedEnvironmentId =
+      credentials.environmentId ||
+      environmentIdFromAccountId(accountId) ||
+      projectTokenScope?.environmentId;
+    const projects = await listRailwayProjects(
+      credentials.apiToken,
+      requestedProjectId || null,
+    );
+    for (const project of projects) {
+      const environments = await listRailwayProjectEnvironments(
+        credentials.apiToken,
+        project.id,
+        requestedEnvironmentId || null,
+      );
+      for (const environment of environments) {
+        for (const service of environment.services) {
+          out.push({
+            sourceKind: "railway_service",
+            externalId: `${environment.id}:${service.id}`,
+            displayName: `${project.name}/${environment.name}/${service.name}`,
+            metadata: {
+              project_id: project.id,
+              project_name: project.name,
+              environment_id: environment.id,
+              environment_name: environment.name,
+              service_id: service.id,
+              service_name: service.name,
+              latest_deployment_id: service.latestDeploymentId,
+              latest_deployment_status: service.latestDeploymentStatus,
+            },
+          });
+        }
+      }
     }
     return out;
   },
@@ -293,6 +276,205 @@ export const railwayLogsDriver: ProviderDriver<RailwayCredentials> = {
   },
 };
 
+interface RailwayProjectSummary {
+  id: string;
+  name: string;
+}
+
+interface RailwayEnvironmentSummary {
+  id: string;
+  name: string;
+  services: RailwayServiceSummary[];
+}
+
+interface RailwayServiceSummary {
+  id: string;
+  name: string;
+  latestDeploymentId: string | null;
+  latestDeploymentStatus: string | null;
+}
+
+async function getRailwayProjectTokenScope(
+  token: string,
+): Promise<{
+  projectId: string;
+  environmentId: string | null;
+} | null> {
+  const data = await railwayGraphql<{
+    projectToken?: {
+      project?: { id?: string };
+      environment?: { id?: string } | null;
+    } | null;
+  }>(
+    token,
+    `query ProjectTokenScope {
+      projectToken {
+        project { id }
+        environment { id }
+      }
+    }`,
+    {},
+  ).catch(() => null);
+  const projectId = data?.projectToken?.project?.id;
+  if (!projectId) return null;
+  return {
+    projectId,
+    environmentId: data?.projectToken?.environment?.id ?? null,
+  };
+}
+
+async function listRailwayProjects(
+  token: string,
+  projectId: string | null,
+): Promise<RailwayProjectSummary[]> {
+  if (projectId) {
+    const data = await railwayGraphql<{
+      project?: { id?: string; name?: string } | null;
+    }>(
+      token,
+      `query Project($projectId: String!) {
+        project(id: $projectId) { id name }
+      }`,
+      { projectId },
+    );
+    if (!data.project?.id) {
+      throw new ProviderError(`Railway project not found: ${projectId}`, 404);
+    }
+    return [{ id: data.project.id, name: data.project.name ?? data.project.id }];
+  }
+
+  const scoped = await railwayGraphql<{
+    externalWorkspaces?: Array<{
+      projects?: Array<{ id?: string; name?: string }>;
+    }>;
+  }>(
+    token,
+    `query ExternalProjects {
+      externalWorkspaces {
+        projects { id name }
+      }
+    }`,
+    {},
+  ).catch(() => null);
+  const scopedProjects = (scoped?.externalWorkspaces ?? [])
+    .flatMap((workspace) => workspace.projects ?? [])
+    .filter((project): project is { id: string; name?: string } =>
+      Boolean(project?.id),
+    );
+  if (scopedProjects.length > 0) {
+    return scopedProjects.map((project) => ({
+      id: project.id,
+      name: project.name ?? project.id,
+    }));
+  }
+
+  const projects = await railwayGraphql<{
+    projects?: {
+      edges?: Array<{ node?: { id?: string; name?: string } }>;
+    };
+  }>(
+    token,
+    `query Projects {
+      projects {
+        edges { node { id name } }
+      }
+    }`,
+    {},
+  );
+  return (projects.projects?.edges ?? [])
+    .map((edge) => edge.node)
+    .filter((project): project is { id: string; name?: string } =>
+      Boolean(project?.id),
+    )
+    .map((project) => ({ id: project.id, name: project.name ?? project.id }));
+}
+
+async function listRailwayProjectEnvironments(
+  token: string,
+  projectId: string,
+  environmentId: string | null,
+): Promise<RailwayEnvironmentSummary[]> {
+  const data = await railwayGraphql<{
+    project?: {
+      environments?: {
+        edges?: Array<{
+          node?: {
+            id?: string;
+            name?: string;
+            serviceInstances?: {
+              edges?: Array<{
+                node?: {
+                  serviceId?: string;
+                  serviceName?: string;
+                  latestDeployment?: { id?: string; status?: string } | null;
+                };
+              }>;
+            };
+          };
+        }>;
+      };
+    } | null;
+  }>(
+    token,
+    `query ProjectEnvironments($projectId: String!) {
+      project(id: $projectId) {
+        environments {
+          edges {
+            node {
+              id
+              name
+              serviceInstances(first: 200) {
+                edges {
+                  node {
+                    serviceId
+                    serviceName
+                    latestDeployment { id status }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }`,
+    { projectId },
+  );
+  return (data.project?.environments?.edges ?? [])
+    .map((edge) => edge.node)
+    .filter(
+      (env): env is {
+        id: string;
+        name?: string;
+        serviceInstances?: {
+          edges?: Array<{
+            node?: {
+              serviceId?: string;
+              serviceName?: string;
+              latestDeployment?: { id?: string; status?: string } | null;
+            };
+          }>;
+        };
+      } => Boolean(env?.id && (!environmentId || env.id === environmentId)),
+    )
+    .map((env) => ({
+      id: env.id,
+      name: env.name ?? env.id,
+      services: (env.serviceInstances?.edges ?? [])
+        .map((edge) => edge.node)
+        .filter((node): node is {
+          serviceId: string;
+          serviceName?: string;
+          latestDeployment?: { id?: string; status?: string } | null;
+        } => Boolean(node?.serviceId))
+        .map((node) => ({
+          id: node.serviceId,
+          name: node.serviceName ?? node.serviceId,
+          latestDeploymentId: node.latestDeployment?.id ?? null,
+          latestDeploymentStatus: node.latestDeployment?.status ?? null,
+        })),
+    }));
+}
+
 export async function railwayGraphql<T>(
   token: string,
   query: string,
@@ -341,7 +523,7 @@ function groupSourcesByEnvironment(
     if (source.sourceKind !== "railway_service") {
       throw new Error(`Unknown Railway source kind: ${source.sourceKind}`);
     }
-    assertSafeRailwayId(source.externalId, "service id");
+    assertSafeRailwayId(railwayServiceId(source), "service id");
     const environmentId = String(
       source.metadata?.environment_id ??
         source.metadata?.environmentId ??
@@ -362,11 +544,15 @@ function groupSourcesByEnvironment(
 
 function railwayExecSourceYaml(
   environmentId: string,
-  sources: Array<{ externalId: string; displayName: string }>,
+  sources: Array<{
+    externalId: string;
+    displayName: string;
+    metadata?: Record<string, unknown> | null;
+  }>,
 ): string {
   const servicesJson = JSON.stringify(
     sources.map((source) => ({
-      id: source.externalId,
+      id: railwayServiceId(source),
       name: source.displayName,
     })),
   );
@@ -385,6 +571,19 @@ function railwayExecSourceYaml(
     `    framing:`,
     `      method: newline_delimited`,
   ].join("\n");
+}
+
+function railwayServiceId(source: {
+  externalId: string;
+  metadata?: Record<string, unknown> | null;
+}): string {
+  const fromMetadata =
+    source.metadata?.service_id ?? source.metadata?.serviceId;
+  if (typeof fromMetadata === "string" && fromMetadata) return fromMetadata;
+  if (source.externalId.includes(":")) {
+    return source.externalId.split(":").at(-1) ?? source.externalId;
+  }
+  return source.externalId;
 }
 
 function railwayTailHelperSource(): string {

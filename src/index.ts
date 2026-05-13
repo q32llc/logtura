@@ -348,11 +348,10 @@ apiAuth.post("/connections", async (c) => {
   }
 
   let accountId: string | null = explicitAccountId;
-  // For supabase-edge-logs, leave external_account_id null when the
-  // user didn't pick a project ref — auto-picking has a high false
-  // rate when multiple projects share an org but only one has edge
-  // functions. ConnectionDetail's picker fills it in afterwards.
-  // Other providers retain the original auto-pick-first behavior.
+  // Supabase leaves external_account_id null for its post-connect
+  // project picker. Railway also stays null because its discovery is
+  // token-wide and source-level project/environment/service choices
+  // happen later in deployment selection.
   const deferAccountPick =
     !accountId &&
     (driver.id === "supabase-edge-logs" || driver.id === "railway-logs");
@@ -375,14 +374,11 @@ apiAuth.post("/connections", async (c) => {
   // "Errors" monitor before discovery returns. Idempotent.
   await ensureDefaultErrorsMonitor(c.env.DB, user.id);
 
-  // Supabase/Railway OAuth defer discovery until the user picks the
-  // concrete project/environment target.
+  // Supabase defers discovery until the user picks a project ref.
   // Other providers can discover with either an explicit account id
-  // or a personal-account token.
-  if (
-    accountId ||
-    (driver.id !== "supabase-edge-logs" && driver.id !== "railway-logs")
-  ) {
+  // or a personal-account token. Railway discovers project/environment
+  // service sources directly from the token.
+  if (accountId || driver.id !== "supabase-edge-logs") {
     const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
     await jobs.enqueue({
       userId: user.id,
@@ -953,7 +949,8 @@ apiAuth.post("/connections/:id/reconnect", async (c) => {
     accountId = stillVisible ? existing.external_account_id : null;
   }
   // Auto-pick a first account ONLY for providers that don't have a
-  // post-connect picker. Supabase and Railway both defer to that UI.
+  // post-connect picker or token-wide discovery. Supabase defers to
+  // picker UI; Railway discovers source-level project/environment choices.
   if (
     !accountId &&
     driver.id !== "supabase-edge-logs" &&

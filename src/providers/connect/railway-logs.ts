@@ -9,10 +9,10 @@ export const railwayLogsConnect: ProviderConnectAdapter<RailwayCredentials> = {
     url: "https://railway.com/account/tokens",
     buttonLabel: "Open Railway tokens page",
     buttonDescription:
-      "Paste a Railway token for the project or account you want to tail. OAuth is planned; the tailer only needs a bearer/project token at runtime.",
+      "Paste a Railway token. Logtura will discover visible projects, environments, and services so you can pick sources later.",
     pasteFieldName: "api_token",
     manualInstructions:
-      "Set the environment id on the connection so Logtura can open the environment-level log stream and demux selected services.",
+      "Use an account token for broad discovery, or a project token if you only want one Railway project exposed.",
   },
   formFields: [
     {
@@ -25,36 +25,25 @@ export const railwayLogsConnect: ProviderConnectAdapter<RailwayCredentials> = {
       required: true,
     },
     {
-      name: "environment_id",
-      label: "Railway environment ID",
-      type: "text",
-      placeholder: "4411de6d-742f-448c-995d-acd755b695ff",
-      description:
-        "The environment to stream. Selected services are demuxed from this environment stream.",
-      required: true,
-    },
-    {
       name: "project_id",
-      label: "Railway project ID (optional)",
+      label: "Limit to project ID (optional)",
       type: "text",
       placeholder: "ebd34efa-1176-4d94-bbc3-a7f90cfa0045",
       description:
-        "Optional for discovery; not needed by the runtime tailer once sources are selected.",
+        "Optional discovery filter. Leave blank to discover all Railway projects visible to this token.",
       required: false,
     },
   ],
   parseFormData(form) {
     const apiToken = String(form.get("api_token") ?? "").trim();
-    const environmentId = String(form.get("environment_id") ?? "").trim();
     const projectId = String(form.get("project_id") ?? "").trim();
     if (!apiToken) throw new ProviderError("Missing api_token", 400);
-    if (!environmentId) throw new ProviderError("Missing environment_id", 400);
     return {
       credentials: {
         apiToken,
-        ...(projectId ? { projectId, environmentId } : { environmentId }),
+        ...(projectId ? { projectId } : {}),
       },
-      explicitAccountId: environmentId,
+      explicitAccountId: null,
     };
   },
 };

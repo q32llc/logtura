@@ -202,8 +202,7 @@ export function ConnectionDetail() {
               {connection.provider}
             </Badge>
             account {connection.externalAccountId ?? "—"}
-            {(connection.provider === "supabase-edge-logs" ||
-              connection.provider === "railway-logs") && (
+            {connection.provider === "supabase-edge-logs" && (
               <>
                 {" "}
                 <Anchor
@@ -215,12 +214,8 @@ export function ConnectionDetail() {
                   {connection.externalAccountId
                     ? pickerOpen
                       ? "hide picker"
-                      : connection.provider === "railway-logs"
-                        ? "change environment"
-                        : "change project"
-                    : connection.provider === "railway-logs"
-                      ? "pick environment"
-                      : "pick project"}
+                      : "change project"
+                    : "pick project"}
                 </Anchor>
               </>
             )}
@@ -283,23 +278,6 @@ export function ConnectionDetail() {
               setPickerOpen(false);
               notifications.show({
                 message: `Picked ${updated.externalAccountId}; discovering…`,
-                color: "teal",
-              });
-              void refetch();
-            }}
-          />
-        )}
-
-      {connection.provider === "railway-logs" &&
-        (!connection.externalAccountId || pickerOpen) && (
-          <RailwayEnvironmentPicker
-            connectionId={connection.id}
-            currentAccountId={connection.externalAccountId}
-            onPicked={(updated) => {
-              setConnection(updated);
-              setPickerOpen(false);
-              notifications.show({
-                message: "Picked Railway environment; discovering…",
                 color: "teal",
               });
               void refetch();
