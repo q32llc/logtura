@@ -202,7 +202,8 @@ export function ConnectionDetail() {
               {connection.provider}
             </Badge>
             account {connection.externalAccountId ?? "—"}
-            {connection.provider === "supabase-edge-logs" && (
+            {(connection.provider === "supabase-edge-logs" ||
+              connection.provider === "railway-logs") && (
               <>
                 {" "}
                 <Anchor
@@ -214,8 +215,12 @@ export function ConnectionDetail() {
                   {connection.externalAccountId
                     ? pickerOpen
                       ? "hide picker"
-                      : "change project"
-                    : "pick project"}
+                      : connection.provider === "railway-logs"
+                        ? "change environment"
+                        : "change project"
+                    : connection.provider === "railway-logs"
+                      ? "pick environment"
+                      : "pick project"}
                 </Anchor>
               </>
             )}
@@ -278,6 +283,23 @@ export function ConnectionDetail() {
               setPickerOpen(false);
               notifications.show({
                 message: `Picked ${updated.externalAccountId}; discovering…`,
+                color: "teal",
+              });
+              void refetch();
+            }}
+          />
+        )}
+
+      {connection.provider === "railway-logs" &&
+        (!connection.externalAccountId || pickerOpen) && (
+          <RailwayEnvironmentPicker
+            connectionId={connection.id}
+            currentAccountId={connection.externalAccountId}
+            onPicked={(updated) => {
+              setConnection(updated);
+              setPickerOpen(false);
+              notifications.show({
+                message: "Picked Railway environment; discovering…",
                 color: "teal",
               });
               void refetch();
@@ -636,6 +658,141 @@ function SupabaseProjectPicker({
                         disabled={isCurrent}
                         loading={busyRef === p.ref}
                         onClick={() => pick(p.ref)}
+                      >
+                        {isCurrent ? "Selected" : "Pick"}
+                      </Button>
+                    </Table.Td>
+                  </Table.Tr>
+                );
+              })}
+            </Table.Tbody>
+          </Table>
+        )}
+      </Stack>
+    </Card>
+  );
+}
+
+function RailwayEnvironmentPicker({
+  connectionId,
+  currentAccountId,
+  onPicked,
+}: {
+  connectionId: string;
+  currentAccountId: string | null;
+  onPicked: (c: ApiConnection) => void;
+}) {
+  type Project = {
+    id: string;
+    name: string;
+    environments: Array<{
+      id: string;
+      name: string;
+      serviceCount: number | null;
+    }>;
+  };
+  const [projects, setProjects] = useState<Project[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    api
+      .listRailwayEnvironments(connectionId)
+      .then((r) => setProjects(r.projects))
+      .catch((e) =>
+        setErr(e instanceof ApiError ? e.message : "Failed to list environments"),
+      );
+  }, [connectionId]);
+
+  async function pick(projectId: string, environmentId: string) {
+    const key = `${projectId}:${environmentId}`;
+    setBusyKey(key);
+    setErr(null);
+    try {
+      const res = await api.pickRailwayEnvironment(connectionId, {
+        projectId,
+        environmentId,
+      });
+      onPicked(res.connection);
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Pick failed");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  const visibleRows =
+    projects?.flatMap((project) =>
+      project.environments.map((environment) => ({
+        project,
+        environment,
+        key: `${project.id}:${environment.id}`,
+      })),
+    ) ?? [];
+
+  return (
+    <Card withBorder p="lg" mt="md">
+      <Stack gap="sm">
+        <Title order={3} size="h4">
+          Pick a Railway environment
+        </Title>
+        <Text size="sm" c="dimmed">
+          The connected Railway account can see {projects?.length ?? "…"}{" "}
+          project{projects?.length === 1 ? "" : "s"}. Pick the environment
+          whose services you want logs from.
+        </Text>
+        {err && (
+          <Alert color="red" variant="light">
+            {err}
+          </Alert>
+        )}
+        {!projects && !err && <Loader size="sm" />}
+        {projects && visibleRows.length === 0 && (
+          <Text size="sm" c="dimmed">
+            No environments visible to this token.
+          </Text>
+        )}
+        {visibleRows.length > 0 && (
+          <Table withTableBorder withColumnBorders>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Project</Table.Th>
+                <Table.Th>Environment</Table.Th>
+                <Table.Th>Services</Table.Th>
+                <Table.Th />
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {visibleRows.map(({ project, environment, key }) => {
+                const isCurrent = key === currentAccountId;
+                return (
+                  <Table.Tr key={key}>
+                    <Table.Td>
+                      <Text size="sm">{project.name}</Text>
+                      <Text size="xs" ff="monospace" c="dimmed">
+                        {project.id}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      {environment.name}
+                      {isCurrent && (
+                        <Badge size="xs" color="teal" ml="xs">
+                          current
+                        </Badge>
+                      )}
+                    </Table.Td>
+                    <Table.Td>
+                      {environment.serviceCount === null
+                        ? "?"
+                        : environment.serviceCount}
+                    </Table.Td>
+                    <Table.Td>
+                      <Button
+                        size="compact-sm"
+                        variant={isCurrent ? "default" : "filled"}
+                        disabled={isCurrent}
+                        loading={busyKey === key}
+                        onClick={() => pick(project.id, environment.id)}
                       >
                         {isCurrent ? "Selected" : "Pick"}
                       </Button>

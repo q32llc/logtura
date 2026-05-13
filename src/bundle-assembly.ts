@@ -145,6 +145,17 @@ export async function assembleDeploymentBundle(
       credentials.tailToken = tailToken;
       credentials.tailTokenUrl = `${env.APP_URL}/api/tail/supabase/token`;
     }
+    if (
+      c.provider === "railway-logs" &&
+      typeof credentials.refreshToken === "string"
+    ) {
+      const { mintTailToken } = await import("./providers/tail-token");
+      const tailToken = await mintTailToken(
+        { connectionId: c.id, userId: c.user_id },
+        env.SESSION_SECRET,
+      );
+      credentials.apiToken = `${env.APP_URL}/api/tail/railway/token#${tailToken}`;
+    }
     let fresh = true;
     let staleReason: string | undefined;
     let expiresAt: number | null | undefined;

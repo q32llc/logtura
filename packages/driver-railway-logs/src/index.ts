@@ -25,6 +25,8 @@ import {
 
 export interface RailwayCredentials {
   apiToken: string;
+  refreshToken?: string;
+  expiresAt?: number;
   /** Optional helper for discovery in CLI/API callers. Runtime does not need it. */
   projectId?: string;
   /** Optional helper for discovery in CLI/API callers. Runtime uses connection.externalAccountId. */
@@ -45,6 +47,13 @@ export const railwayLogsDriver: ProviderDriver<RailwayCredentials> = {
   displayName: "Railway Logs",
   sourceLabel: "Service",
   capabilities: { selection: "list" },
+
+  async checkCredentialFreshness(credentials) {
+    if (!credentials.refreshToken) return { fresh: true, expiresAt: null };
+    const expiresAt =
+      typeof credentials.expiresAt === "number" ? credentials.expiresAt : null;
+    return { fresh: true, expiresAt };
+  },
 
   async verifyCredentials(credentials) {
     const data = await railwayGraphql<{
@@ -80,6 +89,31 @@ export const railwayLogsDriver: ProviderDriver<RailwayCredentials> = {
 
     // Account/OAuth tokens do not return projectToken. A lightweight projects
     // query proves the token is usable and gives the UI something meaningful.
+    const scoped = await railwayGraphql<{
+      externalWorkspaces?: Array<{
+        projects?: Array<{ id?: string; name?: string }>;
+      }>;
+    }>(
+      credentials.apiToken,
+      `query ExternalProjects {
+        externalWorkspaces {
+          projects { id name }
+        }
+      }`,
+      {},
+    ).catch(() => null);
+    const scopedProjects = (scoped?.externalWorkspaces ?? [])
+      .flatMap((workspace) => workspace.projects ?? [])
+      .filter((project): project is { id: string; name?: string } =>
+        Boolean(project?.id),
+      );
+    if (scopedProjects.length > 0) {
+      return scopedProjects.map((project) => ({
+        id: project.id,
+        name: project.name ?? project.id,
+      }));
+    }
+
     const projects = await railwayGraphql<{
       projects?: {
         edges?: Array<{ node?: { id?: string; name?: string } }>;
@@ -259,7 +293,7 @@ export const railwayLogsDriver: ProviderDriver<RailwayCredentials> = {
   },
 };
 
-async function railwayGraphql<T>(
+export async function railwayGraphql<T>(
   token: string,
   query: string,
   variables: Record<string, unknown>,
@@ -358,8 +392,8 @@ function railwayTailHelperSource(): string {
 const services = JSON.parse(servicesJson);
 const serviceNames = new Map(services.map((service) => [service.id, service.name]));
 const selectedServiceIds = new Set(services.map((service) => service.id));
-const token = process.env.RAILWAY_API_TOKEN;
-if (!token) {
+const rawToken = process.env.RAILWAY_API_TOKEN;
+if (!rawToken) {
   console.error("RAILWAY_API_TOKEN is required");
   process.exit(1);
 }
@@ -371,14 +405,41 @@ const HELPER_ERROR_COOLDOWN_MS = 5 * 60 * 1000;
 const seen = [];
 const seenSet = new Set();
 const helperErrors = new Map();
+let cachedToken = null;
+let cachedTokenExpiresAt = 0;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function authHeaders() {
+function authHeaders(token) {
   if (token.startsWith("p_") || token.startsWith("project_")) {
     return { "project-access-token": token };
   }
   return { authorization: "Bearer " + token };
+}
+
+async function resolveToken() {
+  if (!rawToken.startsWith("http://") && !rawToken.startsWith("https://")) {
+    return rawToken;
+  }
+  if (cachedToken && cachedTokenExpiresAt > Date.now() + 60000) {
+    return cachedToken;
+  }
+  const hashIndex = rawToken.indexOf("#");
+  const tokenUrl = hashIndex === -1 ? rawToken : rawToken.slice(0, hashIndex);
+  const tailToken = hashIndex === -1 ? "" : rawToken.slice(hashIndex + 1);
+  const res = await fetch(tokenUrl, {
+    method: "POST",
+    headers: { authorization: "Bearer " + tailToken, accept: "application/json" },
+  });
+  const text = await res.text();
+  if (!res.ok) {
+    throw new Error("Railway token refresh failed: HTTP " + res.status + " " + text.slice(0, 200));
+  }
+  const body = JSON.parse(text);
+  if (!body.access_token) throw new Error("Railway token refresh returned no access_token");
+  cachedToken = body.access_token;
+  cachedTokenExpiresAt = Date.now() + Math.max(60, Number(body.expires_in ?? 3000)) * 1000;
+  return cachedToken;
 }
 
 function remember(event) {
@@ -464,13 +525,14 @@ function shouldKeep(row) {
   return typeof serviceId === "string" && selectedServiceIds.has(serviceId);
 }
 
-function subscribeOnce() {
+async function subscribeOnce() {
+  const token = await resolveToken();
   return new Promise((resolve, reject) => {
     const anchorDate = new Date().toISOString();
     const afterDate = new Date(Date.now() + STREAM_WINDOW_MS).toISOString();
     const ws = new WebSocket(GRAPHQL_WS_URL, {
       protocols: ["graphql-transport-ws"],
-      headers: authHeaders(),
+      headers: authHeaders(token),
     });
     const id = "railway_env_logs";
     let settled = false;

@@ -121,6 +121,29 @@ export const api = {
         body: JSON.stringify({ projectRef }),
       },
     ),
+  listRailwayEnvironments: (id: string) =>
+    request<{
+      projects: Array<{
+        id: string;
+        name: string;
+        environments: Array<{
+          id: string;
+          name: string;
+          serviceCount: number | null;
+        }>;
+      }>;
+    }>(`/connections/${id}/railway-environments`),
+  pickRailwayEnvironment: (
+    id: string,
+    input: { projectId: string; environmentId: string },
+  ) =>
+    request<{ connection: ApiConnection }>(
+      `/connections/${id}/railway-pick-environment`,
+      {
+        method: "POST",
+        body: JSON.stringify(input),
+      },
+    ),
   getJob: (id: string) => request<{ job: ApiJob }>(`/jobs/${id}`),
   deleteConnection: (id: string) =>
     request<{ ok: true }>(`/connections/${id}`, { method: "DELETE" }),

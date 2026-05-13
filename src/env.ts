@@ -27,6 +27,10 @@ export interface Env {
   VERCEL_CLIENT_ID?: string;
   VERCEL_CLIENT_SECRET?: string;
   VERCEL_INTEGRATION_SLUG?: string;
+  // Optional — enables OAuth for the railway-logs provider. The Railway
+  // OAuth app must register <APP_URL>/api/providers/railway/callback.
+  RAILWAY_CLIENT_ID?: string;
+  RAILWAY_CLIENT_SECRET?: string;
   // Optional — silence-alert emails are sent via Postmark when these
   // are configured. Without them, the cron alerter still flips
   // status='crashed' but skips email.

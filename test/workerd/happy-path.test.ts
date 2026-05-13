@@ -23,11 +23,42 @@ describe("read endpoints — unauthenticated", () => {
     const res = await SELF.fetch("http://localhost/api/providers");
     expect(res.status).toBe(200);
     const json = (await res.json()) as {
-      providers: Array<{ id: string; displayName: string }>;
+      providers: Array<{
+        id: string;
+        displayName: string;
+        oauthShortcut?: { startPath: string } | null;
+      }>;
     };
     expect(json.providers.length).toBeGreaterThan(0);
     const ids = json.providers.map((p) => p.id);
     expect(ids).toContain("cloudflare-worker-tail");
+    expect(
+      json.providers.find((p) => p.id === "railway-logs")?.oauthShortcut
+        ?.startPath,
+    ).toBe("/api/providers/railway/start");
+  });
+});
+
+describe("Railway OAuth start", () => {
+  it("redirects authenticated users to Railway with project viewer scope", async () => {
+    const { sessionCookie } = await seedUser();
+    const res = await SELF.fetch(
+      "http://localhost/api/providers/railway/start?display_name=Railway",
+      { headers: { cookie: sessionCookie }, redirect: "manual" },
+    );
+    expect(res.status).toBe(303);
+    const location = res.headers.get("location");
+    expect(location).toBeTruthy();
+    const url = new URL(location!);
+    expect(url.origin + url.pathname).toBe(
+      "https://backboard.railway.com/oauth/auth",
+    );
+    expect(url.searchParams.get("response_type")).toBe("code");
+    expect(url.searchParams.get("scope")).toBe(
+      "openid project:viewer offline_access",
+    );
+    expect(url.searchParams.get("prompt")).toBe("consent");
+    expect(url.searchParams.get("code_challenge_method")).toBe("S256");
   });
 });
 

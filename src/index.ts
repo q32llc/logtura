@@ -146,9 +146,8 @@ api.get("/providers", (c) => {
     const connect = getProviderConnect(p.id);
     const connectFlow = connect?.connectFlow ?? null;
     const formFields = connect?.formFields ?? [];
-    // For supabase-edge-logs, OAuth is offered alongside PAT-paste
-    // when SUPABASE_CLIENT_ID/SECRET are configured. Vercel source
-    // connections are PAT-only for now.
+    // OAuth shortcuts live alongside PAT paste flows when a SaaS-managed
+    // OAuth app is configured for that provider.
     const oauthShortcut =
       p.id === "supabase-edge-logs" && isSupabaseOauthConfigured(c.env)
         ? {
@@ -157,6 +156,13 @@ api.get("/providers", (c) => {
             buttonDescription:
               "Sign in to Supabase and grant Logtura read access to your projects' edge functions and analytics.",
           }
+        : p.id === "railway-logs" && isRailwayOauthConfigured(c.env)
+          ? {
+              startPath: "/api/providers/railway/start",
+              buttonLabel: "Connect Railway",
+              buttonDescription:
+                "Sign in to Railway and grant Logtura read access to the projects whose service logs you want to tail.",
+            }
         : null;
     return {
       id: p.id,
@@ -200,6 +206,39 @@ api.post("/tail/supabase/token", async (c) => {
     return c.json({ access_token: accessToken, expires_in: 23 * 3600 });
   } catch (err) {
     console.error("supabase tail token refresh failed", err);
+    return c.json(
+      {
+        error: "refresh_failed",
+        message:
+          err instanceof Error ? err.message : "could not refresh token",
+      },
+      503,
+    );
+  }
+});
+
+api.post("/tail/railway/token", async (c) => {
+  const header = c.req.header("authorization");
+  const token = header?.startsWith("Bearer ")
+    ? header.slice("Bearer ".length).trim()
+    : null;
+  if (!token) return c.json({ error: "missing_authorization" }, 401);
+  const { verifyTailToken } = await import("./providers/tail-token");
+  const payload = await verifyTailToken(token, c.env.SESSION_SECRET);
+  if (!payload) return c.json({ error: "invalid_token" }, 401);
+  const conn = await getConnection(c.env.DB, payload.userId, payload.connectionId);
+  if (!conn) return c.json({ error: "connection_not_found" }, 404);
+  if (conn.provider !== "railway-logs") {
+    return c.json({ error: "wrong_provider" }, 400);
+  }
+  try {
+    const { ensureFreshRailwayAccessToken } = await import(
+      "./providers/railway-token"
+    );
+    const accessToken = await ensureFreshRailwayAccessToken(c.env, conn);
+    return c.json({ access_token: accessToken, expires_in: 55 * 60 });
+  } catch (err) {
+    console.error("railway tail token refresh failed", err);
     return c.json(
       {
         error: "refresh_failed",
@@ -315,7 +354,8 @@ apiAuth.post("/connections", async (c) => {
   // functions. ConnectionDetail's picker fills it in afterwards.
   // Other providers retain the original auto-pick-first behavior.
   const deferAccountPick =
-    !accountId && driver.id === "supabase-edge-logs";
+    !accountId &&
+    (driver.id === "supabase-edge-logs" || driver.id === "railway-logs");
   if (!accountId && !deferAccountPick) {
     if (accounts.length === 0) {
       return c.json({ error: "no_accounts" }, 400);
@@ -335,10 +375,14 @@ apiAuth.post("/connections", async (c) => {
   // "Errors" monitor before discovery returns. Idempotent.
   await ensureDefaultErrorsMonitor(c.env.DB, user.id);
 
-  // Supabase defers discovery until the user picks a project ref.
+  // Supabase/Railway OAuth defer discovery until the user picks the
+  // concrete project/environment target.
   // Other providers can discover with either an explicit account id
   // or a personal-account token.
-  if (accountId || driver.id !== "supabase-edge-logs") {
+  if (
+    accountId ||
+    (driver.id !== "supabase-edge-logs" && driver.id !== "railway-logs")
+  ) {
     const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
     await jobs.enqueue({
       userId: user.id,
@@ -653,6 +697,205 @@ apiAuth.post("/connections/:id/supabase-pick-project", async (c) => {
   return c.json({ connection: toApiConnection(updated) });
 });
 
+apiAuth.get("/connections/:id/railway-environments", async (c) => {
+  const user = c.get("user")!;
+  const conn = await getConnection(c.env.DB, user.id, c.req.param("id"));
+  if (!conn) return c.json({ error: "not_found" }, 404);
+  if (conn.provider !== "railway-logs") {
+    return c.json({ error: "wrong_provider" }, 400);
+  }
+  let token: string;
+  try {
+    const { ensureFreshRailwayAccessToken } = await import(
+      "./providers/railway-token"
+    );
+    token = await ensureFreshRailwayAccessToken(c.env, conn);
+  } catch (err) {
+    console.error("railway token refresh failed", err);
+    return c.json(
+      {
+        error: "token_refresh_failed",
+        message:
+          "Stored Railway token is no longer valid. Reconnect this connection.",
+      },
+      400,
+    );
+  }
+
+  try {
+    const projects = await listRailwayProjectsWithEnvironments(token);
+    return c.json({ projects });
+  } catch (err) {
+    console.error("railway environment list failed", err);
+    return c.json(
+      {
+        error: "list_failed",
+        message:
+          err instanceof Error ? err.message : "Failed to list Railway environments",
+      },
+      400,
+    );
+  }
+});
+
+apiAuth.post("/connections/:id/railway-pick-environment", async (c) => {
+  const user = c.get("user")!;
+  const id = c.req.param("id");
+  const conn = await getConnection(c.env.DB, user.id, id);
+  if (!conn) return c.json({ error: "not_found" }, 404);
+  if (conn.provider !== "railway-logs") {
+    return c.json({ error: "wrong_provider" }, 400);
+  }
+  const body = (await c.req.json().catch(() => null)) as {
+    projectId?: string;
+    environmentId?: string;
+  } | null;
+  const projectId = body?.projectId?.trim() ?? "";
+  const environmentId = body?.environmentId?.trim() ?? "";
+  if (!isRailwayId(projectId) || !isRailwayId(environmentId)) {
+    return c.json({ error: "invalid_railway_environment" }, 400);
+  }
+  const creds = await decryptConnectionCredentials<Record<string, unknown>>(
+    c.env,
+    conn,
+  );
+  const updated = await updateConnectionCredentials(
+    c.env.DB,
+    c.env,
+    user.id,
+    id,
+    {
+      credentials: {
+        ...creds,
+        projectId,
+        environmentId,
+      },
+      externalAccountId: `${projectId}:${environmentId}`,
+    },
+  );
+  if (!updated) return c.json({ error: "not_found" }, 404);
+  const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
+  await jobs.enqueue({
+    userId: user.id,
+    kind: "discovery",
+    payload: { connectionId: id },
+    lockKey: lockKeyForDiscovery(id),
+  });
+  return c.json({ connection: toApiConnection(updated) });
+});
+
+async function listRailwayProjectsWithEnvironments(token: string): Promise<
+  Array<{
+    id: string;
+    name: string;
+    environments: Array<{
+      id: string;
+      name: string;
+      serviceCount: number | null;
+    }>;
+  }>
+> {
+  const { railwayGraphql } = await import("@logtura/driver-railway-logs");
+  const scoped = await railwayGraphql<{
+    externalWorkspaces?: Array<{
+      projects?: Array<{ id?: string; name?: string }>;
+    }>;
+  }>(
+    token,
+    `query ExternalProjects {
+      externalWorkspaces {
+        projects { id name }
+      }
+    }`,
+    {},
+  ).catch(() => null);
+  const scopedProjects = (scoped?.externalWorkspaces ?? [])
+    .flatMap((workspace) => workspace.projects ?? [])
+    .filter((project): project is { id: string; name?: string } =>
+      Boolean(project?.id),
+    );
+
+  const accountProjects =
+    scopedProjects.length > 0
+      ? scopedProjects
+      : await railwayGraphql<{
+          projects?: {
+            edges?: Array<{ node?: { id?: string; name?: string } }>;
+          };
+        }>(
+          token,
+          `query Projects {
+            projects { edges { node { id name } } }
+          }`,
+          {},
+        ).then((data) =>
+          (data.projects?.edges ?? [])
+            .map((edge) => edge.node)
+            .filter((project): project is { id: string; name?: string } =>
+              Boolean(project?.id),
+            ),
+        );
+
+  return Promise.all(
+    accountProjects.map(async (project) => {
+      const data = await railwayGraphql<{
+        project?: {
+          environments?: {
+            edges?: Array<{
+              node?: {
+                id?: string;
+                name?: string;
+                serviceInstances?: { edges?: unknown[] };
+              };
+            }>;
+          };
+        };
+      }>(
+        token,
+        `query ProjectEnvironments($projectId: String!) {
+          project(id: $projectId) {
+            environments {
+              edges {
+                node {
+                  id
+                  name
+                  serviceInstances(first: 200) {
+                    edges { node { serviceId } }
+                  }
+                }
+              }
+            }
+          }
+        }`,
+        { projectId: project.id },
+      );
+      const environments = (data.project?.environments?.edges ?? [])
+        .map((edge) => edge.node)
+        .filter((env): env is {
+          id: string;
+          name?: string;
+          serviceInstances?: { edges?: unknown[] };
+        } => Boolean(env?.id))
+        .map((env) => ({
+          id: env.id,
+          name: env.name ?? env.id,
+          serviceCount: Array.isArray(env.serviceInstances?.edges)
+            ? env.serviceInstances!.edges!.length
+            : null,
+        }));
+      return {
+        id: project.id,
+        name: project.name ?? project.id,
+        environments,
+      };
+    }),
+  );
+}
+
+function isRailwayId(value: string): boolean {
+  return /^[A-Za-z0-9_-]+$/.test(value);
+}
+
 // Reconnect: swap credentials in place. Same form payload as create,
 // minus `provider` (the provider is fixed by the existing row). Used
 // when the user rotated a token or added missing scopes, so existing
@@ -709,10 +952,14 @@ apiAuth.post("/connections/:id/reconnect", async (c) => {
     );
     accountId = stillVisible ? existing.external_account_id : null;
   }
-  // Auto-pick a first account ONLY for providers that aren't
-  // supabase-edge-logs. Supabase defers project picking to the
-  // post-create UI; the same rule applies to reconnect.
-  if (!accountId && driver.id !== "supabase-edge-logs" && accounts.length > 0) {
+  // Auto-pick a first account ONLY for providers that don't have a
+  // post-connect picker. Supabase and Railway both defer to that UI.
+  if (
+    !accountId &&
+    driver.id !== "supabase-edge-logs" &&
+    driver.id !== "railway-logs" &&
+    accounts.length > 0
+  ) {
     accountId = accounts[0]!.id;
   }
 
@@ -1587,6 +1834,163 @@ api.get("/providers/vercel/callback", async (c) => {
     }
   }
   return c.redirect(`/app/connections/${connectionId}`, 303);
+});
+
+// ---------- Railway OAuth (provider = "railway-logs") -------------------
+
+const RAILWAY_STATE_COOKIE = "logtura_railway_state";
+const RAILWAY_LOGS_PROVIDER = "railway-logs";
+
+function isRailwayOauthConfigured(env: Env): boolean {
+  return !!(env.RAILWAY_CLIENT_ID && env.RAILWAY_CLIENT_SECRET);
+}
+
+api.get("/providers/railway/start", async (c) => {
+  const userCookie = getCookie(c, "logtura_session");
+  const userId = userCookie
+    ? await verifyCookie(userCookie, c.env.SESSION_SECRET)
+    : null;
+  if (!userId) return c.redirect("/?error=auth_required", 303);
+  if (!isRailwayOauthConfigured(c.env)) {
+    return c.redirect(
+      "/app/connections/new?error=railway_oauth_not_configured",
+      303,
+    );
+  }
+
+  const reconnectId = c.req.query("reconnect_id")?.trim() || null;
+  let displayName = c.req.query("display_name")?.trim();
+  if (reconnectId && !displayName) {
+    const existing = await getConnection(c.env.DB, userId, reconnectId);
+    if (!existing || existing.provider !== RAILWAY_LOGS_PROVIDER) {
+      return c.redirect("/app?error=bad_reconnect", 303);
+    }
+    displayName = existing.display_name;
+  }
+  if (!displayName) {
+    return c.redirect("/app/connections/new?error=missing_display_name", 303);
+  }
+
+  const {
+    buildRailwayAuthorizeUrl,
+    generateRailwayPkcePair,
+  } = await import("./providers/railway-oauth");
+  const state = newToken();
+  const { verifier, challenge } = await generateRailwayPkcePair();
+  const signed = await signCookie(
+    JSON.stringify({ state, userId, displayName, verifier, reconnectId }),
+    c.env.SESSION_SECRET,
+  );
+  setCookie(c, RAILWAY_STATE_COOKIE, signed, {
+    httpOnly: true,
+    secure: c.env.APP_URL.startsWith("https://"),
+    sameSite: "Lax",
+    path: "/",
+    maxAge: 600,
+  });
+  return c.redirect(
+    buildRailwayAuthorizeUrl({
+      clientId: c.env.RAILWAY_CLIENT_ID!,
+      redirectUri: `${c.env.APP_URL}/api/providers/railway/callback`,
+      state,
+      codeChallenge: challenge,
+    }),
+    303,
+  );
+});
+
+api.get("/providers/railway/callback", async (c) => {
+  const code = c.req.query("code");
+  const state = c.req.query("state");
+  const stateCookie = getCookie(c, RAILWAY_STATE_COOKIE);
+  const stateJson = await verifyCookie(stateCookie, c.env.SESSION_SECRET);
+  deleteCookie(c, RAILWAY_STATE_COOKIE, { path: "/" });
+  if (!code || !state || !stateJson) {
+    return c.redirect("/app/connections/new?error=railway_oauth_state", 303);
+  }
+  const parsed = (() => {
+    try {
+      return JSON.parse(stateJson) as {
+        state?: string;
+        userId?: string;
+        displayName?: string;
+        verifier?: string;
+        reconnectId?: string | null;
+      };
+    } catch {
+      return null;
+    }
+  })();
+  if (
+    !parsed ||
+    parsed.state !== state ||
+    !parsed.userId ||
+    !parsed.displayName ||
+    !parsed.verifier
+  ) {
+    return c.redirect("/app/connections/new?error=railway_oauth_state", 303);
+  }
+  if (!isRailwayOauthConfigured(c.env)) {
+    return c.redirect(
+      "/app/connections/new?error=railway_oauth_not_configured",
+      303,
+    );
+  }
+
+  const {
+    exchangeRailwayCode,
+    railwayCredentialsFromOAuth,
+  } = await import("./providers/railway-oauth");
+  let tokens;
+  try {
+    tokens = await exchangeRailwayCode({
+      clientId: c.env.RAILWAY_CLIENT_ID!,
+      clientSecret: c.env.RAILWAY_CLIENT_SECRET!,
+      code,
+      redirectUri: `${c.env.APP_URL}/api/providers/railway/callback`,
+      codeVerifier: parsed.verifier,
+    });
+  } catch (err) {
+    console.error("railway oauth exchange failed", err);
+    return c.redirect(
+      "/app/connections/new?error=railway_oauth_exchange",
+      303,
+    );
+  }
+
+  const driver = getProvider(RAILWAY_LOGS_PROVIDER);
+  if (!driver) {
+    return c.redirect("/app/connections/new?error=unknown_provider", 303);
+  }
+  const credentials = railwayCredentialsFromOAuth(tokens);
+  try {
+    await driver.verifyCredentials(credentials);
+  } catch (err) {
+    console.error("railway oauth verify failed", err);
+    return c.redirect("/app/connections/new?error=railway_oauth_verify", 303);
+  }
+
+  if (parsed.reconnectId) {
+    const updated = await updateConnectionCredentials(
+      c.env.DB,
+      c.env,
+      parsed.userId,
+      parsed.reconnectId,
+      { credentials, externalAccountId: null },
+    );
+    if (!updated) return c.redirect("/app?error=bad_reconnect", 303);
+    return c.redirect(`/app/connections/${updated.id}`, 303);
+  }
+
+  const connection = await createConnection(c.env.DB, c.env, {
+    userId: parsed.userId,
+    provider: driver.id,
+    displayName: parsed.displayName,
+    externalAccountId: null,
+    credentials,
+  });
+  await ensureDefaultErrorsMonitor(c.env.DB, parsed.userId);
+  return c.redirect(`/app/connections/${connection.id}`, 303);
 });
 
 // ---------- Supabase OAuth (provider = "supabase-edge-logs") -------------

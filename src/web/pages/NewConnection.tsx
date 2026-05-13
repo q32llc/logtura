@@ -31,6 +31,14 @@ const OAUTH_ERROR_LABELS: Record<string, string> = {
     "Supabase OAuth succeeded but verifying the token failed. Try again.",
   supabase_oauth_no_projects:
     "The Supabase account you connected has no visible projects.",
+  railway_oauth_state:
+    "Railway OAuth state didn't match. Try connecting again from scratch.",
+  railway_oauth_not_configured:
+    "Railway OAuth isn't configured on this deployment. Paste a Railway token instead.",
+  railway_oauth_exchange:
+    "Railway rejected the OAuth exchange. Try again, or paste a token.",
+  railway_oauth_verify:
+    "Railway OAuth succeeded but verifying the token failed. Try again.",
   missing_display_name:
     "Pick a connection name before clicking Connect.",
   auth_required: "Sign in first, then try connecting again.",
