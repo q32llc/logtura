@@ -210,6 +210,7 @@ function vercelExecSourceYaml(
   return [
     `    type: exec`,
     `    mode: streaming`,
+    `    include_stderr: false`,
     `    command:`,
     `      - sh`,
     `      - -c`,

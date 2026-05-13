@@ -39,6 +39,7 @@ describe("vercelLogsDriver", () => {
     expect(sources[0]!.yaml).toContain(
       "exec bun /opt/logtura/assets/vercel-logs/logtura-vercel-tail.mjs",
     );
+    expect(sources[0]!.yaml).toContain("include_stderr: false");
     expect(sources[0]!.yaml).toContain('"id":"prj_test"');
     expect(sources[0]!.yaml).toContain('"id":"prj_other"');
     expect(sources[0]!.yaml).not.toContain("/v6/deployments");
