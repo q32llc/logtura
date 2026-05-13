@@ -45,6 +45,14 @@ function remember(projectId, rowId) {
   return true;
 }
 
+function isExpectedStreamRestart(err) {
+  return Boolean(err && typeof err === "object" && err.name === "AbortError");
+}
+
+function isExpectedTimeoutMessage(message) {
+  return String(message ?? "").toLowerCase().includes("operation timed out");
+}
+
 async function tailProject(project) {
   for (;;) {
     try {
@@ -88,7 +96,10 @@ async function tailProject(project) {
         clearTimeout(timer);
       }
     } catch (err) {
-      console.error("vercel tail " + project.id + ": " + (err instanceof Error ? err.message : String(err)));
+      const message = err instanceof Error ? err.message : String(err);
+      if (!isExpectedStreamRestart(err) && !isExpectedTimeoutMessage(message)) {
+        console.error("vercel tail " + project.id + ": " + message);
+      }
       await sleep(3000);
     }
   }
