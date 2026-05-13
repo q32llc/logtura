@@ -21,8 +21,9 @@
  * inputs designed to provoke every conditional dep — refreshable
  * credentials + an "all" or single-placeholder selection.
  *
- * Output: containers/forwarder/Dockerfile.generated. The
- * build-forwarder workflow consumes this file.
+ * Output: containers/forwarder/Dockerfile.generated plus runtime
+ * assets under containers/forwarder/assets/. The build-forwarder
+ * workflow consumes these generated files.
  */
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -131,6 +132,7 @@ const dockerfile = renderDockerfile(deduped, {
   mountVectorYamlAtRuntime: true,
   includeRuntimeAssets: hasRuntimeAssets,
 });
+mkdirSync(dirname(OUTPUT), { recursive: true });
 writeFileSync(OUTPUT, dockerfile);
 console.log(`\nwrote ${OUTPUT} (${dockerfile.length} bytes)`);
 

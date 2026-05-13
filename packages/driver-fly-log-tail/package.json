@@ -1,6 +1,6 @@
 {
   "name": "@logtura/driver-fly-log-tail",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "description": "Logtura provider driver for Fly.io — tails flyctl logs --json -a <app> via Vector's exec source.",
   "license": "Apache-2.0",
   "author": "Erik Aronesty (Logtura)",

@@ -98,8 +98,9 @@ scripts/sync-oss.sh
 ```
 
 That copies `oss/` root files and mirrors `packages/` into
-`../logtura-public`. Until the first real external OSS PR, this is the accepted
-sync mechanism.
+`../logtura-public`. Forwarder container assets are generated from package
+sources during the private image build, not checked into the public OSS repo.
+Until the first real external OSS PR, this is the accepted sync mechanism.
 
 ## Release Notes
 

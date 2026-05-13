@@ -7,7 +7,6 @@ name: build-forwarder
 # without anyone hand-maintaining containers/forwarder/Dockerfile.
 #
 # Triggers on changes to:
-#  - containers/forwarder/** (Dockerfile or static assets)
 #  - packages/** (driver dockerfileDeps live here)
 #  - scripts/build-forwarder-dockerfile.mjs (the generator itself)
 #
@@ -16,7 +15,6 @@ on:
   push:
     branches: [master]
     paths:
-      - "containers/forwarder/**"
       - "packages/**"
       - "scripts/build-forwarder-dockerfile.mjs"
       - ".github/workflows/build-forwarder.yml"

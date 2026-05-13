@@ -9,3 +9,5 @@ dist/
 .tmp/
 coverage/
 .vite/
+containers/forwarder/Dockerfile.generated
+containers/forwarder/assets/
