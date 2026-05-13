@@ -1,6 +1,6 @@
 {
   "name": "@logtura/driver-vercel-logs",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "description": "Logtura provider driver for Vercel Runtime Logs via the REST API.",
   "license": "Apache-2.0",
   "author": "Erik Aronesty (Logtura)",

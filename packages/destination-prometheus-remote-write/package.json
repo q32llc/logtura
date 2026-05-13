@@ -1,6 +1,6 @@
 {
   "name": "@logtura/destination-prometheus-remote-write",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "description": "Logtura destination driver for Prometheus remote-write receivers (Mimir, VictoriaMetrics, Grafana Cloud, etc).",
   "license": "Apache-2.0",
   "author": "Erik Aronesty (Logtura)",
