@@ -14,6 +14,7 @@ export interface ApiConnection {
   provider: string;
   displayName: string;
   externalAccountId: string | null;
+  providerInstallationId: string | null;
   createdAt: number;
   updatedAt: number;
   lastDiscoveredAt: number | null;

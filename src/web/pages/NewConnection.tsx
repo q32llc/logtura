@@ -83,6 +83,20 @@ export function NewConnection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!requestedProviderId || !configurationId) return;
+    api
+      .getConnectionByProviderInstallation(requestedProviderId, configurationId)
+      .then((r) => {
+        if (r.connection) {
+          navigate(`/app/connections/${r.connection.id}`, { replace: true });
+        }
+      })
+      .catch(() => {
+        // Non-fatal — the page still works as a new connection flow.
+      });
+  }, [configurationId, navigate, requestedProviderId]);
+
   // A bootstrap is compatible with a source provider when the
   // bootstrap's driver declares it via `mintsForProviders`. Each
   // deploy_target row carries its driver's list via the API.

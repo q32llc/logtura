@@ -9,6 +9,7 @@ import {
 import {
   createConnection,
   updateConnectionCredentials,
+  getConnectionByProviderInstallation,
   getConnectionsByIds,
   getSourcesByIdsForUser,
   listAllSourcesForUser,
@@ -225,6 +226,23 @@ apiAuth.get("/connections", async (c) => {
   const user = c.get("user")!;
   const rows = await listConnections(c.env.DB, user.id);
   return c.json({ connections: rows.map(toApiConnection) });
+});
+
+apiAuth.get("/connections/by-provider-installation", async (c) => {
+  const user = c.get("user")!;
+  const provider = c.req.query("provider")?.trim() || "";
+  const providerInstallationId =
+    c.req.query("provider_installation_id")?.trim() || "";
+  if (!provider || !providerInstallationId) {
+    return c.json({ connection: null });
+  }
+  const connection = await getConnectionByProviderInstallation(
+    c.env.DB,
+    user.id,
+    provider,
+    providerInstallationId,
+  );
+  return c.json({ connection: connection ? toApiConnection(connection) : null });
 });
 
 /** Every source visible to the user, across every connection. The
@@ -1540,6 +1558,7 @@ api.get("/providers/vercel/callback", async (c) => {
       {
         credentials,
         externalAccountId,
+        providerInstallationId: tokens.installation_id ?? configurationId,
         displayName,
       },
     );
@@ -1551,6 +1570,7 @@ api.get("/providers/vercel/callback", async (c) => {
       provider: driver.id,
       displayName,
       externalAccountId,
+      providerInstallationId: tokens.installation_id ?? configurationId,
       credentials,
     });
     connectionId = connection.id;
@@ -2084,6 +2104,7 @@ function toApiConnection(c: ConnectionRow) {
     provider: c.provider,
     displayName: c.display_name,
     externalAccountId: c.external_account_id,
+    providerInstallationId: c.provider_installation_id,
     createdAt: c.created_at,
     updatedAt: c.updated_at,
     lastDiscoveredAt: c.last_discovered_at,

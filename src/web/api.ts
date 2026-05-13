@@ -61,6 +61,13 @@ export const api = {
   providers: () => request<{ providers: ApiProvider[] }>("/providers"),
   listConnections: () =>
     request<{ connections: ApiConnection[] }>("/connections"),
+  getConnectionByProviderInstallation: (
+    provider: string,
+    providerInstallationId: string,
+  ) =>
+    request<{ connection: ApiConnection | null }>(
+      `/connections/by-provider-installation?provider=${encodeURIComponent(provider)}&provider_installation_id=${encodeURIComponent(providerInstallationId)}`,
+    ),
   createConnection: (form: FormData) =>
     request<{ connection: ApiConnection }>("/connections", {
       method: "POST",

@@ -19,6 +19,7 @@ export interface ConnectionRow {
   provider: string;
   display_name: string;
   external_account_id: string | null;
+  provider_installation_id: string | null;
   /** AES-GCM(JSON-stringified credential object) — opaque blob, parsed by driver */
   credentials_encrypted: ArrayBuffer;
   created_at: number;
@@ -142,6 +143,22 @@ export async function getConnection(
     .first<ConnectionRow>();
 }
 
+export async function getConnectionByProviderInstallation(
+  db: D1Database,
+  userId: string,
+  provider: string,
+  providerInstallationId: string,
+): Promise<ConnectionRow | null> {
+  return db
+    .prepare(
+      `SELECT * FROM connections
+       WHERE user_id = ? AND provider = ? AND provider_installation_id = ?
+       LIMIT 1`,
+    )
+    .bind(userId, provider, providerInstallationId)
+    .first<ConnectionRow>();
+}
+
 /**
  * Replace a connection's encrypted credentials in place. Used by the
  * "Reconnect" flow — token rotated in the provider's dashboard, or
@@ -159,6 +176,7 @@ export async function updateConnectionCredentials(
   input: {
     credentials: unknown;
     externalAccountId?: string | null;
+    providerInstallationId?: string | null;
     displayName?: string | null;
   },
 ): Promise<ConnectionRow | null> {
@@ -172,6 +190,7 @@ export async function updateConnectionCredentials(
       `UPDATE connections
        SET credentials_encrypted = ?,
            external_account_id = ?,
+           provider_installation_id = ?,
            display_name = ?,
            updated_at = ?
        WHERE id = ? AND user_id = ?`,
@@ -179,6 +198,7 @@ export async function updateConnectionCredentials(
     .bind(
       ct,
       input.externalAccountId ?? existing.external_account_id,
+      input.providerInstallationId ?? existing.provider_installation_id,
       input.displayName ?? existing.display_name,
       ts,
       connectionId,
@@ -196,6 +216,7 @@ export async function createConnection(
     provider: string;
     displayName: string;
     externalAccountId: string | null;
+    providerInstallationId?: string | null;
     credentials: unknown;
   },
 ): Promise<ConnectionRow> {
@@ -205,8 +226,8 @@ export async function createConnection(
   const ct = await encryptSecret(json, env.CREDENTIAL_ENCRYPTION_KEY);
   await db
     .prepare(
-      `INSERT INTO connections (id, user_id, provider, display_name, external_account_id, credentials_encrypted, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO connections (id, user_id, provider, display_name, external_account_id, provider_installation_id, credentials_encrypted, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -214,6 +235,7 @@ export async function createConnection(
       input.provider,
       input.displayName,
       input.externalAccountId,
+      input.providerInstallationId ?? null,
       ct,
       ts,
       ts,
@@ -225,6 +247,7 @@ export async function createConnection(
     provider: input.provider,
     display_name: input.displayName,
     external_account_id: input.externalAccountId,
+    provider_installation_id: input.providerInstallationId ?? null,
     credentials_encrypted: ct.buffer.slice(
       ct.byteOffset,
       ct.byteOffset + ct.byteLength,
