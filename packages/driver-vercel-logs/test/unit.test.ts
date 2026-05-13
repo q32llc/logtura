@@ -59,6 +59,12 @@ describe("vercelLogsDriver", () => {
     expect(pipe.runtimeAssets?.[0]?.content).toContain(
       "await Promise.all(projects.map",
     );
+    expect(pipe.runtimeAssets?.[0]?.content).toContain(
+      "const HELPER_ERROR_COOLDOWN_MS = 5 * 60 * 1000",
+    );
+    expect(pipe.runtimeAssets?.[0]?.content).toContain(
+      "helperErrorSuppressed",
+    );
   });
 
   it("rejects all-selection and unsafe project ids", () => {

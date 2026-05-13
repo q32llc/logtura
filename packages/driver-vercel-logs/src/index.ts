@@ -232,7 +232,9 @@ if (!token) {
   process.exit(1);
 }
 const seen = new Map();
+const helperErrors = new Map();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const HELPER_ERROR_COOLDOWN_MS = 5 * 60 * 1000;
 
 async function vercelJson(path, params) {
   const url = new URL(path, "https://api.vercel.com");
@@ -269,6 +271,31 @@ function remember(projectId, rowId) {
   projectSeen.push(rowId);
   if (projectSeen.length > 5000) projectSeen.splice(0, projectSeen.length - 5000);
   return true;
+}
+
+function emitHelperError(project, err) {
+  const now = Date.now();
+  const message = err instanceof Error ? err.message : String(err);
+  const signature = message.slice(0, 240);
+  const state = helperErrors.get(project.id) ?? { signature: "", lastAt: 0, suppressed: 0 };
+  if (state.signature === signature && now - state.lastAt < HELPER_ERROR_COOLDOWN_MS) {
+    state.suppressed += 1;
+    helperErrors.set(project.id, state);
+    return;
+  }
+  const suppressed = state.signature === signature ? state.suppressed : 0;
+  helperErrors.set(project.id, { signature, lastAt: now, suppressed: 0 });
+  const event = {
+    level: "error",
+    source: "logtura_vercel_helper",
+    projectId: project.id,
+    projectName: project.name,
+    message: "vercel tail " + project.id + ": " + message,
+    helperErrorSuppressed: suppressed,
+    helperErrorCooldownMs: HELPER_ERROR_COOLDOWN_MS,
+    timestampInMs: now,
+  };
+  process.stdout.write(JSON.stringify(event) + "\n");
 }
 
 async function tailProject(project) {
@@ -314,6 +341,7 @@ async function tailProject(project) {
         clearTimeout(timer);
       }
     } catch (err) {
+      emitHelperError(project, err);
       console.error("vercel tail " + project.id + ": " + (err instanceof Error ? err.message : String(err)));
       await sleep(3000);
     }
