@@ -27,7 +27,7 @@ export async function runDiscovery(
   if (!connection) {
     throw new Error(`connection ${payload.connectionId} not found`);
   }
-  if (!connection.external_account_id) {
+  if (!connection.external_account_id && connection.provider !== "vercel-logs") {
     throw new Error("connection has no external_account_id");
   }
 
@@ -43,7 +43,7 @@ export async function runDiscovery(
   try {
     sources = await driver.discoverSources({
       credentials,
-      accountId: connection.external_account_id,
+      accountId: connection.external_account_id ?? "",
     });
   } catch (err) {
     if (err instanceof ProviderError) {

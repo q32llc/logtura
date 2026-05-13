@@ -152,6 +152,13 @@ api.get("/providers", (c) => {
             buttonDescription:
               "Sign in to Supabase and grant Logtura read access to your projects' edge functions and analytics.",
           }
+        : p.id === "vercel-logs" && isVercelOauthConfigured(c.env)
+          ? {
+              startPath: "/api/providers/vercel/start",
+              buttonLabel: "Connect Vercel",
+              buttonDescription:
+                "Authorize Logtura to discover Vercel projects and stream Runtime Logs.",
+            }
         : null;
     return {
       id: p.id,
@@ -313,9 +320,10 @@ apiAuth.post("/connections", async (c) => {
   // "Errors" monitor before discovery returns. Idempotent.
   await ensureDefaultErrorsMonitor(c.env.DB, user.id);
 
-  // Only queue discovery when we have a project ref. Pending-pick
-  // connections discover on selection.
-  if (accountId) {
+  // Supabase defers discovery until the user picks a project ref.
+  // Other providers can discover with either an explicit account id
+  // or a personal-account token.
+  if (accountId || driver.id !== "supabase-edge-logs") {
     const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
     await jobs.enqueue({
       userId: user.id,
@@ -1371,6 +1379,160 @@ apiAuth.delete("/destinations/:id", async (c) => {
   await deleteDestination(c.env.DB, user.id, c.req.param("id"));
   await markUserDeploymentsOutdated(c.env.DB, user.id);
   return c.json({ ok: true });
+});
+
+// ---------- Vercel OAuth (platform = "vercel", driver = "vercel-logs") ----
+
+const VERCEL_STATE_COOKIE = "logtura_vercel_state";
+const VERCEL_LOGS_PROVIDER = "vercel-logs";
+
+function isVercelOauthConfigured(env: Env): boolean {
+  return !!(env.VERCEL_CLIENT_ID && env.VERCEL_CLIENT_SECRET);
+}
+
+api.get("/providers/vercel/start", async (c) => {
+  const userCookie = getCookie(c, "logtura_session");
+  const userId = userCookie
+    ? await verifyCookie(userCookie, c.env.SESSION_SECRET)
+    : null;
+  if (!userId) return c.redirect("/?error=auth_required", 303);
+  if (!isVercelOauthConfigured(c.env)) {
+    return c.redirect("/app/connections/new?error=vercel_oauth_not_configured", 303);
+  }
+
+  const reconnectId = c.req.query("reconnect_id")?.trim() || null;
+  let displayName = c.req.query("display_name")?.trim();
+  if (reconnectId && !displayName) {
+    const existing = await getConnection(c.env.DB, userId, reconnectId);
+    if (!existing || existing.provider !== VERCEL_LOGS_PROVIDER) {
+      return c.redirect("/app?error=bad_reconnect", 303);
+    }
+    displayName = existing.display_name;
+  }
+  if (!displayName) {
+    return c.redirect("/app/connections/new?error=missing_display_name", 303);
+  }
+
+  const state = newToken();
+  const signed = await signCookie(
+    JSON.stringify({ state, userId, displayName, reconnectId }),
+    c.env.SESSION_SECRET,
+  );
+  setCookie(c, VERCEL_STATE_COOKIE, signed, {
+    httpOnly: true,
+    secure: c.env.APP_URL.startsWith("https://"),
+    sameSite: "Lax",
+    path: "/",
+    maxAge: 600,
+  });
+  const { buildVercelAuthorizeUrl } = await import("./providers/vercel-oauth");
+  return c.redirect(
+    buildVercelAuthorizeUrl({
+      clientId: c.env.VERCEL_CLIENT_ID!,
+      redirectUri: `${c.env.APP_URL}/api/providers/vercel/callback`,
+      state,
+    }),
+    303,
+  );
+});
+
+api.get("/providers/vercel/callback", async (c) => {
+  const code = c.req.query("code");
+  const state = c.req.query("state");
+  const stateCookie = getCookie(c, VERCEL_STATE_COOKIE);
+  const stateJson = await verifyCookie(stateCookie, c.env.SESSION_SECRET);
+  deleteCookie(c, VERCEL_STATE_COOKIE, { path: "/" });
+  if (!code || !state || !stateJson) {
+    return c.redirect("/app/connections/new?error=vercel_oauth_state", 303);
+  }
+  const parsed = (() => {
+    try {
+      return JSON.parse(stateJson) as {
+        state?: string;
+        userId?: string;
+        displayName?: string;
+        reconnectId?: string | null;
+      };
+    } catch {
+      return null;
+    }
+  })();
+  if (
+    !parsed ||
+    parsed.state !== state ||
+    !parsed.userId ||
+    !parsed.displayName
+  ) {
+    return c.redirect("/app/connections/new?error=vercel_oauth_state", 303);
+  }
+  if (!isVercelOauthConfigured(c.env)) {
+    return c.redirect("/app/connections/new?error=vercel_oauth_not_configured", 303);
+  }
+
+  const { exchangeVercelCode, vercelCredentialsFromOAuth } = await import(
+    "./providers/vercel-oauth"
+  );
+  let tokens;
+  try {
+    tokens = await exchangeVercelCode({
+      clientId: c.env.VERCEL_CLIENT_ID!,
+      clientSecret: c.env.VERCEL_CLIENT_SECRET!,
+      code,
+      redirectUri: `${c.env.APP_URL}/api/providers/vercel/callback`,
+    });
+  } catch (err) {
+    console.error("vercel oauth exchange failed", err);
+    return c.redirect("/app/connections/new?error=vercel_oauth_exchange", 303);
+  }
+
+  const driver = getProvider(VERCEL_LOGS_PROVIDER);
+  if (!driver) {
+    return c.redirect("/app/connections/new?error=unknown_provider", 303);
+  }
+  const credentials = vercelCredentialsFromOAuth(tokens);
+  try {
+    await driver.verifyCredentials(credentials);
+  } catch (err) {
+    console.error("vercel oauth verify failed", err);
+    return c.redirect("/app/connections/new?error=vercel_oauth_verify", 303);
+  }
+
+  const externalAccountId = tokens.team_id ?? null;
+  let connectionId: string;
+  if (parsed.reconnectId) {
+    const updated = await updateConnectionCredentials(
+      c.env.DB,
+      c.env,
+      parsed.userId,
+      parsed.reconnectId,
+      {
+        credentials,
+        externalAccountId,
+        displayName: parsed.displayName,
+      },
+    );
+    if (!updated) return c.redirect("/app?error=bad_reconnect", 303);
+    connectionId = updated.id;
+  } else {
+    const connection = await createConnection(c.env.DB, c.env, {
+      userId: parsed.userId,
+      provider: driver.id,
+      displayName: parsed.displayName,
+      externalAccountId,
+      credentials,
+    });
+    connectionId = connection.id;
+    await ensureDefaultErrorsMonitor(c.env.DB, parsed.userId);
+  }
+
+  const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
+  await jobs.enqueue({
+    userId: parsed.userId,
+    kind: "discovery",
+    payload: { connectionId },
+    lockKey: lockKeyForDiscovery(connectionId),
+  });
+  return c.redirect(`/app/connections/${connectionId}`, 303);
 });
 
 // ---------- Supabase OAuth (provider = "supabase-edge-logs") -------------

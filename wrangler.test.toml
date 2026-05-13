@@ -20,6 +20,8 @@ GITHUB_CLIENT_ID = "test"
 GITHUB_CLIENT_SECRET = "test"
 SLACK_CLIENT_ID = "test"
 SLACK_CLIENT_SECRET = "test"
+VERCEL_CLIENT_ID = "test_vercel_client"
+VERCEL_CLIENT_SECRET = "test_vercel_secret"
 POSTMARK_API_KEY = "test"
 FROM_EMAIL = "test@example.com"
 

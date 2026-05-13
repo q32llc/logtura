@@ -180,3 +180,82 @@ describe("POST /api/connections — Cloudflare paste-token happy path", () => {
     expect(count?.n).toBe(0);
   });
 });
+
+describe("Vercel OAuth", () => {
+  it("uses platform-level /providers/vercel routes and stores vercel-logs credentials", async () => {
+    const { userId, sessionCookie } = await seedUser();
+
+    const start = await SELF.fetch(
+      "http://localhost/api/providers/vercel/start?display_name=Prod%20Vercel",
+      { headers: { cookie: sessionCookie }, redirect: "manual" },
+    );
+    expect(start.status).toBe(303);
+    const location = start.headers.get("location")!;
+    expect(location).toMatch(/^https:\/\/vercel\.com\/oauth\/authorize/);
+    const authorizeUrl = new URL(location);
+    expect(authorizeUrl.searchParams.get("client_id")).toBe(
+      "test_vercel_client",
+    );
+    expect(authorizeUrl.searchParams.get("redirect_uri")).toBe(
+      `${env.APP_URL}/api/providers/vercel/callback`,
+    );
+    const state = authorizeUrl.searchParams.get("state")!;
+    const stateCookie = start.headers.get("set-cookie")!;
+
+    mockFetch("https://api.vercel.com", async (req) => {
+      const url = new URL(req.url);
+      if (url.pathname === "/v2/oauth/access_token") {
+        const body = await req.formData();
+        expect(body.get("code")).toBe("oauth_code");
+        expect(body.get("client_id")).toBe("test_vercel_client");
+        expect(body.get("redirect_uri")).toBe(
+          `${env.APP_URL}/api/providers/vercel/callback`,
+        );
+        return Response.json({
+          access_token: "vercel_oauth_token",
+          team_id: "team_oauth",
+        });
+      }
+      if (url.pathname === "/v2/user") {
+        expect(req.headers.get("authorization")).toBe(
+          "Bearer vercel_oauth_token",
+        );
+        return Response.json({ user: { uid: "usr_vercel", username: "vc" } });
+      }
+      throw new Error(`unexpected Vercel path: ${url.pathname}`);
+    });
+
+    const callback = await SELF.fetch(
+      `http://localhost/api/providers/vercel/callback?code=oauth_code&state=${encodeURIComponent(state)}`,
+      { headers: { cookie: stateCookie }, redirect: "manual" },
+    );
+    expect(callback.status).toBe(303);
+    const callbackLocation = callback.headers.get("location")!;
+    expect(callbackLocation).toMatch(/^\/app\/connections\/con_/);
+    const connectionId = callbackLocation.split("/").pop()!;
+
+    const row = await env.DB.prepare(
+      "SELECT user_id, provider, display_name, external_account_id FROM connections WHERE id = ?",
+    )
+      .bind(connectionId)
+      .first<{
+        user_id: string;
+        provider: string;
+        display_name: string;
+        external_account_id: string;
+      }>();
+    expect(row).toEqual({
+      user_id: userId,
+      provider: "vercel-logs",
+      display_name: "Prod Vercel",
+      external_account_id: "team_oauth",
+    });
+
+    const job = await env.DB.prepare(
+      "SELECT kind FROM jobs WHERE lock_key = ?",
+    )
+      .bind(`discovery:${connectionId}`)
+      .first<{ kind: string }>();
+    expect(job?.kind).toBe("discovery");
+  });
+});
