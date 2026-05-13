@@ -383,8 +383,8 @@ function MetricsCard({
   // metrics_logtura, etc.) are excluded — they'd otherwise dwarf
   // real log traffic and made the headline read "6,632/min received"
   // even when zero actual events were flowing.
-  const lifetime = userLifetime(snap);
-  const totalRate = userRates(snap);
+  const lifetime = userLifetime(snap, manifestById);
+  const totalRate = userRates(snap, manifestById);
   const display =
     mode === "rate"
       ? {
@@ -858,41 +858,76 @@ function isInternalComponent(id: string): boolean {
  *  "sent" + "errors" (real delivery throughput / failures). Mixing
  *  in transforms or counting the same event at every stage is what
  *  made the numbers look unhinged. */
-function userTotals(snap: ApiMetricsSnapshot) {
+function parentSourceIds(manifestById: Map<string, ApiComponentManifestEntry>) {
+  const ids = new Set<string>();
+  for (const m of manifestById.values()) {
+    if (m.role === "source" && m.links?.parentId) ids.add(m.links.parentId);
+  }
+  return ids;
+}
+
+function userTotals(
+  snap: ApiMetricsSnapshot,
+  manifestById: Map<string, ApiComponentManifestEntry>,
+) {
   let received = 0;
   let sent = 0;
   let errors = 0;
+  const sourceParents = parentSourceIds(manifestById);
   for (const [id, c] of Object.entries(snap.byComponent)) {
     if (isInternalComponent(id)) continue;
-    if (c.kind === "source") received += c.received ?? 0;
-    if (c.kind === "sink") {
-      sent += c.sent ?? 0;
+    const manifest = manifestById.get(id) ?? null;
+    if (manifest?.role === "source") {
+      if (!sourceParents.has(id)) {
+        received += throughputCounter(c, manifest) ?? 0;
+      }
+    } else if (!manifest && c.kind === "source") {
+      received += throughputCounter(c, manifest) ?? 0;
+    }
+    if (manifest?.role === "sink" || (!manifest && c.kind === "sink")) {
+      sent += throughputCounter(c, manifest) ?? 0;
       errors += c.errors ?? 0;
     }
   }
   return { received, sent, errors };
 }
 
-function userLifetime(snap: ApiMetricsSnapshot) {
+function userLifetime(
+  snap: ApiMetricsSnapshot,
+  manifestById: Map<string, ApiComponentManifestEntry>,
+) {
   // Lifetime offsets are tracked across all components, so we can't
   // cleanly split them by kind retroactively. For now, surface the
   // current-process totals as "since this Vector started" and use
   // the global lifetime_offset as an indicator that a restart
   // occurred — the UI can footnote "events from before the last
   // restart aren't kind-aggregated."
-  return userTotals(snap);
+  return userTotals(snap, manifestById);
 }
 
-function userRates(snap: ApiMetricsSnapshot) {
+function userRates(
+  snap: ApiMetricsSnapshot,
+  manifestById: Map<string, ApiComponentManifestEntry>,
+) {
   let received = 0;
   let sent = 0;
   let errors = 0;
+  const sourceParents = parentSourceIds(manifestById);
   for (const [id, c] of Object.entries(snap.byComponent)) {
     if (isInternalComponent(id)) continue;
+    const manifest = manifestById.get(id) ?? null;
     const r = perComponentRate(c);
-    if (c.kind === "source" && r.received !== null) received += r.received;
-    if (c.kind === "sink") {
-      if (r.sent !== null) sent += r.sent;
+    const sourceRate = throughputRate(c, manifest);
+    if (manifest?.role === "source") {
+      if (!sourceParents.has(id) && sourceRate !== null) {
+        received += sourceRate;
+      }
+    } else if (!manifest && c.kind === "source" && sourceRate !== null) {
+      received += sourceRate;
+    }
+    if (manifest?.role === "sink" || (!manifest && c.kind === "sink")) {
+      const sinkRate = throughputRate(c, manifest);
+      if (sinkRate !== null) sent += sinkRate;
       if (r.errors !== null) errors += r.errors;
     }
   }
