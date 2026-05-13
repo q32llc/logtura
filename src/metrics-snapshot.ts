@@ -50,6 +50,7 @@ const BUILD_INFO = "build_info";
 const MAX_COMPONENTS = 256;
 
 export type ComponentKind = "source" | "transform" | "sink";
+type MetricField = "received" | "sent" | "errors" | "discarded";
 
 export interface ComponentMetrics {
   kind: ComponentKind | "unknown";
@@ -60,6 +61,10 @@ export interface ComponentMetrics {
   sent?: number;
   errors?: number;
   discarded?: number;
+  /** Latest sample timestamp per counter field. Vector sends several
+   *  counters for the same component in one batch; a single
+   *  component-level lastSeen cannot safely back every rate. */
+  sampleAtByField?: Partial<Record<MetricField, number>>;
   /** Per-error_type breakdown of the errors counter. Vector emits
    *  `component_errors_total` with an `error_type` label
    *  (request_failed, encoding_failed, event_send_failed, etc.).
@@ -78,6 +83,7 @@ export interface ComponentMetrics {
     errors?: number;
     discarded?: number;
     sampleAt: number;
+    sampleAtByField?: Partial<Record<MetricField, number>>;
   };
   /** Most recent observation time for this component, ms epoch. */
   lastSeen: number;
@@ -283,6 +289,7 @@ export function applyMetricsToSnapshot(
       c.discarded = undefined;
       c.errorsByType = undefined;
       c.prev = undefined;
+      c.sampleAtByField = undefined;
       // Keep kind/type/lastSeen — they describe the component
       // identity, not a particular run.
     }
@@ -340,14 +347,11 @@ export function applyMetricsToSnapshot(
       );
       // Stash prev for rate calc, when we had a prior sample.
       if (prevSum > 0 && newSum >= prevSum) {
-        comp.prev = {
-          ...(comp.prev ?? {}),
-          errors: prevSum,
-          sampleAt: comp.lastSeen,
-        };
+        stashPrev(comp, "errors", prevSum);
       }
       snap.totals.errors += newSum - prevSum;
       comp.errors = newSum;
+      stampField(comp, "errors", event.timestampMs);
       if (event.timestampMs > comp.lastSeen) comp.lastSeen = event.timestampMs;
       continue;
     }
@@ -364,21 +368,46 @@ export function applyMetricsToSnapshot(
     }
     if (oldValue !== undefined && event.value >= oldValue) {
       // Stash the previous (value, timestamp) for rate derivation.
-      comp.prev = {
-        ...(comp.prev ?? {}),
-        [field]: oldValue,
-        sampleAt: comp.lastSeen,
-      };
+      stashPrev(comp, field, oldValue);
     }
     // Update the totals incrementally so we don't have to iterate
     // every component each post.
     snap.totals[field] += event.value - (oldValue ?? 0);
     comp[field] = event.value;
+    stampField(comp, field, event.timestampMs);
     if (event.timestampMs > comp.lastSeen) comp.lastSeen = event.timestampMs;
   }
 
   snap.updatedAt = Date.now();
   return snap;
+}
+
+function stashPrev(
+  comp: ComponentMetrics,
+  field: MetricField,
+  value: number,
+) {
+  const sampleAt = comp.sampleAtByField?.[field] ?? comp.lastSeen;
+  comp.prev = {
+    ...(comp.prev ?? {}),
+    [field]: value,
+    sampleAt,
+    sampleAtByField: {
+      ...(comp.prev?.sampleAtByField ?? {}),
+      [field]: sampleAt,
+    },
+  };
+}
+
+function stampField(
+  comp: ComponentMetrics,
+  field: MetricField,
+  timestampMs: number,
+) {
+  comp.sampleAtByField = {
+    ...(comp.sampleAtByField ?? {}),
+    [field]: timestampMs,
+  };
 }
 
 function mostRecent<T extends { timestampMs: number }>(
@@ -398,7 +427,17 @@ function cloneSnapshot(s: MetricsSnapshot): MetricsSnapshot {
         k,
         {
           ...v,
-          prev: v.prev ? { ...v.prev } : undefined,
+          sampleAtByField: v.sampleAtByField
+            ? { ...v.sampleAtByField }
+            : undefined,
+          prev: v.prev
+            ? {
+                ...v.prev,
+                sampleAtByField: v.prev.sampleAtByField
+                  ? { ...v.prev.sampleAtByField }
+                  : undefined,
+              }
+            : undefined,
           errorsByType: v.errorsByType ? { ...v.errorsByType } : undefined,
         },
       ]),
@@ -421,7 +460,9 @@ export function rateFor(
   const cur = comp[field];
   const prev = comp.prev?.[field];
   if (cur === undefined || prev === undefined || !comp.prev) return null;
-  const dt = comp.lastSeen - comp.prev.sampleAt;
+  const prevSampleAt = comp.prev.sampleAtByField?.[field] ?? comp.prev.sampleAt;
+  const curSampleAt = comp.sampleAtByField?.[field] ?? comp.lastSeen;
+  const dt = curSampleAt - prevSampleAt;
   if (dt <= 0) return null;
   const dv = cur - prev;
   if (dv < 0) return 0; // restart edge case

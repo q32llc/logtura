@@ -242,6 +242,9 @@ export interface ApiMetricsComponent {
   sent?: number;
   errors?: number;
   discarded?: number;
+  sampleAtByField?: Partial<
+    Record<"received" | "sent" | "errors" | "discarded", number>
+  >;
   /** Per-error_type breakdown of the errors counter. Vector tags
    *  component_errors_total with `error_type=request_failed |
    *  encoding_failed | event_send_failed | …` — surfacing the split
@@ -254,6 +257,9 @@ export interface ApiMetricsComponent {
     errors?: number;
     discarded?: number;
     sampleAt: number;
+    sampleAtByField?: Partial<
+      Record<"received" | "sent" | "errors" | "discarded", number>
+    >;
   };
   lastSeen: number;
 }
