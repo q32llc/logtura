@@ -123,7 +123,7 @@ describe("multi-connection deployments (source-derived)", () => {
         id: string;
         role: string;
         label: string;
-        links?: { connectionId?: string };
+        links?: { connectionId?: string; parentId?: string };
       }>;
       selectedCount: number;
     };
@@ -154,8 +154,9 @@ describe("multi-connection deployments (source-derived)", () => {
     );
 
     const sources = bundle.componentManifest.filter((c) => c.role === "source");
-    expect(sources.length).toBe(2);
+    expect(sources.length).toBe(3);
     expect(sources.some((s) => s.label.startsWith("Worker"))).toBe(true);
+    expect(sources.some((s) => s.links?.parentId)).toBe(true);
     expect(sources.some((s) => s.label.startsWith("App"))).toBe(true);
   });
 

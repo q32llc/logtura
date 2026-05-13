@@ -164,6 +164,40 @@ describe("generatePipeline", () => {
     expect(y).toContain('"[" + script + "] " + body');
   });
 
+  it("manifest records edge-function children under the multiplexed poller", () => {
+    const pipe = supabaseEdgeLogsDriver.generatePipeline({
+      connection: dummyConnection,
+      selection: {
+        kind: "list",
+        sources: [
+          fnSource("src_a", "agent-chat", "6eda78cc-fc80-40f0-bd85-05ab0388842c"),
+          fnSource(
+            "src_b",
+            "agent-thread",
+            "0ab47137-d31d-45b6-a31a-bf3c90b85d9a",
+          ),
+        ],
+      },
+    });
+    const sourceEntries = (pipe.manifest ?? []).filter(
+      (m) => m.role === "source",
+    );
+    const parent = sourceEntries.find((m) => m.id === "supabase_edge_con_x_fn");
+    const chat = sourceEntries.find((m) => m.id === "supabase_edge_con_x_src_a");
+    const thread = sourceEntries.find((m) => m.id === "supabase_edge_con_x_src_b");
+    expect(parent?.label).toBe("Edge Functions (2)");
+    expect(chat?.label).toBe("Edge Function · agent-chat");
+    expect(chat?.links?.sourceId).toBe("src_a");
+    expect(chat?.links?.parentId).toBe("supabase_edge_con_x_fn");
+    expect(thread?.detail).toBe("agent-thread");
+
+    const filter = pipe.components.find(
+      (c) => c.key === "supabase_edge_con_x_src_a",
+    );
+    expect(filter?.yaml).toContain('(string(.script) ?? "") == "agent-chat"');
+    expect(pipe.outputKey).toBe("supabase_edge_con_x_fn_by_function");
+  });
+
   it("all mode normalize tags unknown function_ids with the UUID instead of dropping", () => {
     const pipe = supabaseEdgeLogsDriver.generatePipeline({
       connection: dummyConnection,

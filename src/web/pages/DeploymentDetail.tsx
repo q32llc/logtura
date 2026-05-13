@@ -1,5 +1,6 @@
 import {
   Alert,
+  ActionIcon,
   Badge,
   Button,
   Card,
@@ -24,6 +25,8 @@ import { notifications } from "@mantine/notifications";
 import {
   IconArrowLeft,
   IconCheck,
+  IconChevronDown,
+  IconChevronRight,
   IconCloudUpload,
   IconCopy,
   IconDeviceFloppy,
@@ -462,10 +465,10 @@ function MetricsCard({
           <Text size="xs" c="dimmed">
             Last metrics{" "}
             {snap.updatedAt
-              ? `${relativeTime(snap.updatedAt)} ago`
+              ? relativeTime(snap.updatedAt)
               : "never"}
             {snap.processStartAt
-              ? ` · Vector booted ${relativeTime(snap.processStartAt)} ago`
+              ? ` · Vector booted ${relativeTime(snap.processStartAt)}`
               : ""}
           </Text>
           <Group gap="md">
@@ -518,12 +521,20 @@ function errorsByTypeTooltip(c: ApiMetricsComponent): string {
   return lines.join("\n");
 }
 
-function throughputCounter(c: ApiMetricsComponent): number | undefined {
+function throughputCounter(
+  c: ApiMetricsComponent,
+  manifest?: ApiComponentManifestEntry | null,
+): number | undefined {
+  if (manifest?.role === "source" || manifest?.role === "sink") return c.sent;
   if (c.kind === "sink" || c.kind === "source") return c.sent;
   return c.received;
 }
-function throughputRate(c: ApiMetricsComponent): number | null {
+function throughputRate(
+  c: ApiMetricsComponent,
+  manifest?: ApiComponentManifestEntry | null,
+): number | null {
   const r = perComponentRate(c);
+  if (manifest?.role === "source" || manifest?.role === "sink") return r.sent;
   if (c.kind === "sink" || c.kind === "source") return r.sent;
   return r.received;
 }
@@ -532,6 +543,7 @@ interface ComponentRow {
   id: string;
   c: ApiMetricsComponent;
   manifest: ApiComponentManifestEntry | null;
+  parentId: string | null;
   throughputN: number;
 }
 
@@ -560,9 +572,15 @@ function PerComponentTable({
       const manifest = manifestById.get(id) ?? null;
       const throughputN =
         mode === "rate"
-          ? (throughputRate(c) ?? -1)
-          : (throughputCounter(c) ?? -1);
-      const row: ComponentRow = { id, c, manifest, throughputN };
+          ? (throughputRate(c, manifest) ?? -1)
+          : (throughputCounter(c, manifest) ?? -1);
+      const row: ComponentRow = {
+        id,
+        c,
+        manifest,
+        parentId: manifest?.links?.parentId ?? null,
+        throughputN,
+      };
       if (manifest?.role === "source") sources.push(row);
       else if (manifest?.role === "sink") sinks.push(row);
       else plumbing.push(row);
@@ -602,6 +620,26 @@ function Section({
   rows: ComponentRow[];
   mode: "rate" | "total";
 }) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const { topRows, childrenByParent } = useMemo(() => {
+    const childMap = new Map<string, ComponentRow[]>();
+    const top: ComponentRow[] = [];
+    const ids = new Set(rows.map((row) => row.id));
+    for (const row of rows) {
+      if (row.parentId && ids.has(row.parentId)) {
+        const children = childMap.get(row.parentId) ?? [];
+        children.push(row);
+        childMap.set(row.parentId, children);
+      } else {
+        top.push(row);
+      }
+    }
+    for (const children of childMap.values()) {
+      children.sort((a, b) => b.throughputN - a.throughputN);
+    }
+    return { topRows: top, childrenByParent: childMap };
+  }, [rows]);
+
   if (count === 0) {
     return (
       <Stack gap={4}>
@@ -653,9 +691,35 @@ function Section({
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {rows.map((row) => (
-            <ComponentTableRow key={row.id} row={row} mode={mode} />
-          ))}
+          {topRows.map((row) => {
+            const children = childrenByParent.get(row.id) ?? [];
+            const isExpanded = expanded[row.id] ?? true;
+            return [
+              <ComponentTableRow
+                key={row.id}
+                row={row}
+                mode={mode}
+                hasChildren={children.length > 0}
+                expanded={isExpanded}
+                onToggle={() =>
+                  setExpanded((prev) => ({
+                    ...prev,
+                    [row.id]: !(prev[row.id] ?? true),
+                  }))
+                }
+              />,
+              ...(isExpanded
+                ? children.map((child) => (
+                    <ComponentTableRow
+                      key={child.id}
+                      row={child}
+                      mode={mode}
+                      nested
+                    />
+                  ))
+                : []),
+            ];
+          })}
         </Table.Tbody>
       </Table>
     </Stack>
@@ -665,13 +729,21 @@ function Section({
 function ComponentTableRow({
   row,
   mode,
+  nested = false,
+  hasChildren = false,
+  expanded = false,
+  onToggle,
 }: {
   row: ComponentRow;
   mode: "rate" | "total";
+  nested?: boolean;
+  hasChildren?: boolean;
+  expanded?: boolean;
+  onToggle?: () => void;
 }) {
   const { id, c, manifest } = row;
-  const tCount = throughputCounter(c);
-  const tRate = throughputRate(c);
+  const tCount = throughputCounter(c, manifest);
+  const tRate = throughputRate(c, manifest);
   const eCount = c.errors;
   const eRate = perComponentRate(c).errors;
   // Manifest label is the friendly name ("Worker · my-app"); fall
@@ -684,11 +756,29 @@ function ComponentTableRow({
   return (
     <Table.Tr>
       <Table.Td>
-        <Tooltip label={id} withinPortal openDelay={400}>
-          <Text size="xs" truncate>
-            {primary}
-          </Text>
-        </Tooltip>
+        <Group gap={4} wrap="nowrap" pl={nested ? 22 : 0}>
+          {hasChildren ? (
+            <ActionIcon
+              size="xs"
+              variant="subtle"
+              onClick={onToggle}
+              aria-label={expanded ? "Collapse source breakdown" : "Expand source breakdown"}
+            >
+              {expanded ? (
+                <IconChevronDown size={12} />
+              ) : (
+                <IconChevronRight size={12} />
+              )}
+            </ActionIcon>
+          ) : !nested ? (
+            <span style={{ width: 18, flex: "0 0 18px" }} />
+          ) : null}
+          <Tooltip label={id} withinPortal openDelay={400}>
+            <Text size="xs" truncate>
+              {primary}
+            </Text>
+          </Tooltip>
+        </Group>
       </Table.Td>
       <Table.Td>
         <Text size="xs" c="dimmed" truncate>
@@ -734,7 +824,7 @@ function ComponentTableRow({
       </Table.Td>
       <Table.Td ta="right">
         <Text size="xs" c="dimmed">
-          {relativeTime(c.lastSeen)} ago
+          {relativeTime(c.lastSeen)}
         </Text>
       </Table.Td>
     </Table.Tr>

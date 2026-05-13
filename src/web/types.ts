@@ -161,6 +161,7 @@ export interface ApiComponentManifestEntry {
   links?: {
     connectionId?: string;
     sourceId?: string;
+    parentId?: string;
     monitorId?: string;
     sinkId?: string;
     destinationId?: string;

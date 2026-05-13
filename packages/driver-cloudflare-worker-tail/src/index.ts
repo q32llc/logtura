@@ -105,6 +105,7 @@ export const cloudflareWorkerTailDriver: ProviderDriver<CloudflareCredentials> =
       });
     }
     const normalizeKey = `cf_worker_${connKey}_norm`;
+    const perWorkerKeys: string[] = [];
     if (sources.length > 0) {
       components.push({
         key: normalizeKey,
@@ -117,6 +118,46 @@ export const cloudflareWorkerTailDriver: ProviderDriver<CloudflareCredentials> =
         category: "plumbing",
         label: "Normalize · Worker",
         detail: `${sources.length} source${sources.length === 1 ? "" : "s"}`,
+        links: { connectionId: connection.id },
+      });
+      for (const s of sources) {
+        const workerKey = `cf_worker_${connKey}_${safeKey(s.id)}`;
+        perWorkerKeys.push(workerKey);
+        components.push({
+          key: workerKey,
+          kind: "transform",
+          yaml: workerScriptFilterYaml(normalizeKey, s.externalId),
+        });
+        manifest.push({
+          id: workerKey,
+          role: "source",
+          category: "primary",
+          label: `Worker · ${s.displayName}`,
+          detail: s.externalId,
+          links: {
+            connectionId: connection.id,
+            sourceId: s.id,
+            parentId: sourceKey,
+          },
+        });
+      }
+    }
+    const outputKey =
+      perWorkerKeys.length > 0
+        ? `cf_worker_${connKey}_by_worker`
+        : normalizeKey;
+    if (perWorkerKeys.length > 0) {
+      components.push({
+        key: outputKey,
+        kind: "transform",
+        yaml: passThroughMergeYaml(perWorkerKeys),
+      });
+      manifest.push({
+        id: outputKey,
+        role: "normalize",
+        category: "plumbing",
+        label: "Merge · Workers",
+        detail: `${perWorkerKeys.length} worker${perWorkerKeys.length === 1 ? "" : "s"}`,
         links: { connectionId: connection.id },
       });
     }
@@ -136,7 +177,7 @@ export const cloudflareWorkerTailDriver: ProviderDriver<CloudflareCredentials> =
     ];
     return {
       components,
-      outputKey: normalizeKey,
+      outputKey,
       envVars: runtime.envVars,
       dockerfileDeps: runtime.dockerfileDeps,
       manifest,
@@ -243,6 +284,24 @@ function workerNormalizeYaml(inputKeys: string[]): string {
     `    inputs: [${inputKeys.map((k) => `"${k}"`).join(", ")}]`,
     "    source: |-",
     ...vrl.map((line) => `      ${line}`),
+  ].join("\n");
+}
+
+function workerScriptFilterYaml(inputKey: string, scriptName: string): string {
+  return [
+    "    type: filter",
+    `    inputs: ["${inputKey}"]`,
+    "    condition: |-",
+    `      (string(.script) ?? "") == ${JSON.stringify(scriptName)}`,
+  ].join("\n");
+}
+
+function passThroughMergeYaml(inputKeys: string[]): string {
+  return [
+    "    type: remap",
+    `    inputs: [${inputKeys.map((k) => `"${k}"`).join(", ")}]`,
+    "    source: |-",
+    "      . = .",
   ].join("\n");
 }
 

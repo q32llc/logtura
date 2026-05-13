@@ -157,6 +157,7 @@ describe("GET /api/deployments/:id/bundle", () => {
         role: string;
         category: string;
         label: string;
+        links?: { parentId?: string };
       }>;
     };
 
@@ -172,10 +173,9 @@ describe("GET /api/deployments/:id/bundle", () => {
     expect(vectorYaml!.content).toContain("transforms:");
     expect(vectorYaml!.content).toContain("sinks:");
 
-    // The consolidated normalize transform: 50 workers give ONE
-    // normalize transform with multiple inputs (per-connection
-    // since the v0.2.0 driver contract, so the key includes the
-    // connection slug).
+    // The consolidated normalize transform: multiple workers give
+    // one transport normalize per connection; per-worker metric
+    // filters branch after it.
     expect(vectorYaml!.content).toMatch(/cf_worker_con_[A-Za-z0-9_-]+_norm:/);
 
     // The rollup_fmt VRL is what tripped E103 twice in prod. Make
@@ -190,12 +190,13 @@ describe("GET /api/deployments/:id/bundle", () => {
     const tokenEnv = bundle.envVars.find((v) => v.name === "CLOUDFLARE_API_TOKEN");
     expect(tokenEnv?.value).toBe("cf_test_token");
 
-    // Component manifest: one multiplexed CF source, one primary sink,
-    // some plumbing rows. UI groups by category/role; this pins the
-    // shape future tests + the metrics card depend on.
+    // Component manifest: one multiplexed CF parent source plus
+    // per-worker child sources, one primary sink, some plumbing rows.
+    // UI groups by category/role and links child rows by parentId.
     const sources = bundle.componentManifest.filter((c) => c.role === "source");
-    expect(sources.length).toBe(1);
+    expect(sources.length).toBe(3);
     expect(sources.every((s) => s.category === "primary")).toBe(true);
+    expect(sources.some((s) => s.links?.parentId)).toBe(true);
     const sinks = bundle.componentManifest.filter((c) => c.role === "sink");
     expect(sinks.length).toBe(1);
     expect(sinks[0]!.label).toMatch(/Slack.*alerts/);

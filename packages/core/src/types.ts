@@ -404,6 +404,7 @@ export interface ComponentManifestEntry {
   links?: {
     connectionId?: string;
     sourceId?: string;
+    parentId?: string;
     monitorId?: string;
     sinkId?: string;
     destinationId?: string;

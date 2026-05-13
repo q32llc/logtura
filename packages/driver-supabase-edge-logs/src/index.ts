@@ -207,7 +207,6 @@ export const supabaseEdgeLogsDriver: ProviderDriver<SupabaseCredentials> = {
           allKindsSelected ? "all" : "list",
         ),
       });
-      innerOutputKeys.push(fnNormKey);
       manifest.push({
         id: fnKey,
         role: "source",
@@ -224,6 +223,49 @@ export const supabaseEdgeLogsDriver: ProviderDriver<SupabaseCredentials> = {
         label: "Normalize · Edge Function runtime",
         links: { connectionId: connection.id },
       });
+      const perFunctionKeys: string[] = [];
+      if (!allKindsSelected) {
+        for (const s of fnSources) {
+          const sourceKey = `supabase_edge_${connKey}_${safeKey(s.id)}`;
+          perFunctionKeys.push(sourceKey);
+          components.push({
+            key: sourceKey,
+            kind: "transform",
+            yaml: sourceScriptFilterYaml(fnNormKey, s.externalId, "function"),
+          });
+          manifest.push({
+            id: sourceKey,
+            role: "source",
+            category: "primary",
+            label: `Edge Function · ${s.displayName}`,
+            detail: s.externalId,
+            links: {
+              connectionId: connection.id,
+              sourceId: s.id,
+              parentId: fnKey,
+            },
+          });
+        }
+      }
+      if (perFunctionKeys.length > 0) {
+        const fnByFunctionKey = `${fnKey}_by_function`;
+        components.push({
+          key: fnByFunctionKey,
+          kind: "transform",
+          yaml: passThroughMergeYaml(perFunctionKeys),
+        });
+        manifest.push({
+          id: fnByFunctionKey,
+          role: "normalize",
+          category: "plumbing",
+          label: "Merge · Edge Functions",
+          detail: `${perFunctionKeys.length} function${perFunctionKeys.length === 1 ? "" : "s"}`,
+          links: { connectionId: connection.id },
+        });
+        innerOutputKeys.push(fnByFunctionKey);
+      } else {
+        innerOutputKeys.push(fnNormKey);
+      }
     }
 
     if (wantGateway) {
@@ -507,5 +549,27 @@ function gatewayNormalizeYaml(inputKeys: string[]): string {
     `    inputs: [${inputKeys.map((k) => `"${k}"`).join(", ")}]`,
     "    source: |-",
     ...vrl.map((line) => `      ${line}`),
+  ].join("\n");
+}
+
+function sourceScriptFilterYaml(
+  inputKey: string,
+  scriptName: string,
+  sourceKind: "function" | "gateway",
+): string {
+  return [
+    "    type: filter",
+    `    inputs: ["${inputKey}"]`,
+    "    condition: |-",
+    `      (string(.script) ?? "") == ${JSON.stringify(scriptName)} && (string(.source_kind) ?? "") == ${JSON.stringify(sourceKind)}`,
+  ].join("\n");
+}
+
+function passThroughMergeYaml(inputKeys: string[]): string {
+  return [
+    "    type: remap",
+    `    inputs: [${inputKeys.map((k) => `"${k}"`).join(", ")}]`,
+    "    source: |-",
+    "      . = .",
   ].join("\n");
 }

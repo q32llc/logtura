@@ -38,7 +38,7 @@ describe("generatePipeline", () => {
     ).toThrow(/does not support "all"/);
   });
 
-  it("emits one multiplexing exec source + a normalize transform", () => {
+  it("emits one multiplexing exec source plus per-worker metric filters", () => {
     const pipe = cloudflareWorkerTailDriver.generatePipeline({
       connection: dummyConnection,
       selection: {
@@ -52,8 +52,8 @@ describe("generatePipeline", () => {
     const sources = pipe.components.filter((c) => c.kind === "source");
     const transforms = pipe.components.filter((c) => c.kind === "transform");
     expect(sources).toHaveLength(1);
-    expect(transforms).toHaveLength(1);
-    expect(pipe.outputKey).toBe(transforms[0]!.key);
+    expect(transforms).toHaveLength(4);
+    expect(pipe.outputKey).toBe("cf_worker_con_x_by_worker");
     // Connection-scoped keys so multiple CF accounts can coexist
     // in one bundle without colliding on identically-named workers.
     expect(sources[0]!.key).toBe("cf_worker_con_x_tail");
@@ -63,6 +63,14 @@ describe("generatePipeline", () => {
       'scripts = ["my-worker", "other-worker"]',
     );
     expect(sources[0]!.yaml).toContain("method: newline_delimited");
+    expect(
+      transforms.some((t) =>
+        t.yaml.includes('(string(.script) ?? "") == "my-worker"'),
+      ),
+    ).toBe(true);
+    expect(transforms.at(-1)?.yaml).toContain(
+      'inputs: ["cf_worker_con_x_src_a", "cf_worker_con_x_src_b"]',
+    );
   });
 
   it("keeps one source while carrying every selected worker name", () => {
@@ -117,7 +125,7 @@ describe("generatePipeline", () => {
     expect(pipe.dockerfileDeps[0]?.directive).toContain("logtura-cf-tail");
   });
 
-  it("manifest records one connection-scoped multiplexed source", () => {
+  it("manifest records a multiplexed source with per-worker children", () => {
     const pipe = cloudflareWorkerTailDriver.generatePipeline({
       connection: dummyConnection,
       selection: {
@@ -125,13 +133,18 @@ describe("generatePipeline", () => {
         sources: [workerSource("src_chosen", "my-worker")],
       },
     });
-    const sourceEntry = (pipe.manifest ?? []).find(
+    const sourceEntries = (pipe.manifest ?? []).filter(
       (m) => m.role === "source",
     );
-    expect(sourceEntry?.id).toBe("cf_worker_con_x_tail");
-    expect(sourceEntry?.detail).toBe("1 worker");
-    expect(sourceEntry?.links?.sourceId).toBeUndefined();
-    expect(sourceEntry?.links?.connectionId).toBe("con_x");
+    const parent = sourceEntries.find((m) => m.id === "cf_worker_con_x_tail");
+    const child = sourceEntries.find((m) => m.id === "cf_worker_con_x_src_chosen");
+    expect(parent?.detail).toBe("1 worker");
+    expect(parent?.links?.sourceId).toBeUndefined();
+    expect(parent?.links?.connectionId).toBe("con_x");
+    expect(child?.label).toBe("Worker · my-worker");
+    expect(child?.detail).toBe("my-worker");
+    expect(child?.links?.sourceId).toBe("src_chosen");
+    expect(child?.links?.parentId).toBe("cf_worker_con_x_tail");
   });
 });
 
