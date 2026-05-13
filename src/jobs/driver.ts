@@ -9,6 +9,8 @@ import {
   jobRowToRecord,
 } from "./types";
 
+export const RUNNING_JOB_STALE_MS = 2 * 60 * 1000;
+
 export interface EnqueueInput<P> {
   userId: string;
   kind: JobKind;
@@ -159,19 +161,24 @@ export class JobDriver {
    *  running). We instead consider the chain active if the parent
    *  itself OR any descendant is non-terminal. */
   async activeForLockKey(key: string): Promise<JobRecord | null> {
+    const freshCutoff = Date.now() - RUNNING_JOB_STALE_MS;
     const row = await this.db
       .prepare(
         `SELECT * FROM jobs j
          WHERE j.lock_key = ?
-           AND (j.status IN ('queued', 'running')
+           AND (j.status = 'queued'
+                OR (j.status = 'running'
+                    AND COALESCE(j.last_heartbeat_at, j.updated_at, j.started_at, j.created_at) >= ?)
                 OR EXISTS (
                   SELECT 1 FROM jobs k
                   WHERE k.parent_job_id = j.id
-                    AND k.status IN ('queued', 'running')
+                    AND (k.status = 'queued'
+                         OR (k.status = 'running'
+                             AND COALESCE(k.last_heartbeat_at, k.updated_at, k.started_at, k.created_at) >= ?))
                 ))
          ORDER BY j.created_at DESC LIMIT 1`,
       )
-      .bind(key)
+      .bind(key, freshCutoff, freshCutoff)
       .first<JobRow>();
     return row ? jobRowToRecord(row) : null;
   }
@@ -282,12 +289,33 @@ export class JobDriver {
 export function aggregateStatus(
   parent: JobRecord,
   kids: JobRecord[],
+  now = Date.now(),
 ): JobStatus {
-  if (kids.length === 0) return parent.status;
+  if (kids.length === 0) {
+    return isStaleRunningJob(parent, now) ? "failed" : parent.status;
+  }
   let allSucceeded = true;
   for (const k of kids) {
-    if (k.status === "failed") return "failed";
+    if (k.status === "failed" || isStaleRunningJob(k, now)) return "failed";
     if (k.status !== "succeeded") allSucceeded = false;
   }
   return allSucceeded ? "succeeded" : "running";
+}
+
+export function isStaleRunningJob(
+  job: JobRecord,
+  now = Date.now(),
+): boolean {
+  if (job.status !== "running") return false;
+  const lastAlive =
+    job.lastHeartbeatAt ?? job.updatedAt ?? job.startedAt ?? job.createdAt;
+  return now - lastAlive > RUNNING_JOB_STALE_MS;
+}
+
+export function staleRunningJobMessage(job: JobRecord): string {
+  const lastAlive =
+    job.lastHeartbeatAt ?? job.updatedAt ?? job.startedAt ?? job.createdAt;
+  return `job ${job.id} appears stale; last heartbeat ${new Date(
+    lastAlive,
+  ).toISOString()}`;
 }

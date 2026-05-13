@@ -82,7 +82,12 @@ import {
   applyMetricsToSnapshot,
   parseMetricsBody,
 } from "./metrics-snapshot";
-import { JobDriver, aggregateStatus } from "./jobs/driver";
+import {
+  JobDriver,
+  aggregateStatus,
+  isStaleRunningJob,
+  staleRunningJobMessage,
+} from "./jobs/driver";
 import { processQueueBatch } from "./jobs/queue";
 import {
   deploymentSilenceEmail,
@@ -1941,13 +1946,17 @@ async function aggregateJobWithKids(
     status: aggregateStatus(parent, kids),
   };
   const failed = kids.find((k) => k.status === "failed");
+  const stale = kids.find((k) => isStaleRunningJob(k));
   const lastSucceeded = [...kids]
     .reverse()
     .find((k) => k.status === "succeeded");
-  aggregated.lastError = failed?.lastError ?? null;
+  aggregated.lastError =
+    failed?.lastError ?? (stale ? staleRunningJobMessage(stale) : null);
   aggregated.result = lastSucceeded?.result ?? null;
 
-  const running = kids.find((k) => k.status === "running");
+  const running = kids.find(
+    (k) => k.status === "running" && !isStaleRunningJob(k),
+  );
   const latestWithProgress = [...kids]
     .reverse()
     .find((k) => k.uxProgress !== null);
