@@ -19,6 +19,7 @@ import {
 import { notifications } from "@mantine/notifications";
 import {
   IconAlertTriangle,
+  IconArrowRight,
   IconCheck,
   IconClock,
   IconCloudUpload,
@@ -456,36 +457,146 @@ function SimpleGridDeploymentsCard({
             <Card
               key={d.id}
               withBorder
-              p="sm"
+              p="md"
+              radius="sm"
               component={Link}
               to={`/app/deployments/${d.id}`}
-              style={{ textDecoration: "none", color: "inherit" }}
+              style={{
+                textDecoration: "none",
+                color: "inherit",
+                transition: "border-color 120ms ease, box-shadow 120ms ease",
+              }}
             >
-              <Group justify="space-between">
-                <Group gap="xs">
-                  <Text fw={600}>{d.displayName}</Text>
-                  <Badge size="sm" variant="light">
-                    {d.targetKind}
-                  </Badge>
-                  <Badge size="sm" variant="light">
-                    {d.status}
-                  </Badge>
-                  {d.managed && (
-                    <Badge size="sm" variant="default" color="teal">
-                      managed
-                    </Badge>
-                  )}
+              <Stack gap="sm">
+                <Group justify="space-between" align="flex-start" wrap="nowrap">
+                  <Stack gap={4} style={{ minWidth: 0 }}>
+                    <Group gap="xs">
+                      <Text fw={700} truncate>
+                        {d.displayName}
+                      </Text>
+                      <Badge size="sm" variant="light">
+                        {d.targetKind}
+                      </Badge>
+                      {d.managed && (
+                        <Badge size="sm" variant="default" color="teal">
+                          managed
+                        </Badge>
+                      )}
+                      {d.bundleOutdated && (
+                        <Badge size="sm" variant="light" color="yellow">
+                          redeploy needed
+                        </Badge>
+                      )}
+                    </Group>
+                    <Group gap="xs">
+                      <Badge
+                        size="sm"
+                        variant="filled"
+                        color={deploymentStatusColor(d.status)}
+                      >
+                        {d.status}
+                      </Badge>
+                      <Text size="xs" c="dimmed">
+                        {d.lastSeenAt
+                          ? `last seen ${relativeTime(d.lastSeenAt)}`
+                          : "no heartbeat yet"}
+                      </Text>
+                    </Group>
+                  </Stack>
+                  <IconArrowRight size={18} color="var(--mantine-color-dimmed)" />
                 </Group>
-                <Text size="xs" c="dimmed">
-                  {d.sourceIds === null ? "all sources" : `${d.sourceIds.length} sources`}
-                </Text>
-              </Group>
+
+                <Group gap="xs">
+                  <Badge size="lg" variant="light" radius="sm">
+                    {deploymentSourceLabel(d)}
+                  </Badge>
+                  <Badge size="lg" variant="light" radius="sm">
+                    {d.monitorIds === null
+                      ? "all monitors"
+                      : `${d.monitorIds.length} monitor${d.monitorIds.length === 1 ? "" : "s"}`}
+                  </Badge>
+                  <Badge size="lg" variant="light" radius="sm">
+                    metrics {d.metricsTarget ?? "off"}
+                  </Badge>
+                </Group>
+
+                {d.metricsSnapshot ? (
+                  <Group gap="lg">
+                    <MetricStat
+                      label="received"
+                      value={d.metricsSnapshot.totals.received}
+                    />
+                    <MetricStat
+                      label="sent"
+                      value={d.metricsSnapshot.totals.sent}
+                    />
+                    <MetricStat
+                      label="errors"
+                      value={d.metricsSnapshot.totals.errors}
+                    />
+                    <MetricStat
+                      label="discarded"
+                      value={d.metricsSnapshot.totals.discarded}
+                    />
+                    <Text size="xs" c="dimmed">
+                      updated {relativeTime(d.metricsSnapshot.updatedAt)}
+                    </Text>
+                  </Group>
+                ) : (
+                  <Text size="xs" c="dimmed">
+                    Metrics will appear after this forwarder starts reporting.
+                  </Text>
+                )}
+              </Stack>
             </Card>
           ))}
         </Stack>
       )}
     </Card>
   );
+}
+
+function MetricStat({ label, value }: { label: string; value: number }) {
+  return (
+    <Stack gap={0}>
+      <Text size="sm" fw={700}>
+        {formatCompactNumber(value)}
+      </Text>
+      <Text size="xs" c="dimmed">
+        {label}
+      </Text>
+    </Stack>
+  );
+}
+
+function deploymentSourceLabel(deployment: ApiDeployment): string {
+  if (deployment.sourceIds === null) return "all sources";
+  const count = deployment.sourceIds.length;
+  return `${count} source${count === 1 ? "" : "s"}`;
+}
+
+function deploymentStatusColor(status: ApiDeployment["status"]): string {
+  switch (status) {
+    case "running":
+      return "teal";
+    case "crashed":
+      return "red";
+    case "stopped":
+      return "gray";
+    case "detached":
+      return "yellow";
+    case "pending":
+    default:
+      return "blue";
+  }
+}
+
+function formatCompactNumber(value: number): string {
+  if (!Number.isFinite(value)) return "0";
+  return new Intl.NumberFormat(undefined, {
+    notation: "compact",
+    maximumFractionDigits: value < 1000 ? 0 : 1,
+  }).format(value);
 }
 
 function DiscoveryJobBanner({ job }: { job: ApiJob | null }) {
