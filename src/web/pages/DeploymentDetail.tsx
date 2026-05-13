@@ -34,7 +34,7 @@ import {
   IconRocket,
   IconTrash,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApiError, api } from "../api";
 import { SelectionEditor } from "../components/SelectionEditor";
@@ -226,6 +226,14 @@ function OutdatedBanner({
   const [busy, setBusy] = useState<"deploy" | "mark" | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
+  function handleRedeployClick(event: MouseEvent<HTMLAnchorElement>) {
+    if (busy === "deploy") {
+      event.preventDefault();
+      return;
+    }
+    setBusy("deploy");
+  }
+
   async function markDeployed() {
     setBusy("mark");
     setErr(null);
@@ -264,6 +272,8 @@ function OutdatedBanner({
             to={`/app/deployments/${deployment.id}?action=deploy`}
             color="orange"
             leftSection={<IconRocket size={14} />}
+            loading={busy === "deploy"}
+            onClick={handleRedeployClick}
           >
             Redeploy
           </Button>
@@ -1702,6 +1712,7 @@ function ManagedDeployCard({
     initialDeployJob,
   );
   const [deploying, setDeploying] = useState(false);
+  const deployInFlightRef = useRef(false);
   const [autoTriggered, setAutoTriggered] = useState(false);
   const [lastRefreshedJobId, setLastRefreshedJobId] = useState<string | null>(
     null,
@@ -1826,6 +1837,15 @@ function ManagedDeployCard({
   }
 
   async function startDeploy(targetId: string) {
+    if (
+      deployInFlightRef.current ||
+      deploying ||
+      deployJob?.status === "queued" ||
+      deployJob?.status === "running"
+    ) {
+      return;
+    }
+    deployInFlightRef.current = true;
     setError(null);
     setDeploying(true);
     try {
@@ -1834,6 +1854,7 @@ function ManagedDeployCard({
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to start deploy");
     } finally {
+      deployInFlightRef.current = false;
       setDeploying(false);
     }
   }
@@ -2064,6 +2085,11 @@ function FlyDeployRunner({
         <Button
           onClick={onDeploy}
           loading={
+            deploying ||
+            deployJob?.status === "queued" ||
+            deployJob?.status === "running"
+          }
+          disabled={
             deploying ||
             deployJob?.status === "queued" ||
             deployJob?.status === "running"
