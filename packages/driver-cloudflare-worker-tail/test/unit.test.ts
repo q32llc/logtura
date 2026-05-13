@@ -92,6 +92,8 @@ describe("generatePipeline", () => {
     expect(y).toContain("has_error_log");
     expect(y).toContain("worker_failed");
     expect(y).toContain("client_aborted");
+    expect(y).toContain('stack = string(ex.stack) ?? ""');
+    expect(y).toContain('name + ": " + msg + "\\n" + stack');
     // [script] prefix in the synthesized message body. Source-side
     // tagging so non-rollup monitors still ship a labeled body.
     expect(y).toContain('"[" + .script + "] "');
