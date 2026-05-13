@@ -5,7 +5,7 @@
 FROM timberio/vector:latest-debian
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && rm -rf /var/lib/apt/lists/*
-COPY --from=ghcr.io/logtura/logtura-cf-tail:v0.1.0 /logtura-cf-tail /usr/local/bin/logtura-cf-tail
+COPY --from=ghcr.io/logtura/logtura-cf-tail:v0.1.2 /logtura-cf-tail /usr/local/bin/logtura-cf-tail
 RUN curl -L https://fly.io/install.sh | sh && cp /root/.fly/bin/flyctl /usr/local/bin/flyctl
 COPY --from=ghcr.io/logtura/logtura-http-client:v0.1.2 /logtura-http-client /usr/local/bin/logtura-http-client
 

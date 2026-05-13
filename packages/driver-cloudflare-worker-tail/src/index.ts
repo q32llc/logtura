@@ -131,7 +131,7 @@ export const cloudflareWorkerTailDriver: ProviderDriver<CloudflareCredentials> =
     runtime.dockerfileDeps = [
       {
         directive:
-          "COPY --from=ghcr.io/logtura/logtura-cf-tail:v0.1.0 /logtura-cf-tail /usr/local/bin/logtura-cf-tail",
+          "COPY --from=ghcr.io/logtura/logtura-cf-tail:v0.1.2 /logtura-cf-tail /usr/local/bin/logtura-cf-tail",
       },
     ];
     return {
