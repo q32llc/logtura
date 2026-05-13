@@ -387,7 +387,11 @@ function stashPrev(
   field: MetricField,
   value: number,
 ) {
-  const sampleAt = comp.sampleAtByField?.[field] ?? comp.lastSeen;
+  const sampleAt =
+    comp.sampleAtByField?.[field] ??
+    comp.prev?.sampleAtByField?.[field] ??
+    comp.prev?.sampleAt ??
+    comp.lastSeen;
   comp.prev = {
     ...(comp.prev ?? {}),
     [field]: value,
