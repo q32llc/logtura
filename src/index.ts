@@ -1419,20 +1419,9 @@ api.get("/providers/vercel/start", async (c) => {
   }
 
   const state = newToken();
-  const debugToken = c.req.query("debug_token") === "1";
-  const { buildVercelAuthorizeUrl, createVercelPkcePair } = await import(
-    "./providers/vercel-oauth"
-  );
-  const pkce = await createVercelPkcePair();
+  const { buildVercelAuthorizeUrl } = await import("./providers/vercel-oauth");
   const signed = await signCookie(
-    JSON.stringify({
-      state,
-      userId,
-      displayName,
-      reconnectId,
-      codeVerifier: pkce.codeVerifier,
-      debugToken,
-    }),
+    JSON.stringify({ state, userId, displayName, reconnectId }),
     c.env.SESSION_SECRET,
   );
   setCookie(c, VERCEL_STATE_COOKIE, signed, {
@@ -1447,7 +1436,6 @@ api.get("/providers/vercel/start", async (c) => {
       clientId: c.env.VERCEL_CLIENT_ID!,
       redirectUri: `${c.env.APP_URL}/api/providers/vercel/callback`,
       state,
-      codeChallenge: pkce.codeChallenge,
     }),
     303,
   );
@@ -1456,51 +1444,60 @@ api.get("/providers/vercel/start", async (c) => {
 api.get("/providers/vercel/callback", async (c) => {
   const code = c.req.query("code");
   const state = c.req.query("state");
+  const configurationId = c.req.query("configurationId")?.trim() || null;
   const stateCookie = getCookie(c, VERCEL_STATE_COOKIE);
   const stateJson = await verifyCookie(stateCookie, c.env.SESSION_SECRET);
   deleteCookie(c, VERCEL_STATE_COOKIE, { path: "/" });
-  if (!code || !state || !stateJson) {
+  if (!code) {
     return c.redirect("/app/connections/new?error=vercel_oauth_state", 303);
   }
   const parsed = (() => {
+    if (!stateJson) return null;
     try {
       return JSON.parse(stateJson) as {
         state?: string;
         userId?: string;
         displayName?: string;
         reconnectId?: string | null;
-        codeVerifier?: string;
-        debugToken?: boolean;
       };
     } catch {
       return null;
     }
   })();
-  if (
-    !parsed ||
-    parsed.state !== state ||
-    !parsed.userId ||
-    !parsed.displayName ||
-    !parsed.codeVerifier
-  ) {
-    return c.redirect("/app/connections/new?error=vercel_oauth_state", 303);
+  const userCookie = getCookie(c, "logtura_session");
+  const sessionUserId = userCookie
+    ? await verifyCookie(userCookie, c.env.SESSION_SECRET)
+    : null;
+  const callbackCtx =
+    parsed && state && parsed.state === state && parsed.userId && parsed.displayName
+      ? {
+          userId: parsed.userId,
+          displayName: parsed.displayName,
+          reconnectId: parsed.reconnectId ?? null,
+        }
+      : sessionUserId
+        ? {
+            userId: sessionUserId,
+            displayName: "Vercel",
+            reconnectId: null,
+          }
+        : null;
+  if (!callbackCtx) {
+    return c.redirect("/?error=auth_required", 303);
   }
   if (!isVercelOauthConfigured(c.env)) {
     return c.redirect("/app/connections/new?error=vercel_oauth_not_configured", 303);
   }
 
-  const {
-    exchangeVercelCode,
-    probeVercelOAuthToken,
-    vercelCredentialsFromOAuth,
-  } = await import("./providers/vercel-oauth");
+  const { exchangeVercelCode, vercelCredentialsFromOAuth } = await import(
+    "./providers/vercel-oauth"
+  );
   let tokens;
   try {
     tokens = await exchangeVercelCode({
       clientId: c.env.VERCEL_CLIENT_ID!,
       clientSecret: c.env.VERCEL_CLIENT_SECRET!,
       code,
-      codeVerifier: parsed.codeVerifier,
       redirectUri: `${c.env.APP_URL}/api/providers/vercel/callback`,
     });
   } catch (err) {
@@ -1513,58 +1510,55 @@ api.get("/providers/vercel/callback", async (c) => {
     return c.redirect("/app/connections/new?error=unknown_provider", 303);
   }
   const credentials = vercelCredentialsFromOAuth(tokens);
+  let accounts: { id: string; name: string }[];
   try {
-    await driver.verifyCredentials(credentials);
+    accounts = await driver.verifyCredentials(credentials);
   } catch (err) {
-    const probe = await probeVercelOAuthToken(
-      tokens.access_token,
-      tokens.id_token,
-    );
     console.error("vercel oauth verify failed", {
       error: err instanceof Error ? err.message : String(err),
-      probe,
-      debugTokens: parsed.debugToken
-        ? {
-            accessToken: tokens.access_token,
-            refreshToken: tokens.refresh_token ?? null,
-            idToken: tokens.id_token ?? null,
-          }
-        : null,
+      configurationId,
+      teamId: tokens.team_id ?? null,
+      userId: tokens.user_id ?? null,
+      installationId: tokens.installation_id ?? null,
     });
     return c.redirect("/app/connections/new?error=vercel_oauth_verify", 303);
   }
 
   const externalAccountId = tokens.team_id ?? null;
+  const displayName =
+    callbackCtx.displayName === "Vercel" && accounts[0]?.name
+      ? `Vercel · ${accounts[0].name}`
+      : callbackCtx.displayName;
   let connectionId: string;
-  if (parsed.reconnectId) {
+  if (callbackCtx.reconnectId) {
     const updated = await updateConnectionCredentials(
       c.env.DB,
       c.env,
-      parsed.userId,
-      parsed.reconnectId,
+      callbackCtx.userId,
+      callbackCtx.reconnectId,
       {
         credentials,
         externalAccountId,
-        displayName: parsed.displayName,
+        displayName,
       },
     );
     if (!updated) return c.redirect("/app?error=bad_reconnect", 303);
     connectionId = updated.id;
   } else {
     const connection = await createConnection(c.env.DB, c.env, {
-      userId: parsed.userId,
+      userId: callbackCtx.userId,
       provider: driver.id,
-      displayName: parsed.displayName,
+      displayName,
       externalAccountId,
       credentials,
     });
     connectionId = connection.id;
-    await ensureDefaultErrorsMonitor(c.env.DB, parsed.userId);
+    await ensureDefaultErrorsMonitor(c.env.DB, callbackCtx.userId);
   }
 
   const jobs = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
   await jobs.enqueue({
-    userId: parsed.userId,
+    userId: callbackCtx.userId,
     kind: "discovery",
     payload: { connectionId },
     lockKey: lockKeyForDiscovery(connectionId),
