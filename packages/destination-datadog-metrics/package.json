@@ -1,6 +1,6 @@
 {
   "name": "@logtura/destination-datadog-metrics",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Logtura destination driver for Datadog metrics intake.",
   "license": "Apache-2.0",
   "author": "Erik Aronesty (Logtura)",

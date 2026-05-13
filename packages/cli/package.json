@@ -1,6 +1,6 @@
 {
   "name": "@logtura/cli",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "OSS CLI for validating Logtura configs and generating Vector forwarder bundles.",
   "license": "Apache-2.0",
   "author": "Erik Aronesty (Logtura)",
