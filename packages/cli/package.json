@@ -1,0 +1,57 @@
+{
+  "name": "@logtura/cli",
+  "version": "0.2.3",
+  "description": "OSS CLI for validating Logtura configs and generating Vector forwarder bundles.",
+  "license": "Apache-2.0",
+  "author": "Erik Aronesty (Logtura)",
+  "homepage": "https://github.com/logtura/logtura#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/logtura/logtura.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/logtura/logtura/issues"
+  },
+  "type": "module",
+  "bin": {
+    "logtura": "./src/main.ts"
+  },
+  "main": "./src/main.ts",
+  "types": "./src/main.ts",
+  "exports": {
+    ".": "./src/main.ts"
+  },
+  "files": [
+    "src",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@logtura/cloudflare-shared": "workspace:*",
+    "@logtura/core": "workspace:*",
+    "@logtura/destination-datadog-metrics": "workspace:*",
+    "@logtura/destination-prometheus-remote-write": "workspace:*",
+    "@logtura/destination-slack": "workspace:*",
+    "@logtura/destination-webhook": "workspace:*",
+    "@logtura/driver-cloudflare-ai-gateway": "workspace:*",
+    "@logtura/driver-cloudflare-worker-tail": "workspace:*",
+    "@logtura/driver-fly-log-tail": "workspace:*",
+    "@logtura/driver-supabase-edge-logs": "workspace:*",
+    "@logtura/supabase-shared": "workspace:*",
+    "tsx": "^4.21.0",
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.5"
+  }
+}

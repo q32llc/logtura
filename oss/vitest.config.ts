@@ -10,6 +10,7 @@ export default defineConfig({
   test: {
     projects: [
       "./packages/core",
+      "./packages/cli",
       "./packages/destination-datadog-metrics",
       "./packages/destination-prometheus-remote-write",
       "./packages/destination-slack",
