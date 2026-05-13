@@ -146,10 +146,9 @@ api.get("/providers", (c) => {
     const connect = getProviderConnect(p.id);
     const connectFlow = connect?.connectFlow ?? null;
     const formFields = connect?.formFields ?? [];
-    // For supabase-edge-logs, OAuth is offered *alongside* the
-    // PAT-paste form when SUPABASE_CLIENT_ID/SECRET are configured.
-    // PAT-paste stays available either way so self-hosted SaaS or
-    // users who prefer pasting can still connect.
+    // For supabase-edge-logs, OAuth is offered alongside PAT-paste
+    // when SUPABASE_CLIENT_ID/SECRET are configured. Vercel source
+    // connections are PAT-only for now.
     const oauthShortcut =
       p.id === "supabase-edge-logs" && isSupabaseOauthConfigured(c.env)
         ? {
@@ -158,13 +157,6 @@ api.get("/providers", (c) => {
             buttonDescription:
               "Sign in to Supabase and grant Logtura read access to your projects' edge functions and analytics.",
           }
-        : p.id === "vercel-logs" && isVercelOauthConfigured(c.env)
-          ? {
-              startPath: "/api/providers/vercel/start",
-              buttonLabel: "Connect Vercel",
-              buttonDescription:
-                "Authorize Logtura to discover Vercel projects and stream Runtime Logs.",
-            }
         : null;
     return {
       id: p.id,
