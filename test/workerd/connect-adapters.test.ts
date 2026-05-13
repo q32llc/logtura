@@ -131,6 +131,7 @@ describe("destination connect — slack", () => {
       webhookUrl: "https://hooks.slack.com/services/T00/B00/XXX",
       teamName: "q32",
       channel: "alerts",
+      maxMessageChars: 12000,
     });
   });
 
@@ -149,6 +150,7 @@ describe("destination connect — slack", () => {
       webhookUrl: "https://hooks.slack.com/x",
       teamName: null,
       channel: null,
+      maxMessageChars: 12000,
     });
   });
 });

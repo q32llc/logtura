@@ -69,6 +69,39 @@ export type FilterStep =
       max_samples?: number;
     };
 
+// ---- Canonical event shape --------------------------------------------
+
+export interface LogturaException {
+  name: string;
+  message: string;
+  stack?: string;
+}
+
+/**
+ * Normalized log event shape emitted by provider drivers and consumed by
+ * monitor filters and destinations. Drivers may preserve provider-specific
+ * raw fields alongside these fields unless they intentionally drop them.
+ *
+ * Required normalized fields: `.message`, `.level`, `.error`.
+ * Recommended source fields: `.timestamp`, `.script`.
+ * Error fields: `.error_reason`, `.exceptions`.
+ * Renderer-added fields:
+ * `.logtura_connection_id`, `.logtura_provider`, `.logtura_received_at`.
+ */
+export interface LogturaEvent {
+  message: string;
+  level: string;
+  error: boolean;
+  timestamp?: unknown;
+  script?: string;
+  error_reason?: string;
+  exceptions?: LogturaException[];
+  logtura_connection_id?: string;
+  logtura_provider?: string;
+  logtura_received_at?: unknown;
+  [field: string]: unknown;
+}
+
 // ---- Provider driver contract ----------------------------------------
 
 /** Caller view of a connection that the driver needs at code-gen

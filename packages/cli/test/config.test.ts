@@ -47,4 +47,56 @@ monitors:
       .toBe("cf_test");
     expect(bundle.envVars.some((v) => v.name.includes("SLACK"))).toBe(true);
   });
+
+  it("parses Slack max_message_chars", () => {
+    const parsed = parseConfig(`
+sources:
+  workers:
+    account_id: acct_test
+    api_token: token_test
+    scripts: [dirtsignal]
+
+sinks:
+  slack:
+    type: slack
+    webhook_url: https://hooks.slack.test/services/x/y/z
+    max_message_chars: 4096
+
+monitors:
+  - name: errors
+    filter: [errors]
+    sinks: [slack]
+`);
+
+    const config = parsed.input.monitors[0]!.sinks[0]!.destinationConfig as {
+      maxMessageChars?: number | null;
+    };
+    expect(config.maxMessageChars).toBe(4096);
+  });
+
+  it("parses Slack maxMessageChars null as no truncation", () => {
+    const parsed = parseConfig(`
+sources:
+  workers:
+    account_id: acct_test
+    api_token: token_test
+    scripts: [dirtsignal]
+
+sinks:
+  slack:
+    type: slack
+    webhook_url: https://hooks.slack.test/services/x/y/z
+    maxMessageChars: null
+
+monitors:
+  - name: errors
+    filter: [errors]
+    sinks: [slack]
+`);
+
+    const config = parsed.input.monitors[0]!.sinks[0]!.destinationConfig as {
+      maxMessageChars?: number | null;
+    };
+    expect(config.maxMessageChars).toBeNull();
+  });
 });

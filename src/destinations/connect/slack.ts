@@ -1,5 +1,8 @@
 import { DestinationError } from "@logtura/core";
-import type { SlackConfig } from "@logtura/destination-slack";
+import {
+  DEFAULT_SLACK_MAX_MESSAGE_CHARS,
+  type SlackConfig,
+} from "@logtura/destination-slack";
 import type { DestinationConnectAdapter } from "./types";
 
 /**
@@ -29,6 +32,13 @@ export const slackConnect: DestinationConnectAdapter<SlackConfig> = {
         400,
       );
     }
-    return { config: { webhookUrl, teamName, channel } };
+    return {
+      config: {
+        webhookUrl,
+        teamName,
+        channel,
+        maxMessageChars: DEFAULT_SLACK_MAX_MESSAGE_CHARS,
+      },
+    };
   },
 };

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { generateBundle } from "../src";
 import type {
   Connection,
+  LogturaEvent,
   GeneratorMonitor,
   Source,
 } from "../src";
@@ -31,6 +32,17 @@ const src = (id: string, externalId: string): Source => ({
 });
 
 describe("generateBundle", () => {
+  it("exports the canonical LogturaEvent shape", () => {
+    const event: LogturaEvent = {
+      message: "boom",
+      level: "error",
+      error: true,
+      error_reason: "exception",
+      exceptions: [{ name: "Error", message: "boom", stack: "stack" }],
+    };
+    expect(event.error).toBe(true);
+  });
+
   it("throws when no connections are supplied", () => {
     expect(() =>
       generateBundle({

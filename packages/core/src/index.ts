@@ -18,6 +18,8 @@ export type {
 
   // The "monitor pipeline" DSL.
   FilterStep,
+  LogturaEvent,
+  LogturaException,
 
   // Driver contracts.
   ProviderDriver,

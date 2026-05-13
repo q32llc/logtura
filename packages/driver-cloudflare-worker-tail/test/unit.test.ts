@@ -100,6 +100,10 @@ describe("generatePipeline", () => {
     expect(y).toContain("has_error_log");
     expect(y).toContain("worker_failed");
     expect(y).toContain("client_aborted");
+    expect(y).toContain(".error_reason = outcome");
+    expect(y).toContain("normalized_exceptions = []");
+    expect(y).toContain('.exceptions = normalized_exceptions');
+    expect(y).not.toContain(".exception =");
     expect(y).toContain('stack = string(ex.stack) ?? ""');
     expect(y).toContain('name + ": " + msg + "\\n" + stack');
     // [script] prefix in the synthesized message body. Source-side

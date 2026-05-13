@@ -207,6 +207,11 @@ function sinkConfig(
       webhookUrl: stringValue(env(config.webhook_url ?? config.webhookUrl)) ?? "",
       teamName: stringField(config, "team_name", stringField(config, "teamName")),
       channel: stringField(config, "channel"),
+      maxMessageChars: numberOrNullField(
+        config,
+        "max_message_chars",
+        numberOrNullField(config, "maxMessageChars"),
+      ),
     };
   }
   return deepResolveEnv(config, env);
@@ -351,6 +356,16 @@ function numberField(
   fallback: number,
 ): number {
   const value = rec[field];
+  return typeof value === "number" ? value : fallback;
+}
+
+function numberOrNullField(
+  rec: UnknownRecord,
+  field: string,
+  fallback?: number | null,
+): number | null | undefined {
+  const value = rec[field];
+  if (value === null) return null;
   return typeof value === "number" ? value : fallback;
 }
 

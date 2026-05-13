@@ -66,6 +66,7 @@ import {
   getDestinationDriver,
   listDestinationDrivers,
 } from "./destinations";
+import { DEFAULT_SLACK_MAX_MESSAGE_CHARS } from "@logtura/destination-slack";
 import {
   getDeployTargetDriver,
   listDeployTargetDrivers,
@@ -1658,6 +1659,7 @@ api.get("/destinations/slack/callback", async (c) => {
       webhookUrl: payload.incoming_webhook.url,
       teamName,
       channel,
+      maxMessageChars: DEFAULT_SLACK_MAX_MESSAGE_CHARS,
     },
   });
   return c.redirect("/app/destinations?notice=slack_connected", 303);

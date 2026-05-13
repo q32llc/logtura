@@ -220,7 +220,8 @@ function workerExecSourceYaml(connKey: string, sources: SourceRef[]): string {
 }
 
 /** Flattens a `wrangler tail --format json` event into the uniform
- *  pipeline shape (.message, .level, .error, .script, .timestamp).
+ *  pipeline shape (.message, .level, .error, .script, .timestamp)
+ *  plus canonical error fields (.error_reason, .exceptions).
  *  CF tail event shape: outcome, scriptName, exceptions[],
  *  logs[{message[], level}], event, eventTimestamp. */
 function workerNormalizeYaml(inputKeys: string[]): string {
@@ -248,6 +249,12 @@ function workerNormalizeYaml(inputKeys: string[]): string {
     `client_aborted = outcome == "canceled" || outcome == "responseStreamDisconnected"`,
     `.error = exc_count > 0 || worker_failed || has_error_log`,
     `.level = if .error { "error" } else if has_warn_log || client_aborted || outcome == "unknown" { "warn" } else { "info" }`,
+    `if worker_failed {`,
+    `  .error_reason = outcome`,
+    `} else {`,
+    `  del(.error_reason)`,
+    `}`,
+    `normalized_exceptions = []`,
     `parts = []`,
     `for_each(array(.logs) ?? []) -> |_, log| {`,
     `  for_each(array(log.message) ?? []) -> |_, m| {`,
@@ -259,8 +266,15 @@ function workerNormalizeYaml(inputKeys: string[]): string {
     `  name = string(ex.name) ?? "Error"`,
     `  msg = string(ex.message) ?? ""`,
     `  stack = string(ex.stack) ?? ""`,
+    `  normalized = { "name": name, "message": msg, "stack": stack }`,
+    `  normalized_exceptions = push(normalized_exceptions, normalized)`,
     `  rendered = if stack != "" { name + ": " + msg + "\\n" + stack } else { name + ": " + msg }`,
     `  parts = push(parts, rendered)`,
+    `}`,
+    `if length(normalized_exceptions) > 0 {`,
+    `  .exceptions = normalized_exceptions`,
+    `} else {`,
+    `  del(.exceptions)`,
     `}`,
     // When the worker actually failed (exceededMemory, exceededCpu,
     // exception with no JS-level exception body, scriptNotFound,

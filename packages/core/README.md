@@ -107,6 +107,23 @@ A destination driver is similar. `DestinationDriver<TConfig>` declares
 
 Form schemas, OAuth flows, and `FormData` parsing are intentionally not part of this contract. They live host-side in whatever app is rendering a UI on top of the renderer.
 
+## Logtura Event Shape
+
+Provider drivers normalize raw platform payloads into `LogturaEvent`:
+
+```ts
+import type { LogturaEvent } from "@logtura/core";
+```
+
+Every normalized event should have `.message`, `.level`, and `.error`.
+Drivers should also populate source context such as `.timestamp` and `.script`
+when the provider exposes it. The renderer adds `.logtura_connection_id`,
+`.logtura_provider`, and `.logtura_received_at` after the driver output.
+
+Errors should preserve structured context with `.error_reason` and
+`.exceptions` where available. Provider-specific raw fields may remain on the
+event unless a driver intentionally drops them.
+
 ## Related packages
 
 - [@logtura/driver-cloudflare-worker-tail](../driver-cloudflare-worker-tail). Cloudflare Workers Tail API over Vector's exec source.
