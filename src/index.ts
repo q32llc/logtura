@@ -1390,6 +1390,7 @@ apiAuth.delete("/destinations/:id", async (c) => {
 
 const VERCEL_STATE_COOKIE = "logtura_vercel_state";
 const VERCEL_LOGS_PROVIDER = "vercel-logs";
+const DEFAULT_VERCEL_INTEGRATION_SLUG = "logtura";
 
 function isVercelOauthConfigured(env: Env): boolean {
   return !!(env.VERCEL_CLIENT_ID && env.VERCEL_CLIENT_SECRET);
@@ -1419,7 +1420,7 @@ api.get("/providers/vercel/start", async (c) => {
   }
 
   const state = newToken();
-  const { buildVercelAuthorizeUrl } = await import("./providers/vercel-oauth");
+  const { buildVercelInstallUrl } = await import("./providers/vercel-oauth");
   const signed = await signCookie(
     JSON.stringify({ state, userId, displayName, reconnectId }),
     c.env.SESSION_SECRET,
@@ -1432,9 +1433,8 @@ api.get("/providers/vercel/start", async (c) => {
     maxAge: 600,
   });
   return c.redirect(
-    buildVercelAuthorizeUrl({
-      clientId: c.env.VERCEL_CLIENT_ID!,
-      redirectUri: `${c.env.APP_URL}/api/providers/vercel/callback`,
+    buildVercelInstallUrl({
+      slug: c.env.VERCEL_INTEGRATION_SLUG ?? DEFAULT_VERCEL_INTEGRATION_SLUG,
       state,
     }),
     303,
@@ -1445,6 +1445,7 @@ api.get("/providers/vercel/callback", async (c) => {
   const code = c.req.query("code");
   const state = c.req.query("state");
   const configurationId = c.req.query("configurationId")?.trim() || null;
+  const next = c.req.query("next")?.trim() || null;
   const stateCookie = getCookie(c, VERCEL_STATE_COOKIE);
   const stateJson = await verifyCookie(stateCookie, c.env.SESSION_SECRET);
   deleteCookie(c, VERCEL_STATE_COOKIE, { path: "/" });
@@ -1563,6 +1564,16 @@ api.get("/providers/vercel/callback", async (c) => {
     payload: { connectionId },
     lockKey: lockKeyForDiscovery(connectionId),
   });
+  if (next) {
+    try {
+      const nextUrl = new URL(next);
+      if (nextUrl.protocol === "https:" && nextUrl.hostname === "vercel.com") {
+        return c.redirect(nextUrl.toString(), 303);
+      }
+    } catch {
+      // Ignore malformed completion URLs and fall back to the connection page.
+    }
+  }
   return c.redirect(`/app/connections/${connectionId}`, 303);
 });
 

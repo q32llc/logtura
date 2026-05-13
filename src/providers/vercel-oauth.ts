@@ -1,6 +1,6 @@
 import type { VercelCredentials } from "@logtura/driver-vercel-logs";
 
-const VERCEL_AUTHORIZE_URL = "https://vercel.com/oauth/authorize";
+const VERCEL_INTEGRATIONS_URL = "https://vercel.com/integrations/";
 const VERCEL_TOKEN_URL = "https://api.vercel.com/v2/oauth/access_token";
 
 export interface VercelOAuthTokens {
@@ -10,15 +10,12 @@ export interface VercelOAuthTokens {
   user_id?: string | null;
 }
 
-export function buildVercelAuthorizeUrl(input: {
-  clientId: string;
-  redirectUri: string;
+export function buildVercelInstallUrl(input: {
+  slug: string;
   state: string;
 }): string {
-  const url = new URL(VERCEL_AUTHORIZE_URL);
-  url.searchParams.set("client_id", input.clientId);
-  url.searchParams.set("redirect_uri", input.redirectUri);
-  url.searchParams.set("response_type", "code");
+  const slug = input.slug.trim().replace(/^\/+|\/+$/g, "");
+  const url = new URL(`${encodeURIComponent(slug)}/new`, VERCEL_INTEGRATIONS_URL);
   url.searchParams.set("state", input.state);
   return url.toString();
 }

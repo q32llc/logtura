@@ -191,18 +191,9 @@ describe("Vercel OAuth", () => {
     );
     expect(start.status).toBe(303);
     const location = start.headers.get("location")!;
-    expect(location).toMatch(/^https:\/\/vercel\.com\/oauth\/authorize/);
-    const authorizeUrl = new URL(location);
-    expect(authorizeUrl.searchParams.get("client_id")).toBe(
-      "test_vercel_client",
-    );
-    expect(authorizeUrl.searchParams.get("redirect_uri")).toBe(
-      `${env.APP_URL}/api/providers/vercel/callback`,
-    );
-    expect(authorizeUrl.searchParams.get("scope")).toBeNull();
-    expect(authorizeUrl.searchParams.get("code_challenge")).toBeNull();
-    expect(authorizeUrl.searchParams.get("code_challenge_method")).toBeNull();
-    const state = authorizeUrl.searchParams.get("state")!;
+    expect(location).toMatch(/^https:\/\/vercel\.com\/integrations\/logtura\/new/);
+    const installUrl = new URL(location);
+    const state = installUrl.searchParams.get("state")!;
     const stateCookie = start.headers.get("set-cookie")!;
 
     mockFetch("https://api.vercel.com", async (req) => {

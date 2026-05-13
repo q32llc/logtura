@@ -22,11 +22,11 @@ export interface Env {
   // Read scopes for Projects, Edge Functions, and Analytics.
   SUPABASE_CLIENT_ID?: string;
   SUPABASE_CLIENT_SECRET?: string;
-  // Optional — enables OAuth for the Vercel platform. The Vercel
-  // app/integration should register
-  // <APP_URL>/api/providers/vercel/callback.
+  // Optional — enables OAuth for the Vercel Integration. The integration
+  // should register <APP_URL>/api/providers/vercel/callback as its Redirect URL.
   VERCEL_CLIENT_ID?: string;
   VERCEL_CLIENT_SECRET?: string;
+  VERCEL_INTEGRATION_SLUG?: string;
   // Optional — silence-alert emails are sent via Postmark when these
   // are configured. Without them, the cron alerter still flips
   // status='crashed' but skips email.
