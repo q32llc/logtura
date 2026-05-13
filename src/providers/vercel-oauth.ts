@@ -2,6 +2,7 @@ import type { VercelCredentials } from "@logtura/driver-vercel-logs";
 
 const VERCEL_AUTHORIZE_URL = "https://vercel.com/oauth/authorize";
 const VERCEL_TOKEN_URL = "https://api.vercel.com/v2/oauth/access_token";
+const VERCEL_CONNECT_SCOPES = "openid offline_access";
 
 export interface VercelOAuthTokens {
   access_token: string;
@@ -18,6 +19,7 @@ export function buildVercelAuthorizeUrl(input: {
   url.searchParams.set("client_id", input.clientId);
   url.searchParams.set("redirect_uri", input.redirectUri);
   url.searchParams.set("response_type", "code");
+  url.searchParams.set("scope", VERCEL_CONNECT_SCOPES);
   url.searchParams.set("state", input.state);
   return url.toString();
 }

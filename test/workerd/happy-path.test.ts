@@ -199,6 +199,9 @@ describe("Vercel OAuth", () => {
     expect(authorizeUrl.searchParams.get("redirect_uri")).toBe(
       `${env.APP_URL}/api/providers/vercel/callback`,
     );
+    expect(authorizeUrl.searchParams.get("scope")).toBe(
+      "openid offline_access",
+    );
     const state = authorizeUrl.searchParams.get("state")!;
     const stateCookie = start.headers.get("set-cookie")!;
 
