@@ -206,6 +206,7 @@ export function DeploymentDetail() {
             deployment={deployment}
             bundle={bundle}
             initialDeployJob={initialDeployJob}
+            onRefresh={refetch}
           />
         </Tabs.Panel>
       </Tabs>
@@ -1326,16 +1327,19 @@ function RunPanel({
   deployment,
   bundle,
   initialDeployJob,
+  onRefresh,
 }: {
   deployment: ApiDeployment;
   bundle: ApiTargetBundle | null;
   initialDeployJob: ApiJob | null;
+  onRefresh: () => void;
 }) {
   return (
     <Stack gap="lg">
       <ManagedDeployCard
         deployment={deployment}
         initialDeployJob={initialDeployJob}
+        onRefresh={onRefresh}
       />
 
       <SelfDeployCard deployment={deployment} />
@@ -1677,9 +1681,11 @@ function shellEscape(s: string): string {
 function ManagedDeployCard({
   deployment,
   initialDeployJob,
+  onRefresh,
 }: {
   deployment: ApiDeployment;
   initialDeployJob: ApiJob | null;
+  onRefresh: () => void;
 }) {
   const [targets, setTargets] = useState<ApiDeployTarget[] | null>(null);
   const [connecting, setConnecting] = useState<{
@@ -1697,6 +1703,9 @@ function ManagedDeployCard({
   );
   const [deploying, setDeploying] = useState(false);
   const [autoTriggered, setAutoTriggered] = useState(false);
+  const [lastRefreshedJobId, setLastRefreshedJobId] = useState<string | null>(
+    null,
+  );
 
   async function refetch() {
     try {
@@ -1794,6 +1803,15 @@ function ManagedDeployCard({
       cancelled = true;
     };
   }, [deployJob]);
+
+  // Keep deployment header/banners in sync after a successful managed
+  // deploy so "out of date" clears immediately without a hard reload.
+  useEffect(() => {
+    if (!deployJob || deployJob.status !== "succeeded") return;
+    if (lastRefreshedJobId === deployJob.id) return;
+    setLastRefreshedJobId(deployJob.id);
+    void onRefresh();
+  }, [deployJob, lastRefreshedJobId, onRefresh]);
 
   async function startConnect() {
     setError(null);
