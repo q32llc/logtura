@@ -12,6 +12,27 @@ export interface VercelOAuthTokens {
   user_id?: string | null;
 }
 
+export interface VercelOAuthProbeResult {
+  accessToken: TokenShape;
+  idToken: TokenShape | null;
+  userinfo: ProbeHttpResult;
+  introspect: ProbeHttpResult;
+  restUser: ProbeHttpResult;
+  restProjects: ProbeHttpResult;
+}
+
+interface TokenShape {
+  length: number;
+  preview: string;
+  jwtPayload: Record<string, unknown> | null;
+}
+
+interface ProbeHttpResult {
+  status: number | null;
+  ok: boolean;
+  body: string;
+}
+
 export async function createVercelPkcePair(): Promise<{
   codeVerifier: string;
   codeChallenge: string;
@@ -88,6 +109,82 @@ export function vercelCredentialsFromOAuth(
   tokens: VercelOAuthTokens,
 ): VercelCredentials {
   return { apiToken: tokens.access_token };
+}
+
+export async function probeVercelOAuthToken(
+  accessToken: string,
+  idToken?: string | null,
+): Promise<VercelOAuthProbeResult> {
+  const authHeaders = {
+    authorization: `Bearer ${accessToken}`,
+    accept: "application/json",
+  };
+  const [userinfo, introspect, restUser, restProjects] = await Promise.all([
+    probeFetch("https://api.vercel.com/login/oauth/userinfo", {
+      headers: authHeaders,
+    }),
+    probeFetch("https://api.vercel.com/login/oauth/token/introspect", {
+      method: "POST",
+      headers: { accept: "application/json" },
+      body: new URLSearchParams({ token: accessToken }),
+    }),
+    probeFetch("https://api.vercel.com/v2/user", { headers: authHeaders }),
+    probeFetch("https://api.vercel.com/v9/projects?limit=1", {
+      headers: authHeaders,
+    }),
+  ]);
+
+  return {
+    accessToken: tokenShape(accessToken),
+    idToken: idToken ? tokenShape(idToken) : null,
+    userinfo,
+    introspect,
+    restUser,
+    restProjects,
+  };
+}
+
+async function probeFetch(
+  url: string,
+  init: RequestInit,
+): Promise<ProbeHttpResult> {
+  try {
+    const res = await fetch(url, init);
+    return {
+      status: res.status,
+      ok: res.ok,
+      body: (await res.text()).slice(0, 800),
+    };
+  } catch (err) {
+    return {
+      status: null,
+      ok: false,
+      body: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+function tokenShape(token: string): TokenShape {
+  return {
+    length: token.length,
+    preview:
+      token.length <= 16
+        ? token
+        : `${token.slice(0, 8)}...${token.slice(-8)}`,
+    jwtPayload: decodeJwtPayload(token),
+  };
+}
+
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  const part = token.split(".")[1];
+  if (!part) return null;
+  try {
+    const padded = part.replace(/-/g, "+").replace(/_/g, "/");
+    const json = atob(padded.padEnd(Math.ceil(padded.length / 4) * 4, "="));
+    return JSON.parse(json) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
 }
 
 function randomBase64Url(bytes: number): string {

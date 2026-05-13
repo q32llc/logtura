@@ -1419,6 +1419,7 @@ api.get("/providers/vercel/start", async (c) => {
   }
 
   const state = newToken();
+  const debugToken = c.req.query("debug_token") === "1";
   const { buildVercelAuthorizeUrl, createVercelPkcePair } = await import(
     "./providers/vercel-oauth"
   );
@@ -1430,6 +1431,7 @@ api.get("/providers/vercel/start", async (c) => {
       displayName,
       reconnectId,
       codeVerifier: pkce.codeVerifier,
+      debugToken,
     }),
     c.env.SESSION_SECRET,
   );
@@ -1468,6 +1470,7 @@ api.get("/providers/vercel/callback", async (c) => {
         displayName?: string;
         reconnectId?: string | null;
         codeVerifier?: string;
+        debugToken?: boolean;
       };
     } catch {
       return null;
@@ -1486,9 +1489,11 @@ api.get("/providers/vercel/callback", async (c) => {
     return c.redirect("/app/connections/new?error=vercel_oauth_not_configured", 303);
   }
 
-  const { exchangeVercelCode, vercelCredentialsFromOAuth } = await import(
-    "./providers/vercel-oauth"
-  );
+  const {
+    exchangeVercelCode,
+    probeVercelOAuthToken,
+    vercelCredentialsFromOAuth,
+  } = await import("./providers/vercel-oauth");
   let tokens;
   try {
     tokens = await exchangeVercelCode({
@@ -1511,7 +1516,21 @@ api.get("/providers/vercel/callback", async (c) => {
   try {
     await driver.verifyCredentials(credentials);
   } catch (err) {
-    console.error("vercel oauth verify failed", err);
+    const probe = await probeVercelOAuthToken(
+      tokens.access_token,
+      tokens.id_token,
+    );
+    console.error("vercel oauth verify failed", {
+      error: err instanceof Error ? err.message : String(err),
+      probe,
+      debugTokens: parsed.debugToken
+        ? {
+            accessToken: tokens.access_token,
+            refreshToken: tokens.refresh_token ?? null,
+            idToken: tokens.id_token ?? null,
+          }
+        : null,
+    });
     return c.redirect("/app/connections/new?error=vercel_oauth_verify", 303);
   }
 
