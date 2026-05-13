@@ -2,9 +2,12 @@ name = "logtura"
 main = "src/index.ts"
 compatibility_date = "2025-05-01"
 compatibility_flags = ["nodejs_compat"]
+routes = [
+  { pattern = "logtura.com", custom_domain = true },
+]
 
 [vars]
-APP_URL = "https://logtura.erik-f0c.workers.dev"
+APP_URL = "https://logtura.com"
 
 [[d1_databases]]
 binding = "DB"
