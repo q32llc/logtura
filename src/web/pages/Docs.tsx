@@ -20,7 +20,6 @@ import Deploy from "../docs/deploy.mdx";
 import HostedUx from "../docs/hosted-ux.mdx";
 import OpenSource from "../docs/open-source.mdx";
 import Overview from "../docs/overview.mdx";
-import Privacy from "../docs/privacy.mdx";
 
 const DOCS = [
   {
@@ -40,12 +39,6 @@ const DOCS = [
     title: "Deploy",
     description: "What deploy does, and where the forwarder runs.",
     Component: Deploy,
-  },
-  {
-    slug: "privacy",
-    title: "Privacy model",
-    description: "What Logtura sees, and what it avoids by design.",
-    Component: Privacy,
   },
   {
     slug: "open-source",
