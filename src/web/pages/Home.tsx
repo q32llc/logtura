@@ -21,6 +21,7 @@ import {
   IconCurrencyDollarOff,
   IconLockOff,
   IconPaperBag,
+  IconQuote,
   IconRadar,
   IconRoute,
   IconServer2,
@@ -144,6 +145,40 @@ export function Home({ user }: { user: ApiUser | null }) {
         </SimpleGrid>
       </Container>
 
+      {/* Testimonial ---------------------------------------------------- */}
+      <Box
+        py={72}
+        style={(t) => ({
+          borderTop: `1px solid ${t.colors.dark[6]}`,
+          borderBottom: `1px solid ${t.colors.dark[6]}`,
+          background: t.colors.dark[7],
+        })}
+      >
+        <Container size="md">
+          <Stack gap="lg" align="center">
+            <ThemeIcon size={44} radius="md" variant="light" color="teal">
+              <IconQuote size={24} />
+            </ThemeIcon>
+            <Text
+              component="blockquote"
+              m={0}
+              ta="center"
+              fw={650}
+              style={{ fontSize: 30, lineHeight: 1.25, maxWidth: 820 }}
+            >
+              “Logtura saved my ass within hours of using it. Two dead sites
+              revived. One lost customer recovered because I emailed them
+              before they even knew there was a problem. I fixed bugs I
+              couldn’t see before, and cut my Cloudflare bill in half after
+              finding OOM issues and backed-up queues.”
+            </Text>
+            <Text c="dimmed" ta="center" size="sm">
+              Early operator feedback
+            </Text>
+          </Stack>
+        </Container>
+      </Box>
+
       {/* Built for ------------------------------------------------------ */}
       <Container size="md" py={64}>
         <Stack gap="lg" align="center">
@@ -151,9 +186,13 @@ export function Home({ user }: { user: ApiUser | null }) {
             Built for the bottom of the market
           </Title>
           <Text c="dimmed" ta="center" maw={620}>
-            Enterprise log pipelines charge by the byte and start at "let's
-            get on a call." We charge per source, have a real free tier,
-            and ship in five minutes.
+            The forwarder is{" "}
+            <Anchor href="https://github.com/logtura/logtura">
+              open source
+            </Anchor>
+            , runs on your own infrastructure, and keeps working without us.
+            The hosted control panel exists because setup and discovery are
+            tedious, and the lazy path should still be the correct one.
           </Text>
           <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg" mt="md" w="100%">
             <Persona
@@ -211,7 +250,7 @@ export function Home({ user }: { user: ApiUser | null }) {
             <Anchor
               size="xs"
               c="dimmed"
-              href="https://github.com/q32llc/logtura"
+              href="https://github.com/logtura/logtura"
             >
               GitHub
             </Anchor>
