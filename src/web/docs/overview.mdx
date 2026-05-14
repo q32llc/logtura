@@ -1,23 +1,56 @@
-# Logtura runs the forwarder in your infrastructure
+# Architecture
 
-The hosted app is a control panel for discovery, config, and deployment. The log collector is open source, runs in your cloud account, and ships logs directly to your destination.
+Logtura has two parts:
 
-## The boundary
+1. A hosted control plane at `logtura.com`. It stores connection metadata, source inventories, monitor and destination definitions, and deployment state.
+2. An open-source forwarder built on Vector. It runs in infrastructure you control and ships logs from providers to destinations.
 
-### Your runtime
+The forwarder runs on your own machine, Fly app, container, or VM. Log payloads pass from the provider, through the forwarder, to the destination. They do not pass through `logtura.com`.
 
-Deploy creates or updates a forwarder in infrastructure you control. Today that can be a Fly app or a self-deployed bundle.
+## Components
 
-### Your log path
+| Component                        | Where it runs                  | What it holds                                                                 |
+| -------------------------------- | ------------------------------ | ----------------------------------------------------------------------------- |
+| Control plane API                | Cloudflare Workers + D1        | Accounts, encrypted credentials, source lists, monitor/destination configs    |
+| Web UI                           | Cloudflare Workers (static)    | React app served from the same Worker                                         |
+| Forwarder                        | Your Fly app / VM / container  | Vector binary, generated config, driver helpers (e.g. `logtura-cf-tail`)      |
+| Heartbeat + metrics endpoint     | Control plane                  | Liveness pings and per-source event counters posted by the forwarder          |
 
-Provider logs stream from the source, through your forwarder, to your destination. Logtura is not in the log data path.
+## Data flow
 
-### Our control plane
+```
+provider API ──► forwarder (Vector) ──► destination (Slack, Datadog, S3, …)
+                       │
+                       └─► control plane: heartbeat, event counters
+```
 
-The hosted service tracks config, source inventory, deployment state, heartbeats, and operational metrics.
+Log content stays on the left-to-right arrow. The downward arrow carries only operational signals:
 
-## Why this matters
+- Forwarder liveness timestamp
+- Per-source event counts in 60-second buckets
+- Vector internal metrics (component errors, buffer depth)
+- Deploy job status
 
-Your logs are production data. They can contain secrets, customer details, payment failures, auth tokens, and operational context. Logtura is designed so that data does not need to flow through us.
+## Source kinds
 
-Heartbeats and metrics are different. They are bounded operational signals that let the control plane answer useful questions: is the forwarder alive, which sources are flowing, how many events are moving, and when did the last deployment succeed?
+Each source kind has a driver package under `packages/`:
+
+| Driver                          | Transport                                  | Selection model     |
+| ------------------------------- | ------------------------------------------ | ------------------- |
+| `cloudflare-worker-tail`        | Workers Tail API (per-script multiplex)    | List of scripts     |
+| `cloudflare-ai-gateway`         | AI Gateway logs API                        | List of gateways    |
+| `fly-log-tail`                  | Fly NATS log stream                        | List of apps        |
+| `railway-logs`                  | Railway GraphQL log subscription           | List of services    |
+| `supabase-edge-logs`            | Supabase logs HTTP poll                    | List of projects    |
+| `vercel-logs`                   | Vercel Log Drains receiver                 | All-of-team         |
+| `custom-vector`                 | Any Vector source                          | Pass-through        |
+
+## Destination kinds
+
+| Driver                          | Sink type                            |
+| ------------------------------- | ------------------------------------ |
+| `slack`                         | Slack incoming webhook               |
+| `webhook`                       | Generic HTTP POST                    |
+| `datadog-metrics`               | Datadog Metrics API                  |
+| `prometheus-remote-write`       | Prometheus remote-write              |
+| `custom-vector`                 | Any Vector sink                      |

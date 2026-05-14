@@ -1,21 +1,71 @@
-# What deploy really does
+# Deploy
 
-Deploy does not move your logs onto Logtura infrastructure. It materializes a forwarder that runs under your account.
+Creating a deployment produces a forwarder bundle and runs it on a target you control. The bundle is the same artifact whether you use the managed Fly path or download it and run it yourself.
 
-## Managed deploy target
+## Bundle contents
 
-If you connect a deploy target, Logtura can create or update a small forwarder app in that provider account. For example, a Fly deployment runs in your Fly organization, using your provider credentials and billing relationship.
+```
+logtura-forwarder/
+├── vector.yaml          # Generated Vector topology
+├── Dockerfile           # Vector + driver helpers
+├── bin/
+│   └── logtura-cf-tail  # Driver helper binaries (only those the topology needs)
+└── README.txt           # The exact command the deploy ran
+```
 
-The hosted service helps with the boring parts: rendering config, creating the app, uploading the bundle, tracking the deploy job, and showing whether the forwarder is alive afterward.
+The Vector config has three sections:
 
-## Self deploy
+- `sources` — one entry per source kind, configured against the connection credentials.
+- `transforms` — VRL transforms generated from the monitor pipeline.
+- `sinks` — one entry per destination, plus the metrics sink that posts back to the control plane.
 
-If you do not want the hosted service to deploy anything, use the generated bundle and run it yourself. The same open-source packages and generated config are used.
+Example of a generated section for a Cloudflare worker tail driving a Slack destination:
 
-Self deploy is the clearest expression of the architecture: Logtura can help you assemble the forwarder, but the forwarder does not need Logtura to keep running.
+```yaml
+sources:
+  cf_workers_dirtsignal:
+    type: exec
+    command: ["/usr/local/bin/logtura-cf-tail", "--script", "dirtsignal"]
+    streaming: true
+    decoding: { codec: json }
 
-## After deployment
+sinks:
+  slack_alerts:
+    type: http
+    inputs: [transform_errors_only]
+    uri: https://hooks.slack.com/services/T.../B.../...
+    encoding: { codec: json }
+```
 
-After deployment, the forwarder tails selected providers, applies Logtura transforms, and sends logs or metrics to the destinations you configured.
+## Managed Fly deploys
 
-Logtura can help manage config, discovery, and deploy state. It is not the place where your log stream lives.
+If you connect Fly as a deploy target, the control plane:
+
+1. Renders the bundle.
+2. Creates or updates a Fly app under your Fly organization, named `logtura-fwd-<deploymentId>`.
+3. Builds the image inside Fly Machines using the Dockerfile from the bundle.
+4. Sets the machine env vars: provider credentials, control-plane heartbeat URL, deployment ID.
+5. Polls the Machines API and surfaces status in the deploy job.
+
+The Fly app lives in your org and is billed to your Fly account. You can `fly logs -a logtura-fwd-...` or `fly ssh console` into it. The control plane does not need access to the app after it is created; it polls the heartbeat endpoint to confirm it is alive.
+
+## Self-deploy
+
+To run the forwarder yourself, download the bundle from the deployment page and run it in your own environment:
+
+```bash
+tar xf logtura-forwarder.tgz
+cd logtura-forwarder
+docker build -t logtura-forwarder .
+docker run --rm \
+  -e CLOUDFLARE_ACCOUNT_ID=acct \
+  -e CLOUDFLARE_API_TOKEN=token \
+  -e SLACK_WEBHOOK_URL=https://hooks.slack.com/... \
+  logtura-forwarder
+```
+
+The forwarder will tail the configured sources and post events. If you set `LOGTURA_HEARTBEAT_URL`, it will also post liveness to the control plane so the deployment status reflects reality.
+
+## Updates
+
+When the source list, destination config, or driver package version changes, the deployment is marked `bundleOutdated: true`. The Deployments page shows a badge with the count. Click `Redeploy` to render a fresh bundle and update the running instance.

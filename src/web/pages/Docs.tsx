@@ -174,4 +174,95 @@ const mdxComponents = {
     <Anchor {...props} />
   ),
   code: (props: React.HTMLAttributes<HTMLElement>) => <Code {...props} />,
+  img: (props: React.ImgHTMLAttributes<HTMLImageElement>) => (
+    <Box
+      component="figure"
+      m={0}
+      my="md"
+      style={(t) => ({
+        border: `1px solid ${t.colors.dark[5]}`,
+        borderRadius: t.radius.md,
+        overflow: "hidden",
+        background: t.colors.dark[7],
+      })}
+    >
+      <Box
+        component="img"
+        {...props}
+        style={{
+          display: "block",
+          width: "100%",
+          height: "auto",
+        }}
+      />
+      {props.alt && (
+        <Text
+          c="dimmed"
+          size="xs"
+          ta="center"
+          py={6}
+          px="md"
+          style={(t) => ({
+            borderTop: `1px solid ${t.colors.dark[5]}`,
+          })}
+        >
+          {props.alt}
+        </Text>
+      )}
+    </Box>
+  ),
+  pre: (props: React.HTMLAttributes<HTMLPreElement>) => (
+    <Box
+      component="pre"
+      mb="md"
+      p="md"
+      style={(t) => ({
+        background: t.colors.dark[7],
+        border: `1px solid ${t.colors.dark[5]}`,
+        borderRadius: t.radius.sm,
+        overflowX: "auto",
+        fontSize: 13,
+        lineHeight: 1.6,
+      })}
+      {...props}
+    />
+  ),
+  table: (props: React.TableHTMLAttributes<HTMLTableElement>) => (
+    <Box
+      component="table"
+      mb="md"
+      style={(t) => ({
+        width: "100%",
+        borderCollapse: "collapse",
+        fontSize: 14,
+        color: t.colors.dark[1],
+      })}
+      {...props}
+    />
+  ),
+  th: (props: React.ThHTMLAttributes<HTMLTableCellElement>) => (
+    <Box
+      component="th"
+      style={(t) => ({
+        textAlign: "left",
+        padding: "8px 12px",
+        borderBottom: `1px solid ${t.colors.dark[4]}`,
+        background: t.colors.dark[7],
+        fontWeight: 600,
+        color: t.white,
+      })}
+      {...props}
+    />
+  ),
+  td: (props: React.TdHTMLAttributes<HTMLTableCellElement>) => (
+    <Box
+      component="td"
+      style={(t) => ({
+        padding: "8px 12px",
+        borderBottom: `1px solid ${t.colors.dark[6]}`,
+        verticalAlign: "top",
+      })}
+      {...props}
+    />
+  ),
 };

@@ -1,25 +1,94 @@
-# Using the hosted UX
+# Hosted UI
 
-The hosted control panel exists because setup, source discovery, provider token handling, and deployment are tedious. The lazy path should still be the correct one.
+The hosted UI at `logtura.com/app` is organized around four resources:
 
-## Basic flow
+- **Connections** — provider tokens used for discovery and source configuration.
+- **Sources** — the projects, services, scripts, or functions discovered through a connection.
+- **Destinations** — sinks the forwarder writes to.
+- **Deployments** — running forwarders, their generated config, and their heartbeat.
 
-1. Sign in with GitHub. The account only identifies you in the control plane.
-2. Add a connection, such as Cloudflare, Railway, Vercel, Supabase, or Fly.
-3. Let Logtura discover visible projects, environments, services, workers, functions, and other log sources.
-4. Pick the sources you want to monitor.
-5. Choose a destination.
-6. Create a deployment.
-7. Watch the deployment card for status, heartbeats, event rates, and source-level metrics.
+![Connections list](/docs-screenshots/connections.png)
+
+The four resources are reachable from the left nav. Each list page links to a detail page; deployments and connections also expose actions (deploy, re-discover, reconnect) at the top of their detail view.
 
 ## Connections
 
-A connection is a provider account or token that Logtura can use for discovery and source configuration. Some providers expose a broad stream that contains multiple services. When that happens, Logtura can demux the stream into per-service or per-project metrics when the provider gives us enough metadata.
+A connection holds a provider account credential. Open `Connections → New connection` and pick a provider. Each provider asks for the minimum scope needed for discovery and tailing.
+
+![New connection wizard, Cloudflare](/docs-screenshots/new-connection.png)
+
+| Provider     | Credential                           | Scopes used                                  |
+| ------------ | ------------------------------------ | -------------------------------------------- |
+| Cloudflare   | API token + account ID               | `Workers Scripts: Read`, `AI Gateway: Read`  |
+| Fly          | Personal access token + org slug     | Read apps, read log stream                   |
+| Railway      | API token + team ID                  | Read services, subscribe to logs             |
+| Supabase     | Access token                         | Read projects, read edge logs                |
+| Vercel       | API token + team ID                  | Read projects, create log drain              |
+
+Credentials are encrypted with `CREDENTIAL_ENCRYPTION_KEY` before they are stored in D1. The control plane uses them for two operations:
+
+1. Listing sources during discovery.
+2. Embedding them into the forwarder's generated config so it can subscribe to provider streams.
+
+## Sources
+
+Once a connection is saved, the control plane calls `discoverSources()` on its driver. The result is a list of `DiscoveredSource` records:
+
+```json
+{
+  "sourceKind": "cf_worker",
+  "externalId": "ipogrid",
+  "displayName": "ipogrid",
+  "metadata": { "modified_on": "2026-04-12T08:14:55Z" }
+}
+```
+
+Discovery runs as a queued job. The connection page shows the latest discovery job; refreshing the page re-attaches to a running job rather than starting a new one. To refresh inventory, click `Re-discover`.
+
+![Connection detail with discovered sources](/docs-screenshots/connection-detail.png)
+
+Source selection is one of three shapes:
+
+- `all` — every source the driver returns (only supported by drivers with that capability, e.g. `vercel-logs`).
+- `list` — explicit source IDs picked in the UI.
+- `tag` — sources matching a tag filter, where the provider exposes tags.
 
 ## Destinations
 
-Destinations are where your forwarder sends logs, events, or metrics. The forwarder is built on Vector, so the long-term direction is to support the sinks Vector supports while keeping the hosted UX small and practical.
+![Destinations list](/docs-screenshots/destinations.png)
+
+Each destination has a kind and a small config payload. The Slack destination, for example:
+
+```json
+{
+  "kind": "slack",
+  "webhookUrl": "https://hooks.slack.com/services/T.../B.../...",
+  "channel": "#alerts"
+}
+```
+
+Destinations are referenced by ID from monitors and from the deployment.
 
 ## Deployments
 
-A deployment is the concrete forwarder instance and config that runs outside Logtura. Updating a connection, source selection, or destination can make a deployment outdated. Redeploying updates the generated config in your runtime.
+A deployment binds:
+
+- A target (Fly app, self-deployed container, etc.).
+- A source selection.
+- A list of destinations.
+- An optional monitor pipeline.
+
+When you create or update a deployment, the control plane renders a Vector topology, packages it with the driver helpers it needs, and either pushes it to a managed Fly app or makes it downloadable as a bundle.
+
+![Deployments list](/docs-screenshots/deployments.png)
+
+The deployment detail page shows:
+
+- Status: queued, deploying, running, failed.
+- Last heartbeat timestamp.
+- Per-source event rates from the last 24 hours.
+- The generated Vector config (read-only).
+
+![Deployment detail with out-of-date banner](/docs-screenshots/deployment-detail.png)
+
+If you change a connection, source list, or destination, the deployment is marked **bundle outdated**. Redeploy to push the new config.

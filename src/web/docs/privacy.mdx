@@ -1,25 +1,55 @@
-# What Logtura sees
+# Privacy model
 
-Logtura is comfortable storing control-plane metadata and operational health signals. Logtura should not become your log warehouse or a proxy for your production log streams.
+This page documents which data the hosted control plane stores and which data it does not see.
 
-## We are okay with this
+## What the control plane stores
 
-- Account and connection metadata
-- Encrypted provider and deploy credentials
-- Discovered source names, IDs, and hierarchy
-- Deployment status and generated config metadata
-- Heartbeats, event counts, rates, and health metrics
+| Data                                | Storage                        | Encryption                                            |
+| ----------------------------------- | ------------------------------ | ----------------------------------------------------- |
+| GitHub user ID, login, email        | D1 `users`                     | At rest (Cloudflare D1)                               |
+| Provider credentials                | D1 `connections`               | AES-GCM via `CREDENTIAL_ENCRYPTION_KEY` before insert |
+| Discovered source list              | D1 `sources`                   | At rest                                               |
+| Monitor and destination definitions | D1                             | Destination secrets encrypted (e.g. webhook URLs)     |
+| Deployment metadata + generated config text | D1                     | At rest                                               |
+| Heartbeats and event counters       | D1 + Workers Analytics Engine  | At rest                                               |
+| Deploy job logs                     | D1, capped per job             | At rest                                               |
 
-## We do not want this
+Event counters are aggregates: per-deployment, per-source, per-minute counts. They do not contain log content.
 
-- Stored application log content
-- A central Logtura-hosted log tailing fleet
-- Byte-metered custody of your production logs
-- Provider streams proxied through our infrastructure
-- Any architecture that makes us your log warehouse
+## What the control plane does not store
 
-## Why we do not run collectors for you
+| Data                                              | Why it is not stored                                                     |
+| ------------------------------------------------- | ------------------------------------------------------------------------ |
+| Log message content                               | Logs stream forwarder → destination, never through the control plane     |
+| Provider-side request bodies, headers, or payloads | Same                                                                     |
+| Forwarder stdout/stderr                           | Stored on your target (Fly logs, container logs)                         |
+| Destination responses                             | Vector sees them; the control plane does not                             |
 
-Running collectors on Logtura infrastructure would make the product simpler to explain, but it would be the wrong boundary.
+## Heartbeat payload
 
-Keeping the forwarder in your infrastructure gives you clearer data custody, lower blast radius, more predictable costs, and an escape hatch. If Logtura disappears, your open-source forwarder can keep running.
+The forwarder POSTs this every 30 seconds while running:
+
+```json
+{
+  "deploymentId": "dep_01HXY...",
+  "ts": 1747180800,
+  "vectorVersion": "0.42.0",
+  "sourceCounters": {
+    "cf_workers_dirtsignal": { "events": 142, "bytes": 0 },
+    "cf_workers_ipogrid": { "events": 8, "bytes": 0 }
+  },
+  "componentErrors": 0
+}
+```
+
+The control plane stores the latest heartbeat per deployment and rolls the counters into Analytics Engine.
+
+## Leaving the service
+
+If you stop using the hosted control plane, your running forwarder keeps working:
+
+- It already has the rendered config baked into its image.
+- It already has provider credentials in its environment.
+- The only call it makes to `logtura.com` is the heartbeat POST. Failing those does not stop the pipeline.
+
+To detach a managed Fly deploy from the control plane, set `LOGTURA_HEARTBEAT_URL=""` on the machine.
