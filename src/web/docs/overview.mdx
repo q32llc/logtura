@@ -1,0 +1,23 @@
+# Logtura runs the forwarder in your infrastructure
+
+The hosted app is a control panel for discovery, config, and deployment. The log collector is open source, runs in your cloud account, and ships logs directly to your destination.
+
+## The boundary
+
+### Your runtime
+
+Deploy creates or updates a forwarder in infrastructure you control. Today that can be a Fly app or a self-deployed bundle.
+
+### Your log path
+
+Provider logs stream from the source, through your forwarder, to your destination. Logtura is not in the log data path.
+
+### Our control plane
+
+The hosted service tracks config, source inventory, deployment state, heartbeats, and operational metrics.
+
+## Why this matters
+
+Your logs are production data. They can contain secrets, customer details, payment failures, auth tokens, and operational context. Logtura is designed so that data does not need to flow through us.
+
+Heartbeats and metrics are different. They are bounded operational signals that let the control plane answer useful questions: is the forwarder alive, which sources are flowing, how many events are moving, and when did the last deployment succeed?

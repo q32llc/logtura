@@ -1,0 +1,25 @@
+# What Logtura sees
+
+Logtura is comfortable storing control-plane metadata and operational health signals. Logtura should not become your log warehouse or a proxy for your production log streams.
+
+## We are okay with this
+
+- Account and connection metadata
+- Encrypted provider and deploy credentials
+- Discovered source names, IDs, and hierarchy
+- Deployment status and generated config metadata
+- Heartbeats, event counts, rates, and health metrics
+
+## We do not want this
+
+- Stored application log content
+- A central Logtura-hosted log tailing fleet
+- Byte-metered custody of your production logs
+- Provider streams proxied through our infrastructure
+- Any architecture that makes us your log warehouse
+
+## Why we do not run collectors for you
+
+Running collectors on Logtura infrastructure would make the product simpler to explain, but it would be the wrong boundary.
+
+Keeping the forwarder in your infrastructure gives you clearer data custody, lower blast radius, more predictable costs, and an escape hatch. If Logtura disappears, your open-source forwarder can keep running.

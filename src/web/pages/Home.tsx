@@ -91,6 +91,9 @@ export function Home({ user }: { user: ApiUser | null }) {
             >
               How it works
             </Button>
+            <Button component={Link} to="/docs" size="lg" variant="subtle">
+              Docs
+            </Button>
           </Group>
 
           <Stack gap={2} align="center">
@@ -247,6 +250,9 @@ export function Home({ user }: { user: ApiUser | null }) {
         <Group justify="space-between" c="dimmed">
           <Text size="xs">logtura · open-source log forwarder control plane</Text>
           <Group gap="md">
+            <Anchor size="xs" c="dimmed" component={Link} to="/docs">
+              Docs
+            </Anchor>
             <Anchor
               size="xs"
               c="dimmed"

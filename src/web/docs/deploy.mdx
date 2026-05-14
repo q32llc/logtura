@@ -1,0 +1,21 @@
+# What deploy really does
+
+Deploy does not move your logs onto Logtura infrastructure. It materializes a forwarder that runs under your account.
+
+## Managed deploy target
+
+If you connect a deploy target, Logtura can create or update a small forwarder app in that provider account. For example, a Fly deployment runs in your Fly organization, using your provider credentials and billing relationship.
+
+The hosted service helps with the boring parts: rendering config, creating the app, uploading the bundle, tracking the deploy job, and showing whether the forwarder is alive afterward.
+
+## Self deploy
+
+If you do not want the hosted service to deploy anything, use the generated bundle and run it yourself. The same open-source packages and generated config are used.
+
+Self deploy is the clearest expression of the architecture: Logtura can help you assemble the forwarder, but the forwarder does not need Logtura to keep running.
+
+## After deployment
+
+After deployment, the forwarder tails selected providers, applies Logtura transforms, and sends logs or metrics to the destinations you configured.
+
+Logtura can help manage config, discovery, and deploy state. It is not the place where your log stream lives.

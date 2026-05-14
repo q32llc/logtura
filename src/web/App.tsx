@@ -33,6 +33,7 @@ import { DeployWizard } from "./pages/DeployWizard";
 import { DeploymentDetail } from "./pages/DeploymentDetail";
 import { Deployments } from "./pages/Deployments";
 import { Destinations } from "./pages/Destinations";
+import { Docs } from "./pages/Docs";
 import { Home } from "./pages/Home";
 import { Monitors } from "./pages/Monitors";
 import { NewConnection } from "./pages/NewConnection";
@@ -66,6 +67,8 @@ export function App() {
       <AppShellLayout user={auth.user} loading={auth.loading}>
         <Routes>
           <Route path="/" element={<Home user={auth.user} />} />
+          <Route path="/docs" element={<Docs />} />
+          <Route path="/docs/:slug" element={<Docs />} />
           <Route
             path="/app"
             element={
@@ -216,6 +219,16 @@ function AppShellLayout({
             </Link>
           </Group>
           <Group gap="md">
+            {!isAppRoute && (
+              <Button
+                component={Link}
+                to="/docs"
+                variant="subtle"
+                size="sm"
+              >
+                Docs
+              </Button>
+            )}
             {loading ? (
               <Loader size="xs" />
             ) : user ? (

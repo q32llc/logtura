@@ -1,0 +1,25 @@
+# Using the hosted UX
+
+The hosted control panel exists because setup, source discovery, provider token handling, and deployment are tedious. The lazy path should still be the correct one.
+
+## Basic flow
+
+1. Sign in with GitHub. The account only identifies you in the control plane.
+2. Add a connection, such as Cloudflare, Railway, Vercel, Supabase, or Fly.
+3. Let Logtura discover visible projects, environments, services, workers, functions, and other log sources.
+4. Pick the sources you want to monitor.
+5. Choose a destination.
+6. Create a deployment.
+7. Watch the deployment card for status, heartbeats, event rates, and source-level metrics.
+
+## Connections
+
+A connection is a provider account or token that Logtura can use for discovery and source configuration. Some providers expose a broad stream that contains multiple services. When that happens, Logtura can demux the stream into per-service or per-project metrics when the provider gives us enough metadata.
+
+## Destinations
+
+Destinations are where your forwarder sends logs, events, or metrics. The forwarder is built on Vector, so the long-term direction is to support the sinks Vector supports while keeping the hosted UX small and practical.
+
+## Deployments
+
+A deployment is the concrete forwarder instance and config that runs outside Logtura. Updating a connection, source selection, or destination can make a deployment outdated. Redeploying updates the generated config in your runtime.
