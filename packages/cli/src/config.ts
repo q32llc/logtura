@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type {
   FilterStep,
   GenerateInput,
@@ -13,25 +13,70 @@ import { listDestinations, listProviders } from "./registry";
 
 type UnknownRecord = Record<string, unknown>;
 
+export const CONFIG_FILENAMES = [
+  "logt.yaml",
+  "logt.yml",
+  "logtura.yaml",
+  "logtura.yml",
+] as const;
+
+export interface ConfigFileRef {
+  path: string;
+  existed: boolean;
+}
+
 export interface ParsedConfig {
   input: GenerateInput;
   missingEnv: string[];
+  requiredEnv: string[];
+  path: string;
+}
+
+export function findConfigPath(explicit?: string): ConfigFileRef {
+  if (explicit) return { path: explicit, existed: existsSync(explicit) };
+  const fromEnv = process.env.LOGT_CONFIG;
+  if (fromEnv) return { path: fromEnv, existed: existsSync(fromEnv) };
+  for (const name of CONFIG_FILENAMES) {
+    if (existsSync(name)) return { path: name, existed: true };
+  }
+  return { path: "logt.yaml", existed: false };
 }
 
 export function loadConfigFile(path: string): ParsedConfig {
   return parseConfig(readFileSync(path, "utf8"), path);
 }
 
-export function parseConfig(text: string, filename = "logtura.yaml"): ParsedConfig {
+export function readConfigDoc(path: string): UnknownRecord {
+  if (!existsSync(path)) return {};
+  const parsed = parseYaml(readFileSync(path, "utf8")) as unknown;
+  if (parsed === null || parsed === undefined) return {};
+  if (!isRecord(parsed)) throw new Error(`${path}: expected a YAML object`);
+  return parsed;
+}
+
+export function writeConfigDoc(path: string, doc: UnknownRecord): void {
+  writeFileSync(path, stringifyYaml(doc, { lineWidth: 96 }));
+}
+
+export function parseConfig(text: string, filename = "logt.yaml"): ParsedConfig {
   const doc = parseYaml(text) as unknown;
   if (!isRecord(doc)) throw new Error(`${filename}: expected a YAML object`);
   const missingEnv = new Set<string>();
-  const env = (value: unknown): unknown => resolveEnv(value, missingEnv);
+  const requiredEnv = new Set<string>();
   const baseDir = dirname(resolve(filename));
+  const envValues = readDotEnv(resolve(baseDir, ".env"));
+  const env = (value: unknown): unknown =>
+    resolveEnv(value, missingEnv, requiredEnv, envValues);
 
-  const connections = parseSources(asRecord(doc.sources, "sources"), env, baseDir);
-  const destinations = parseSinks(asRecord(doc.sinks, "sinks"), env, baseDir);
-  const monitors = parseMonitors(asArray(doc.monitors, "monitors"), destinations);
+  const providerRefs = parseProviderRefs(asRecord(doc.providers ?? {}, "providers"), env);
+  const connections = parseSources(
+    asRecord(doc.sources ?? {}, "sources"),
+    providerRefs,
+    env,
+    baseDir,
+  );
+  const destinations = parseSinks(asRecord(doc.sinks ?? {}, "sinks"), env, requiredEnv, baseDir);
+  const monitors = parseMonitors(asArray(doc.monitors ?? [], "monitors"), destinations);
   const metrics = parseMetrics(doc.metrics, destinations);
 
   return {
@@ -44,103 +89,199 @@ export function parseConfig(text: string, filename = "logtura.yaml"): ParsedConf
       metrics,
     },
     missingEnv: [...missingEnv].sort(),
+    requiredEnv: [...requiredEnv].sort(),
+    path: filename,
   };
 }
 
-function parseSources(
-  sources: UnknownRecord,
+interface ProviderRef {
+  id: string;
+  provider: string;
+  displayName: string;
+  externalAccountId: string | null;
+  credentials: Record<string, unknown>;
+}
+
+function parseProviderRefs(
+  providers: UnknownRecord,
   env: (value: unknown) => unknown,
-  baseDir: string,
-): GeneratorConnection[] {
-  const out: GeneratorConnection[] = [];
-  for (const [id, raw] of Object.entries(sources)) {
-    const s = asRecord(raw, `sources.${id}`);
-    const provider = stringField(s, "provider", sourceProviderAlias(id));
-    if (!provider) throw new Error(`sources.${id}.provider is required`);
-    const displayName = stringField(s, "display_name", id) ?? id;
-    const externalAccountId =
-      stringValue(
-        env(
-          s.account_id ??
-            s.external_account_id ??
-            (provider === "vercel-logs" ? s.team_id ?? s.teamId : undefined) ??
-            (provider === "railway-logs"
-              ? s.environment_id ?? s.environmentId
-              : undefined),
-        ),
-      ) ?? null;
-    const credentials = sourceCredentials(provider, s, env);
-    const selectedSources = sourceRows(id, provider, s, baseDir, externalAccountId);
-    const selectAll = boolField(s, "all", false);
-    out.push({
-      connection: {
-        id: `con_${safeId(id)}`,
-        provider,
-        displayName,
-        externalAccountId,
-      },
-      selectedSources,
-      selectAll,
-      credentials,
+): Map<string, ProviderRef> {
+  const out = new Map<string, ProviderRef>();
+  for (const [id, raw] of Object.entries(providers)) {
+    const p = asRecord(raw, `providers.${id}`);
+    const provider = stringField(p, "provider", id);
+    if (!provider) throw new Error(`providers.${id}.provider is required`);
+    const accountId = stringValue(
+      env(p.account_id ?? p.accountId ?? p.external_account_id ?? p.externalAccountId),
+    );
+    out.set(id, {
+      id,
+      provider,
+      displayName: stringField(p, "display_name", stringField(p, "displayName", id)) ?? id,
+      externalAccountId: accountId,
+      credentials: providerCredentials(provider, p, env),
     });
   }
   return out;
 }
 
-function sourceProviderAlias(id: string): string | null {
-  if (id === "workers" || id === "cloudflare_workers") {
-    return "cloudflare-worker-tail";
-  }
-  if (id === "edge" || id === "supabase_edge") return "supabase-edge-logs";
-  if (id === "fly" || id === "fly_apps") return "fly-log-tail";
-  if (id === "railway" || id === "railway_logs") return "railway-logs";
-  if (id === "ai_gateway" || id === "cloudflare_ai_gateway") {
-    return "cloudflare-ai-gateway";
-  }
-  if (id === "vercel" || id === "vercel_logs") return "vercel-logs";
-  return null;
-}
-
-function sourceCredentials(
+function providerCredentials(
   provider: string,
-  s: UnknownRecord,
+  p: UnknownRecord,
   env: (value: unknown) => unknown,
 ): Record<string, unknown> {
-  const rawCreds = isRecord(s.credentials) ? s.credentials : {};
-  const from = (key: string, fallback?: unknown) =>
-    env(rawCreds[key] ?? s[key] ?? fallback);
-  if (provider.startsWith("cloudflare-")) {
-    return { apiToken: stringValue(from("api_token")) ?? "" };
-  }
-  if (provider === "supabase-edge-logs") {
-    return { pat: stringValue(from("pat")) ?? "" };
-  }
-  if (provider === "fly-log-tail") {
-    return { apiToken: stringValue(from("api_token")) ?? "" };
-  }
-  if (provider === "railway-logs") {
+  const raw = isRecord(p.credentials) ? p.credentials : {};
+  const from = (key: string, fallback?: unknown) => env(raw[key] ?? p[key] ?? fallback);
+  if (provider === "cloudflare") return { apiToken: stringValue(from("api_token")) ?? "" };
+  if (provider === "fly") return { apiToken: stringValue(from("api_token")) ?? "" };
+  if (provider === "railway") {
     return {
       apiToken: stringValue(from("api_token")) ?? "",
       projectId: stringValue(from("project_id")),
       environmentId: stringValue(from("environment_id")),
     };
   }
-  if (provider === "vercel-logs") {
-    return { apiToken: stringValue(from("api_token")) ?? "" };
+  if (provider === "supabase") return { pat: stringValue(from("pat")) ?? "" };
+  if (provider === "vercel") return { apiToken: stringValue(from("api_token")) ?? "" };
+  return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, env(v)]));
+}
+
+function parseSources(
+  sources: UnknownRecord,
+  providers: Map<string, ProviderRef>,
+  env: (value: unknown) => unknown,
+  baseDir: string,
+): GeneratorConnection[] {
+  const out: GeneratorConnection[] = [];
+  for (const [id, raw] of Object.entries(sources)) {
+    const s = asRecord(raw, `sources.${id}`);
+    const sourceDriver = stringField(s, "source", stringField(s, "driver", sourceAlias(id)));
+    if (!sourceDriver) throw new Error(`sources.${id}.source is required`);
+    if (sourceDriver === "custom-vector") {
+      out.push(customVectorConnection(id, s, baseDir));
+      continue;
+    }
+    const providerKind = providerKindForSource(sourceDriver);
+    const providerId = stringField(s, "provider");
+    const provider = resolveProviderRef(providers, providerKind, providerId, `sources.${id}`);
+    const externalAccountId =
+      stringValue(
+        env(
+          s.account_id ??
+            s.accountId ??
+            s.external_account_id ??
+            s.externalAccountId ??
+            (sourceDriver === "vercel-logs" ? s.team_id ?? s.teamId : undefined) ??
+            (sourceDriver === "railway-logs" ? s.environment_id ?? s.environmentId : undefined),
+        ),
+      ) ?? provider.externalAccountId;
+    out.push({
+      connection: {
+        id: `con_${safeId(id)}`,
+        provider: sourceDriver,
+        displayName: stringField(s, "display_name", stringField(s, "displayName", id)) ?? id,
+        externalAccountId,
+      },
+      selectedSources: sourceRows(id, sourceDriver, s, baseDir, externalAccountId),
+      selectAll: boolField(s, "all", false),
+      credentials: credentialsForSource(sourceDriver, provider, s, env),
+    });
   }
-  return Object.fromEntries(
-    Object.entries(rawCreds).map(([k, v]) => [k, env(v)]),
-  );
+  return out;
+}
+
+function resolveProviderRef(
+  providers: Map<string, ProviderRef>,
+  providerKind: string,
+  providerId: string | null,
+  path: string,
+): ProviderRef {
+  if (providerId) {
+    const p = providers.get(providerId);
+    if (!p) throw new Error(`${path}.provider references unknown provider ${providerId}`);
+    if (p.provider !== providerKind) {
+      throw new Error(`${path}.provider must reference a ${providerKind} provider`);
+    }
+    return p;
+  }
+  const matches = [...providers.values()].filter((p) => p.provider === providerKind);
+  if (matches.length === 1) return matches[0]!;
+  if (matches.length === 0) {
+    throw new Error(`${path}.provider is required; run logt connect ${providerKind}`);
+  }
+  throw new Error(`${path}.provider is required because multiple ${providerKind} providers exist`);
+}
+
+function credentialsForSource(
+  sourceDriver: string,
+  provider: ProviderRef,
+  s: UnknownRecord,
+  env: (value: unknown) => unknown,
+): Record<string, unknown> {
+  const creds = { ...provider.credentials };
+  if (sourceDriver === "railway-logs") {
+    return {
+      ...creds,
+      projectId:
+        stringValue(env(s.project_id ?? s.projectId)) ??
+        stringValue(creds.projectId),
+      environmentId:
+        stringValue(env(s.environment_id ?? s.environmentId)) ??
+        stringValue(creds.environmentId),
+    };
+  }
+  return creds;
+}
+
+function providerKindForSource(sourceDriver: string): string {
+  if (sourceDriver.startsWith("cloudflare-")) return "cloudflare";
+  if (sourceDriver === "fly-log-tail") return "fly";
+  if (sourceDriver === "railway-logs") return "railway";
+  if (sourceDriver === "supabase-edge-logs") return "supabase";
+  if (sourceDriver === "vercel-logs") return "vercel";
+  throw new Error(`unknown source driver: ${sourceDriver}`);
+}
+
+function sourceAlias(id: string): string | null {
+  if (id === "workers" || id === "cloudflare_workers") return "cloudflare-worker-tail";
+  if (id === "edge" || id === "supabase_edge") return "supabase-edge-logs";
+  if (id === "fly" || id === "fly_apps") return "fly-log-tail";
+  if (id === "railway" || id === "railway_logs") return "railway-logs";
+  if (id === "ai_gateway" || id === "cloudflare_ai_gateway") return "cloudflare-ai-gateway";
+  if (id === "vercel" || id === "vercel_logs") return "vercel-logs";
+  return null;
+}
+
+function customVectorConnection(id: string, s: UnknownRecord, baseDir: string): GeneratorConnection {
+  const vector = customVectorSourceConfig(s, baseDir, `sources.${id}.vector`);
+  return {
+    connection: {
+      id: `con_${safeId(id)}`,
+      provider: "custom-vector",
+      displayName: stringField(s, "display_name", id) ?? id,
+      externalAccountId: null,
+    },
+    selectedSources: [
+      {
+        id: `src_${safeId(id)}_custom_vector`,
+        externalId: vector.feed,
+        displayName: stringField(s, "display_name", id) ?? id,
+        sourceKind: "custom_vector",
+        metadata: { customVector: vector },
+      },
+    ],
+    credentials: {},
+  };
 }
 
 function sourceRows(
   id: string,
-  provider: string,
+  driver: string,
   s: UnknownRecord,
   baseDir: string,
   externalAccountId: string | null,
 ): Source[] {
-  if (provider === "custom-vector") {
+  if (driver === "custom-vector") {
     const vector = customVectorSourceConfig(s, baseDir, `sources.${id}.vector`);
     return [
       {
@@ -152,40 +293,33 @@ function sourceRows(
       },
     ];
   }
-  if (provider === "cloudflare-worker-tail") {
-    return stringList(s.scripts ?? s.sources, `sources.${id}.scripts`).map(
-      (name) => source(id, name, "cf_worker"),
-    );
+  if (driver === "cloudflare-worker-tail") {
+    return stringList(s.scripts ?? s.workers ?? s.include ?? s.sources, `sources.${id}.scripts`)
+      .map((name) => source(id, name, "cf_worker"));
   }
-  if (provider === "fly-log-tail") {
-    return stringList(s.apps ?? s.sources, `sources.${id}.apps`).map((name) =>
-      source(id, name, "fly_app"),
-    );
+  if (driver === "cloudflare-ai-gateway") {
+    return stringList(s.gateways ?? s.include ?? s.sources, `sources.${id}.gateways`)
+      .map((name) => source(id, name, "cf_ai_gateway"));
   }
-  if (provider === "railway-logs") {
-    const environmentId =
-      externalAccountId ??
-      stringField(s, "environment_id", stringField(s, "environmentId"));
+  if (driver === "fly-log-tail") {
+    return stringList(s.apps ?? s.include ?? s.sources, `sources.${id}.apps`)
+      .map((name) => source(id, name, "fly_app"));
+  }
+  if (driver === "vercel-logs") {
+    return stringList(s.projects ?? s.include ?? s.sources, `sources.${id}.projects`)
+      .map((projectId) => source(id, projectId, "vercel_project"));
+  }
+  if (driver === "railway-logs") {
     return railwayServiceRows(
       id,
-      s.services ?? s.sources,
+      s.services ?? s.include ?? s.sources,
       `sources.${id}.services`,
-      environmentId,
+      externalAccountId,
     );
   }
-  if (provider === "cloudflare-ai-gateway") {
-    return stringList(s.gateways ?? s.sources, `sources.${id}.gateways`).map(
-      (name) => source(id, name, "cf_ai_gateway"),
-    );
-  }
-  if (provider === "vercel-logs") {
-    return stringList(s.projects ?? s.sources, `sources.${id}.projects`).map(
-      (projectId) => source(id, projectId, "vercel_project"),
-    );
-  }
-  if (provider === "supabase-edge-logs") {
+  if (driver === "supabase-edge-logs") {
     const rows: Source[] = [];
-    for (const item of asArray(s.functions ?? [], `sources.${id}.functions`)) {
+    for (const item of asArray(s.functions ?? s.include ?? [], `sources.${id}.functions`)) {
       if (typeof item === "string") {
         rows.push(source(id, item, "supabase_edge_fn"));
       } else {
@@ -211,7 +345,7 @@ function sourceRows(
     return rows;
   }
   return stringList(s.sources, `sources.${id}.sources`).map((name) =>
-    source(id, name, provider),
+    source(id, name, driver),
   );
 }
 
@@ -267,6 +401,7 @@ function railwayServiceRows(
 function parseSinks(
   sinks: UnknownRecord,
   env: (value: unknown) => unknown,
+  requiredEnv: Set<string>,
   baseDir: string,
 ): Map<string, { destination: { id: string; kind: string; displayName: string }; config: unknown }> {
   const out = new Map<
@@ -275,15 +410,15 @@ function parseSinks(
   >();
   for (const [id, raw] of Object.entries(sinks)) {
     const s = asRecord(raw, `sinks.${id}`);
-    const kind = stringField(s, "type", stringField(s, "kind"));
-    if (!kind) throw new Error(`sinks.${id}.type is required`);
+    const kind = stringField(s, "sink", stringField(s, "type", stringField(s, "kind")));
+    if (!kind) throw new Error(`sinks.${id}.sink is required`);
     out.set(id, {
       destination: {
         id: `dst_${safeId(id)}`,
         kind,
-        displayName: stringField(s, "display_name", id) ?? id,
+        displayName: stringField(s, "display_name", stringField(s, "displayName", id)) ?? id,
       },
-      config: sinkConfig(kind, s, env, baseDir, `sinks.${id}`),
+      config: sinkConfig(kind, id, s, env, requiredEnv, baseDir, `sinks.${id}`),
     });
   }
   return out;
@@ -291,15 +426,19 @@ function parseSinks(
 
 function sinkConfig(
   kind: string,
+  id: string,
   s: UnknownRecord,
   env: (value: unknown) => unknown,
+  requiredEnv: Set<string>,
   baseDir: string,
   path: string,
 ): unknown {
   const config = isRecord(s.config) ? s.config : s;
   if (kind === "slack") {
     return {
-      webhookUrl: stringValue(env(config.webhook_url ?? config.webhookUrl)) ?? "",
+      webhookUrl:
+        stringValue(env(config.webhook_url ?? config.webhookUrl)) ??
+        envPlaceholder(`SLACK_${safeEnv(id)}_WEBHOOK_URL`, requiredEnv),
       teamName: stringField(config, "team_name", stringField(config, "teamName")),
       channel: stringField(config, "channel"),
       maxMessageChars: numberOrNullField(
@@ -309,10 +448,30 @@ function sinkConfig(
       ),
     };
   }
+  if (kind === "webhook") {
+    return {
+      url:
+        stringValue(env(config.url ?? config.webhook_url ?? config.webhookUrl)) ??
+        envPlaceholder(`WEBHOOK_${safeEnv(id)}_URL`, requiredEnv),
+    };
+  }
+  if (kind === "datadog_metrics") {
+    return {
+      apiKey:
+        stringValue(env(config.api_key ?? config.apiKey)) ??
+        envPlaceholder(`DATADOG_${safeEnv(id)}_API_KEY`, requiredEnv),
+      site: stringField(config, "site", "datadoghq.com") ?? "datadoghq.com",
+    };
+  }
   if (kind === "custom-vector") {
     return customVectorDestinationConfig(config, baseDir, `${path}.vector`);
   }
   return deepResolveEnv(config, env);
+}
+
+function envPlaceholder(name: string, requiredEnv: Set<string>): string {
+  requiredEnv.add(name);
+  return "";
 }
 
 function parseMonitors(
@@ -337,7 +496,7 @@ function parseMonitors(
         id: `mon_${safeId(name)}`,
         connectionId: null,
         displayName: name,
-        filterSteps: parseFilterSteps(m.filter ?? []),
+        filterSteps: parseFilterSteps(m.filter ?? (name === "errors" ? ["errors"] : [])),
         enabled: m.enabled !== false,
       },
       sinks: monitorSinks,
@@ -432,13 +591,43 @@ function readVectorFragment(
   return parsed;
 }
 
-function resolveEnv(value: unknown, missing: Set<string>): unknown {
+function resolveEnv(
+  value: unknown,
+  missing: Set<string>,
+  required: Set<string>,
+  envValues: Map<string, string>,
+): unknown {
   if (typeof value !== "string") return value;
   if (!value.startsWith("env:")) return value;
   const name = value.slice(4);
-  const envValue = process.env[name];
-  if (envValue === undefined) missing.add(name);
+  required.add(name);
+  const envValue = process.env[name] ?? envValues.get(name);
+  if (envValue === undefined || envValue === "") missing.add(name);
   return envValue ?? "";
+}
+
+function readDotEnv(path: string): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!existsSync(path)) return out;
+  for (const line of readFileSync(path, "utf8").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const m = trimmed.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!m) continue;
+    out.set(m[1]!, unquoteEnv(m[2] ?? ""));
+  }
+  return out;
+}
+
+function unquoteEnv(value: string): string {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
 }
 
 function deepResolveEnv(value: unknown, env: (value: unknown) => unknown): unknown {
@@ -446,11 +635,33 @@ function deepResolveEnv(value: unknown, env: (value: unknown) => unknown): unkno
   if (isRecord(value)) {
     return Object.fromEntries(
       Object.entries(value)
-        .filter(([k]) => !["type", "kind", "display_name"].includes(k))
+        .filter(([k]) => !["sink", "type", "kind", "display_name", "displayName"].includes(k))
         .map(([k, v]) => [camel(k), deepResolveEnv(v, env)]),
     );
   }
   return env(value);
+}
+
+export function ensureSection(doc: UnknownRecord, name: string): UnknownRecord {
+  if (doc[name] === undefined) doc[name] = {};
+  return asRecord(doc[name], name);
+}
+
+export function ensureListSection(doc: UnknownRecord, name: string): unknown[] {
+  if (doc[name] === undefined) doc[name] = [];
+  return asArray(doc[name], name);
+}
+
+export function safeId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "x";
+}
+
+export function defaultProviderName(provider: string, existing: UnknownRecord): string {
+  const base = safeId(provider);
+  if (!(base in existing)) return base;
+  let i = 2;
+  while (`${base}-${i}` in existing) i++;
+  return `${base}-${i}`;
 }
 
 function stringList(value: unknown, path: string): string[] {
@@ -517,8 +728,8 @@ function boolField(
   return typeof value === "boolean" ? value : fallback;
 }
 
-function safeId(value: string): string {
-  return value.replace(/[^a-zA-Z0-9_-]+/g, "_").replace(/^_+|_+$/g, "") || "x";
+function safeEnv(value: string): string {
+  return safeId(value).replace(/-/g, "_").toUpperCase();
 }
 
 function camel(value: string): string {

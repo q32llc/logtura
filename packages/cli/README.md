@@ -1,167 +1,162 @@
 # @logtura/cli
 
-OSS command-line tool for the Logtura renderer.
+OSS CLI for configuring and running local logt forwarders.
 
-The CLI includes the current Logtura source drivers and destinations. It parses
-a human-authored `logtura.yaml`, feeds the existing `@logtura/core` renderer,
-and writes complete forwarder artifacts: `vector.yaml`, Dockerfile, `.env`,
-install script, and component manifest.
+The binary is `logt` (`logtura` remains as an alias). The CLI treats config as
+a plain file you edit, not a TTY wizard. TTY prompts are reserved for secrets:
+tokens, webhooks, and account-choice ambiguity.
 
 ```sh
 npm install -g @logtura/cli
 ```
 
-## Commands
+## Happy Path
 
 ```sh
-logtura validate -c logtura.yaml
-logtura validate -c logtura.yaml --vector-validate
-logtura bundle -c logtura.yaml -o dist/logtura-forwarder
-logtura install-zip -c logtura.yaml -o logtura-forwarder.tgz
-logtura stats --metrics metrics.json
+logt init
+logt connect cloudflare
+logt source add cloudflare-worker-tail
+logt sink add slack errors-slack
+logt monitor add errors errors-slack
+logt deploy fly
 ```
 
-- `validate` parses config and renders a bundle without writing files.
-- `--vector-validate` writes a temporary generated config and runs
-  `vector validate` if Vector is installed locally.
-- `bundle` writes an unpacked self-hostable forwarder directory.
-- `install-zip` writes a gzipped tarball containing the same files.
-- `stats` reads Vector `internal_metrics` JSON/NDJSON and prints a simple
-  component counter table.
+`connect` is the main setup command. It acquires or reuses local credentials,
+verifies them locally, writes `.env`, discovers inventory, and updates
+`logt.yaml`.
 
-## Config
+`logt.yaml` is preferred. `logtura.yaml` still works.
 
-Minimal Cloudflare Workers -> Slack config:
+## Taxonomy
+
+- **Provider**: root account/credential connection, for example `cloudflare`.
+- **Source**: log surface/tailer using a provider, for example
+  `cloudflare-worker-tail`, `cloudflare-ai-gateway`, future
+  `cloudflare-d1-*`, etc.
+- **Sink**: delivery destination, for example Slack or webhook.
+- **Monitor**: filters/routing from sources to sinks.
+
+Cloudflare is the motivating case: one Cloudflare provider connection should
+unlock many source drivers. Workers, AI Gateway, D1, R2, Pages, Queues, and
+other log surfaces should not each own credentials.
+
+## Config Shape
 
 ```yaml
-sources:
-  workers:
-    provider: cloudflare-worker-tail
+providers:
+  cloudflare:
+    provider: cloudflare
+    display_name: q32llc
     account_id: env:CLOUDFLARE_ACCOUNT_ID
-    api_token: env:CLOUDFLARE_API_TOKEN
+    credentials:
+      api_token: env:CLOUDFLARE_API_TOKEN
+
+sources:
+  cloudflare-worker:
+    source: cloudflare-worker-tail
+    provider: cloudflare
     scripts:
-      - dirtsignal
-      - ipogrid
+      - api-worker
+      - admin-worker
+
+  cloudflare-ai-gateway:
+    source: cloudflare-ai-gateway
+    provider: cloudflare
+    gateways:
+      - main-gateway
 
 sinks:
-  slack:
-    type: slack
-    webhook_url: env:SLACK_WEBHOOK_URL
-    channel: "#alerts"
+  errors-slack:
+    sink: slack
+    webhook_url: env:SLACK_ERRORS_SLACK_WEBHOOK_URL
 
 monitors:
-  - name: worker-errors
-    filter:
-      - errors
-      - rollup:
-          window_secs: 30
-          group_by: [script]
-          max_samples: 5
-    sinks: [slack]
-```
-
-`env:NAME` values are resolved from the local environment. Missing env values
-are reported by `validate`; the command exits with code `2` after confirming
-the rest of the config can render.
-
-## Source Examples
-
-Fly apps:
-
-```yaml
-sources:
-  fly:
-    provider: fly-log-tail
-    account_id: personal
-    api_token: env:FLY_API_TOKEN
-    apps: [my-app]
-```
-
-Supabase Edge Functions and project gateway:
-
-```yaml
-sources:
-  supabase:
-    provider: supabase-edge-logs
-    account_id: env:SUPABASE_PROJECT_REF
-    pat: env:SUPABASE_PAT
-    gateway: true
-    functions:
-      - slug: agent-chat
-        function_id: 00000000-0000-0000-0000-000000000000
-```
-
-Cloudflare AI Gateway:
-
-```yaml
-sources:
-  ai:
-    provider: cloudflare-ai-gateway
-    account_id: env:CLOUDFLARE_ACCOUNT_ID
-    api_token: env:CLOUDFLARE_API_TOKEN
-    gateways: [my-gateway]
-```
-
-Vercel Runtime Logs:
-
-```yaml
-sources:
-  vercel:
-    provider: vercel-logs
-    # Optional for team-owned projects.
-    team_id: env:VERCEL_TEAM_ID
-    api_token: env:VERCEL_API_TOKEN
-    projects:
-      - prj_xxx
-```
-
-Custom Vector source and sink:
-
-```yaml
-sources:
-  bob:
-    provider: custom-vector
-    display_name: Bob
-    vector:
-      include: ./vector/bob.yaml
-      feed: bob_norm
-
-sinks:
-  joe:
-    type: custom-vector
-    vector:
-      include: ./vector/joe.yaml
-
-monitors:
-  - name: bob-to-joe
+  - name: errors
     filter: [errors]
-    sinks: [joe]
+    sinks: [errors-slack]
 ```
 
-`bob.yaml` may define `sources` and `transforms`; `feed` names the component
-Logtura reads from. `joe.yaml` may define `transforms` and `sinks`; Logtura
-rewrites its single dangling input reference to the monitor output. Set
-`vector.input` when the sink graph has more than one dangling input.
+If there is only one compatible provider, source commands infer it. Multiple
+Cloudflare providers require an explicit `provider:` in YAML or `--provider` on
+the command.
 
-## Output
+## Secret Acquisition
 
-`logtura bundle -o dist/logtura-forwarder` writes:
+Every secret prompt follows the same rules:
 
-- `Dockerfile`
-- `vector.yaml`
-- `manifest.json`
-- `.env`
-- `install.sh`
-- `README.md`
+1. Explicit flags win: `--token=...`, `--webhook=...`, etc.
+2. Existing process env or `.env` values are detected.
+3. If a value exists and TTY is allowed, ask whether to reuse it.
+4. `-q` / `--quiet` never prompts and never opens a browser.
+5. If a pasted/flag value would overwrite a different `.env` value, ask first.
+6. In quiet mode, overwrites require `--force`.
 
-Run the generated forwarder with:
+Provider connectors should try the nicest local path first:
+
+- native/provider CLI token minting when supported;
+- provider token template or browser page plus hidden paste prompt;
+- manual placeholder only as a fallback.
+
+Examples:
 
 ```sh
-cd dist/logtura-forwarder
-./install.sh
+logt connect cloudflare
+logt connect cloudflare --token=cfat_...
+logt connect cloudflare -q
+logt connect cloudflare --token=cfat_... --force -q
 ```
 
-## Notes
+Cloudflare opens a token-template page when no local token is present. If
+Cloudflare source blocks already exist, the template uses provider-owned
+metadata supplied by those source drivers. `logt connect cloudflare --all`
+uses metadata from all known Cloudflare source drivers. Fly uses
+`fly auth token` when available. Railway, Vercel, and Supabase currently use
+token-page plus hidden paste prompt unless an env value already exists.
 
-The CLI starts from explicit config and environment variables. It validates,
-bundles, and installs a local forwarder from `logtura.yaml`.
+## Utility Commands
+
+```sh
+logt env
+logt env --write
+logt env --check
+logt validate
+logt bundle -o dist/logt-forwarder
+logt deploy fly -W
+logt stats --metrics metrics.json
+```
+
+`env` is a repair/CI helper. The happy path is still `connect`, which should
+leave the project with credentials already written to `.env`.
+
+`logt deploy fly --write-env` is a shortcut for:
+
+```sh
+logt env --write && logt deploy fly
+```
+
+`logt deploy fly` shells `flyctl` locally. It writes the bundle to
+`dist/logt-fly`, creates the Fly app if needed, imports resolved env vars as
+Fly secrets, runs `flyctl deploy --remote-only`, and finishes with
+`flyctl status`. Use `--app`, `--region`, and `--org` to override defaults.
+
+## Provider Connector Contract
+
+Root provider connectors own:
+
+- acquiring root credentials;
+- verifying credentials;
+- selecting or writing account IDs;
+- discovering available source inventories;
+- writing `.env` values.
+
+Per-source drivers own:
+
+- discovering one source kind using the provider credentials;
+- rendering runtime config for that source kind;
+- declaring runtime env vars;
+- optionally declaring arbitrary provider-connect metadata. This metadata is a
+  contract between that source driver and its root provider connector, not a
+  global CLI schema.
+
+This keeps the model scalable: adding a ninth Cloudflare source driver should
+not create a ninth Cloudflare credential flow.

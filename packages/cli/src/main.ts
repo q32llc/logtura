@@ -1,91 +1,446 @@
 #!/usr/bin/env -S node --import tsx
-import { existsSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { basename, dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { generateBundle } from "@logtura/core";
-import { loadConfigFile } from "./config";
-import { buildInstallArchive, installBundleFiles } from "./install";
+import type { BundleEnvVar } from "@logtura/core";
+import {
+  defaultProviderName,
+  ensureListSection,
+  ensureSection,
+  findConfigPath,
+  loadConfigFile,
+  readConfigDoc,
+  safeId,
+  writeConfigDoc,
+} from "./config";
+import { appendMissingEnvKeys, readDotEnvFile, writeEnvValues } from "./local-env";
+import { getProviderConnector } from "./provider-connectors";
+import {
+  allSourceConnectMetadata,
+  sourceConnectMetadata,
+} from "./source-metadata";
+import { installBundleFiles, renderEnvFile } from "./install";
 import { printStats } from "./metrics";
 
-interface Args {
-  command: string;
-  config: string;
-  output?: string;
-  metrics?: string;
-  vectorValidate: boolean;
+interface GlobalArgs {
+  config?: string;
+  json: boolean;
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
-  const args = parseArgs(argv);
   try {
-    if (args.command === "help" || args.command === "") {
+    const { global, rest } = parseGlobalArgs(argv);
+    const command = rest[0] ?? "help";
+    const args = rest.slice(1);
+    if (command === "help" || command === "-h" || command === "--help") {
       console.log(help());
       return 0;
     }
-    if (args.command === "stats") {
-      if (!args.metrics) throw new Error("stats requires --metrics <file>");
-      console.log(printStats(args.metrics));
-      return 0;
-    }
-
-    const parsed = loadConfigFile(args.config);
-    const bundle = generateBundle(parsed.input);
-    if (parsed.missingEnv.length > 0) {
-      console.warn(`missing env: ${parsed.missingEnv.join(", ")}`);
-    }
-
-    if (args.command === "validate") {
-      validateVectorIfRequested(bundle.vectorYaml, args.vectorValidate);
-      console.log(
-        `ok: ${bundle.selectedCount} source(s), ${bundle.monitorSummary}`,
-      );
-      return parsed.missingEnv.length > 0 ? 2 : 0;
-    }
-
-    if (args.command === "bundle") {
-      const outDir = resolve(args.output ?? "dist/logtura");
-      mkdirSync(outDir, { recursive: true });
-      for (const f of installBundleFiles(bundle, "logtura-forwarder")) {
-        const rel = f.name.replace(/^logtura-forwarder\//, "");
-        const dest = resolve(outDir, rel);
-        mkdirSync(dirname(dest), { recursive: true });
-        writeFileSync(dest, f.content);
-        if (f.mode !== undefined) chmodSync(dest, f.mode);
-      }
-      console.log(`wrote ${outDir}`);
-      return 0;
-    }
-
-    if (args.command === "install-zip") {
-      const out = resolve(args.output ?? "logtura-forwarder.tgz");
-      writeFileSync(out, buildInstallArchive(bundle, "logtura-forwarder"));
-      console.log(`wrote ${out}`);
-      return 0;
-    }
-
-    throw new Error(`unknown command: ${args.command}`);
+    if (command === "init") return cmdInit(global, args);
+    if (command === "connect") return cmdConnect(global, args);
+    if (command === "source") return cmdSource(global, args);
+    if (command === "sink") return cmdSink(global, args);
+    if (command === "monitor") return cmdMonitor(global, args);
+    if (command === "env") return cmdEnv(global, args);
+    if (command === "validate") return cmdValidate(global, args);
+    if (command === "bundle") return cmdBundle(global, args);
+    if (command === "deploy") return cmdDeploy(global, args);
+    if (command === "stats") return cmdStats(args);
+    throw new Error(`unknown command: ${command}`);
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
     return 1;
   }
 }
 
-function parseArgs(argv: string[]): Args {
-  const out: Args = {
-    command: argv[0] ?? "help",
-    config: "logtura.yaml",
-    vectorValidate: false,
+function cmdInit(global: GlobalArgs, args: string[]): number {
+  rejectExtra(args);
+  const ref = findConfigPath(global.config);
+  if (ref.existed) {
+    console.log(`using existing ${ref.path}`);
+    return 0;
+  }
+  writeConfigDoc(ref.path, {
+    providers: {},
+    sources: {},
+    sinks: {},
+    monitors: [],
+  });
+  console.log(`created ${ref.path}`);
+  return 0;
+}
+
+async function cmdConnect(global: GlobalArgs, args: string[]): Promise<number> {
+  const provider = args[0];
+  if (!provider) throw new Error("connect requires a provider, e.g. logt connect cloudflare");
+  const flags = parseFlags(args.slice(1));
+  const ref = findConfigPath(global.config);
+  const doc = readConfigDoc(ref.path);
+  const providers = ensureSection(doc, "providers");
+  const name = stringFlag(flags, "name") ?? defaultProviderName(provider, providers);
+  const connector = getProviderConnector(provider);
+  if (!connector) throw new Error(`unknown provider connector: ${provider}`);
+  const envPath = envPathForConfig(ref.path);
+  const connected = await connector.connect({
+    name,
+    env: { values: readDotEnvFile(envPath) },
+    options: {
+      quiet: booleanFlag(flags, "quiet"),
+      force: booleanFlag(flags, "force"),
+      token: stringFlag(flags, "token"),
+      accountId: stringFlag(flags, "accountId"),
+      metadata: connectMetadataForProvider(provider, doc, booleanFlag(flags, "all")),
+    },
+  });
+  if (connected.skipped) return 0;
+  const written = writeEnvValues(envPath, connected.envValues, {
+    force: true,
+  });
+  if (written.skipped.length > 0) {
+    throw new Error(`${written.skipped.join(", ")} already exists; pass --force to overwrite`);
+  }
+
+  const entry = (providers[name] && isRecord(providers[name]) ? providers[name] : {}) as Record<string, unknown>;
+  entry.provider = provider;
+  entry.display_name = stringFlag(flags, "displayName") ?? connected.displayName;
+  const accountId = connected.accountId ?? providerDefaultAccountEnv(provider);
+  if (accountId) entry.account_id = accountId;
+  entry.credentials = {
+    ...(isRecord(entry.credentials) ? entry.credentials : {}),
+    ...providerDefaultCredentials(provider),
   };
-  for (let i = 1; i < argv.length; i++) {
+  providers[name] = entry;
+  mergeDiscoveredSources(doc, name, connected.sources);
+  writeConfigDoc(ref.path, doc);
+  console.log(`connected ${provider} as ${name} in ${ref.path}`);
+  if (written.changed) console.log(`updated ${envPath}`);
+  return 0;
+}
+
+function cmdSource(global: GlobalArgs, args: string[]): number {
+  const sub = args[0];
+  if (sub !== "add") throw new Error("source supports: add");
+  const source = args[1];
+  if (!source) throw new Error("source add requires a source, e.g. logt source add cloudflare-worker-tail");
+  const flags = parseFlags(args.slice(2));
+  const ref = findConfigPath(global.config);
+  const doc = readConfigDoc(ref.path);
+  const sources = ensureSection(doc, "sources");
+  const name = stringFlag(flags, "name") ?? defaultSourceName(source, sources);
+  sources[name] = {
+    ...(isRecord(sources[name]) ? sources[name] : {}),
+    source,
+    ...(stringFlag(flags, "provider") ? { provider: stringFlag(flags, "provider") } : {}),
+    ...defaultSourceSelection(source),
+  };
+  writeConfigDoc(ref.path, doc);
+  console.log(`added source ${name} (${source})`);
+  return 0;
+}
+
+function cmdSink(global: GlobalArgs, args: string[]): number {
+  const sub = args[0];
+  if (sub !== "add") throw new Error("sink supports: add");
+  const kind = args[1];
+  const name = args[2];
+  if (!kind || !name) throw new Error("sink add requires kind and name, e.g. logt sink add slack errors-slack");
+  const flags = parseFlags(args.slice(3));
+  const ref = findConfigPath(global.config);
+  const doc = readConfigDoc(ref.path);
+  const sinks = ensureSection(doc, "sinks");
+  sinks[name] = {
+    ...(isRecord(sinks[name]) ? sinks[name] : {}),
+    sink: kind,
+    ...defaultSinkConfig(kind, name),
+  };
+  const explicitSecrets = explicitSinkSecrets(kind, name, flags);
+  if (Object.keys(explicitSecrets).length > 0) {
+    const written = writeEnvValues(envPathForConfig(ref.path), explicitSecrets, {
+      force: booleanFlag(flags, "force"),
+    });
+    if (written.skipped.length > 0) {
+      throw new Error(`${written.skipped.join(", ")} already exists; pass --force to overwrite`);
+    }
+  }
+  writeConfigDoc(ref.path, doc);
+  console.log(`added sink ${name} (${kind})`);
+  return 0;
+}
+
+function cmdMonitor(global: GlobalArgs, args: string[]): number {
+  const sub = args[0];
+  if (sub !== "add") throw new Error("monitor supports: add");
+  const name = args[1];
+  if (!name) throw new Error("monitor add requires a name");
+  const sinkIds = args.slice(2);
+  const ref = findConfigPath(global.config);
+  const doc = readConfigDoc(ref.path);
+  const monitors = ensureListSection(doc, "monitors");
+  monitors.push({
+    name,
+    filter: name === "errors" ? ["errors"] : [],
+    sinks: sinkIds,
+  });
+  writeConfigDoc(ref.path, doc);
+  console.log(`added monitor ${name}`);
+  return 0;
+}
+
+function cmdEnv(global: GlobalArgs, args: string[]): number {
+  const flags = parseFlags(args);
+  const ref = findConfigPath(global.config);
+  if (!ref.existed) throw new Error(`config not found; run logt init`);
+  const parsed = loadConfigFile(ref.path);
+  const bundle = generateBundle(parsed.input);
+  if (flags.json || global.json) {
+    console.log(JSON.stringify(bundle.envVars, null, 2));
+    return 0;
+  }
+  if (flags.check) {
+    const missing = missingEnvNames(parsed.missingEnv, bundle.envVars);
+    if (missing.length === 0) {
+      console.log("env ok");
+      return 0;
+    }
+    console.error(`missing env: ${missing.join(", ")}`);
+    return 2;
+  }
+  if (flags.write !== undefined) {
+    const path = stringFlag(flags, "write") || envPathForConfig(ref.path);
+    const changed = appendMissingEnvKeys(path, [
+      ...parsed.requiredEnv,
+      ...bundle.envVars.map((v) => v.name),
+    ]);
+    console.log(changed ? `updated ${path}` : `${path} already has required keys`);
+    return 0;
+  }
+  process.stdout.write(renderEnvFile(bundle.envVars));
+  return 0;
+}
+
+function cmdValidate(global: GlobalArgs, args: string[]): number {
+  const flags = parseFlags(args);
+  const ref = findConfigPath(global.config);
+  if (!ref.existed) throw new Error(`config not found; run logt init`);
+  const parsed = loadConfigFile(ref.path);
+  const bundle = generateBundle(parsed.input);
+  if (flags.vectorValidate) validateVector(bundle.vectorYaml);
+  console.log(`ok: ${bundle.selectedCount} source(s), ${bundle.monitorSummary}`);
+  const missing = missingEnvNames(parsed.missingEnv, bundle.envVars);
+  if (missing.length > 0) {
+    console.warn(`missing env: ${missing.join(", ")}`);
+    return 2;
+  }
+  return 0;
+}
+
+function cmdBundle(global: GlobalArgs, args: string[]): number {
+  const flags = parseFlags(args);
+  const ref = findConfigPath(global.config);
+  if (!ref.existed) throw new Error(`config not found; run logt init`);
+  const parsed = loadConfigFile(ref.path);
+  const bundle = generateBundle(parsed.input);
+  const outDir = resolve(stringFlag(flags, "output") ?? "dist/logt");
+  writeForwarderBundle(outDir, bundle);
+  console.log(`wrote ${outDir}`);
+  return missingEnvNames(parsed.missingEnv, bundle.envVars).length > 0 ? 2 : 0;
+}
+
+function cmdDeploy(global: GlobalArgs, args: string[]): number {
+  const target = args[0];
+  if (!target) throw new Error("deploy requires a target, e.g. logt deploy fly");
+  const flags = parseFlags(args.slice(1));
+  if (flags.writeEnv) {
+    const code = cmdEnv(global, ["--write"]);
+    if (code !== 0) return code;
+  }
+  if (target !== "fly") {
+    throw new Error(`unsupported deploy target: ${target}`);
+  }
+  const ref = findConfigPath(global.config);
+  if (!ref.existed) throw new Error(`config not found; run logt init`);
+  const parsed = loadConfigFile(ref.path);
+  const bundle = generateBundle(parsed.input);
+  const missing = missingEnvNames(parsed.missingEnv, bundle.envVars);
+  if (missing.length > 0) {
+    throw new Error(`missing env: ${missing.join(", ")}; run logt env --write`);
+  }
+  const appName = stringFlag(flags, "app") ?? defaultFlyAppName(ref.path);
+  const region = stringFlag(flags, "region") ?? "iad";
+  const org = stringFlag(flags, "org");
+  const outDir = resolve(stringFlag(flags, "output") ?? "dist/logt-fly");
+  writeForwarderBundle(outDir, bundle);
+  writeFileSync(resolve(outDir, "fly.toml"), renderFlyToml(appName, region));
+  deployWithFlyctl({
+    appName,
+    org,
+    workdir: outDir,
+    envVars: bundle.envVars,
+  });
+  console.log(`deployed ${appName} to Fly`);
+  return 0;
+}
+
+function cmdStats(args: string[]): number {
+  const flags = parseFlags(args);
+  const file = stringFlag(flags, "metrics") ?? args[0];
+  if (!file) throw new Error("stats requires --metrics <file>");
+  console.log(printStats(file));
+  return 0;
+}
+
+function writeForwarderBundle(outDir: string, bundle: ReturnType<typeof generateBundle>): void {
+  mkdirSync(outDir, { recursive: true });
+  for (const f of installBundleFiles(bundle, "logt-forwarder")) {
+    const rel = f.name.replace(/^logt-forwarder\//, "");
+    const dest = resolve(outDir, rel);
+    mkdirSync(dirname(dest), { recursive: true });
+    writeFileSync(dest, f.content);
+    if (f.mode !== undefined) chmodSync(dest, f.mode);
+  }
+}
+
+function deployWithFlyctl(input: {
+  appName: string;
+  org?: string;
+  workdir: string;
+  envVars: BundleEnvVar[];
+}): void {
+  requireFlyctl();
+  const status = spawnSync("flyctl", ["status", "--app", input.appName], {
+    cwd: input.workdir,
+    stdio: "ignore",
+  });
+  if (status.status !== 0) {
+    const createArgs = ["apps", "create", input.appName];
+    if (input.org) createArgs.push("--org", input.org);
+    runFlyctl(createArgs, input.workdir);
+  }
+
+  const secrets = input.envVars
+    .filter((v) => v.value !== null)
+    .map((v) => `${v.name}=${v.value}`)
+    .join("\n");
+  if (secrets) {
+    runFlyctl(["secrets", "import", "--app", input.appName], input.workdir, secrets + "\n");
+  }
+  runFlyctl(["deploy", "--app", input.appName, "--config", "fly.toml", "--remote-only"], input.workdir);
+  runFlyctl(["status", "--app", input.appName], input.workdir);
+}
+
+function requireFlyctl(): void {
+  const r = spawnSync("flyctl", ["version"], { stdio: "ignore" });
+  if (r.status !== 0) {
+    throw new Error("flyctl is required. Install it from https://fly.io/docs/flyctl/install/");
+  }
+}
+
+function runFlyctl(args: string[], cwd: string, input?: string): void {
+  const r = spawnSync("flyctl", args, {
+    cwd,
+    input,
+    stdio: input === undefined ? "inherit" : ["pipe", "inherit", "inherit"],
+  });
+  if (r.status !== 0) {
+    throw new Error(`flyctl ${args.join(" ")} failed`);
+  }
+}
+
+function renderFlyToml(appName: string, region: string): string {
+  return [
+    "# Generated by logt",
+    `app = "${appName}"`,
+    `primary_region = "${region}"`,
+    "",
+    "[build]",
+    '  dockerfile = "Dockerfile"',
+    "",
+    "[[vm]]",
+    '  cpu_kind = "shared"',
+    "  cpus = 1",
+    "  memory_mb = 512",
+    "",
+    "[[services]]",
+    "  internal_port = 9598",
+    '  protocol = "tcp"',
+    "  auto_stop_machines = false",
+    "  auto_start_machines = true",
+    "  min_machines_running = 1",
+    "",
+  ].join("\n");
+}
+
+function defaultFlyAppName(configPath: string): string {
+  const dir = basename(dirname(resolve(configPath)));
+  const cleaned = safeId(dir.toLowerCase()).replace(/_/g, "-").slice(0, 24);
+  return `logt-${cleaned || "forwarder"}`;
+}
+
+function parseGlobalArgs(argv: string[]): { global: GlobalArgs; rest: string[] } {
+  const global: GlobalArgs = { json: false };
+  const rest: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
-    if (a === "-c" || a === "--config") out.config = needValue(argv, ++i, a);
-    else if (a === "-o" || a === "--output") out.output = needValue(argv, ++i, a);
-    else if (a === "--metrics") out.metrics = needValue(argv, ++i, a);
-    else if (a === "--vector-validate") out.vectorValidate = true;
-    else if (a === "-h" || a === "--help") out.command = "help";
+    if (a === "-c" || a === "--config") global.config = needValue(argv, ++i, a);
+    else if (a === "--json") global.json = true;
+    else rest.push(a);
+  }
+  return { global, rest };
+}
+
+function parseFlags(argv: string[]): Record<string, string | boolean> {
+  const flags: Record<string, string | boolean> = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (a === "-W" || a === "--write-env") flags.writeEnv = true;
+    else if (a === "--write") {
+      const next = argv[i + 1];
+      if (next && !next.startsWith("-")) flags.write = argv[++i]!;
+      else flags.write = "";
+    } else if (a === "--check") flags.check = true;
+    else if (a === "--json") flags.json = true;
+    else if (a === "--vector-validate") flags.vectorValidate = true;
+    else if (a === "-q" || a === "--quiet") flags.quiet = true;
+    else if (a === "--force") flags.force = true;
+    else if (a === "--all") flags.all = true;
+    else if (a === "--token") flags.token = needValue(argv, ++i, a);
+    else if (a.startsWith("--token=")) flags.token = a.slice("--token=".length);
+    else if (a === "--webhook") flags.webhook = needValue(argv, ++i, a);
+    else if (a.startsWith("--webhook=")) flags.webhook = a.slice("--webhook=".length);
+    else if (a === "-o" || a === "--output") flags.output = needValue(argv, ++i, a);
+    else if (a === "--metrics") flags.metrics = needValue(argv, ++i, a);
+    else if (a === "--name") flags.name = needValue(argv, ++i, a);
+    else if (a === "--provider") flags.provider = needValue(argv, ++i, a);
+    else if (a === "--account-id") flags.accountId = needValue(argv, ++i, a);
+    else if (a === "--display-name") flags.displayName = needValue(argv, ++i, a);
+    else if (a === "--app") flags.app = needValue(argv, ++i, a);
+    else if (a === "--region") flags.region = needValue(argv, ++i, a);
+    else if (a === "--org") flags.org = needValue(argv, ++i, a);
     else throw new Error(`unknown flag: ${a}`);
   }
-  return out;
+  return flags;
+}
+
+function stringFlag(
+  flags: Record<string, string | boolean>,
+  name: string,
+): string | undefined {
+  const value = flags[name];
+  return typeof value === "string" ? value : undefined;
+}
+
+function booleanFlag(
+  flags: Record<string, string | boolean>,
+  name: string,
+): boolean {
+  return flags[name] === true;
 }
 
 function needValue(argv: string[], index: number, flag: string): string {
@@ -94,12 +449,157 @@ function needValue(argv: string[], index: number, flag: string): string {
   return value;
 }
 
-function validateVectorIfRequested(vectorYaml: string, enabled: boolean) {
-  if (!enabled) return;
-  if (!existsSync("vector.yaml.tmp")) {
-    // Keep the temp file in the current working directory so Vector's
-    // diagnostics show a short path.
+function rejectExtra(args: string[]): void {
+  if (args.length > 0) throw new Error(`unexpected argument: ${args[0]}`);
+}
+
+function defaultSourceName(source: string, existing: Record<string, unknown>): string {
+  const base = safeId(source.replace(/-logs?$|-tail$/g, ""));
+  if (!(base in existing)) return base;
+  let i = 2;
+  while (`${base}-${i}` in existing) i++;
+  return `${base}-${i}`;
+}
+
+function defaultSourceSelection(source: string): Record<string, unknown> {
+  if (source === "cloudflare-worker-tail") return { scripts: [] };
+  if (source === "cloudflare-ai-gateway") return { gateways: [] };
+  if (source === "fly-log-tail") return { apps: [] };
+  if (source === "railway-logs") return { services: [] };
+  if (source === "vercel-logs") return { projects: [] };
+  if (source === "supabase-edge-logs") return { functions: [], gateway: true };
+  return { sources: [] };
+}
+
+function defaultSinkConfig(kind: string, name: string): Record<string, unknown> {
+  const envName = safeEnv(`${kind}_${name}`);
+  if (kind === "slack") return { webhook_url: `env:${envName}_WEBHOOK_URL` };
+  if (kind === "webhook") return { url: `env:${envName}_URL` };
+  if (kind === "datadog_metrics") {
+    return { api_key: `env:${envName}_API_KEY`, site: "datadoghq.com" };
   }
+  return {};
+}
+
+function explicitSinkSecrets(
+  kind: string,
+  name: string,
+  flags: Record<string, string | boolean>,
+): Record<string, string> {
+  const webhook = stringFlag(flags, "webhook");
+  if (kind === "slack" && webhook) {
+    return { [`SLACK_${safeEnv(name)}_WEBHOOK_URL`]: webhook };
+  }
+  if (kind === "webhook" && webhook) {
+    return { [`WEBHOOK_${safeEnv(name)}_URL`]: webhook };
+  }
+  return {};
+}
+
+function providerDefaultAccountEnv(provider: string): string | null {
+  if (provider === "cloudflare") return "env:CLOUDFLARE_ACCOUNT_ID";
+  if (provider === "supabase") return "env:SUPABASE_PROJECT_REF";
+  return null;
+}
+
+function providerDefaultCredentials(provider: string): Record<string, unknown> {
+  if (provider === "cloudflare") return { api_token: "env:CLOUDFLARE_API_TOKEN" };
+  if (provider === "fly") return { api_token: "env:FLY_API_TOKEN" };
+  if (provider === "railway") return { api_token: "env:RAILWAY_API_TOKEN" };
+  if (provider === "supabase") return { pat: "env:SUPABASE_PAT" };
+  if (provider === "vercel") return { api_token: "env:VERCEL_API_TOKEN" };
+  return {};
+}
+
+function missingEnvNames(parserMissing: string[], envVars: BundleEnvVar[]): string[] {
+  const missing = new Set(parserMissing);
+  for (const v of envVars) {
+    if (!v.value) missing.add(v.name);
+  }
+  return [...missing].sort();
+}
+
+function envPathForConfig(configPath: string): string {
+  return resolve(dirname(resolve(configPath)), ".env");
+}
+
+function mergeDiscoveredSources(
+  doc: Record<string, unknown>,
+  providerName: string,
+  discovered: Array<{ id: string; source: string; items: Array<{ externalId: string }> }>,
+): void {
+  const sources = ensureSection(doc, "sources");
+  for (const group of discovered) {
+    const key = defaultSourceName(group.source, sources);
+    const existing = (sources[key] && isRecord(sources[key]) ? sources[key] : {}) as Record<string, unknown>;
+    sources[key] = {
+      ...existing,
+      source: group.source,
+      provider: providerName,
+      ...sourceInventoryField(group.source, group.items.map((i) => i.externalId)),
+    };
+  }
+}
+
+function sourceInventoryField(source: string, ids: string[]): Record<string, unknown> {
+  if (source === "cloudflare-worker-tail") return { scripts: ids };
+  if (source === "cloudflare-ai-gateway") return { gateways: ids };
+  if (source === "fly-log-tail") return { apps: ids };
+  if (source === "railway-logs") return { services: ids };
+  if (source === "vercel-logs") return { projects: ids };
+  if (source === "supabase-edge-logs") return { functions: ids, gateway: true };
+  return { sources: ids };
+}
+
+function connectMetadataForProvider(
+  provider: string,
+  doc: Record<string, unknown>,
+  forceAllKnownScopes: boolean,
+): Record<string, unknown> | undefined {
+  const sourceIds = forceAllKnownScopes
+    ? Object.entries(allSourceConnectMetadata())
+        .filter(([, meta]) => meta.provider === provider)
+        .map(([source]) => source)
+    : sourceIdsForProvider(doc, provider);
+  const sourceMetadata = sourceIds
+    .map((source) => sourceConnectMetadata(source)?.metadata)
+    .filter((m): m is Record<string, unknown> => isRecord(m));
+  return mergeProviderMetadata(sourceMetadata);
+}
+
+function mergeProviderMetadata(items: Array<Record<string, unknown>>): Record<string, unknown> | undefined {
+  if (items.length === 0) return undefined;
+  const out: Record<string, unknown> = {};
+  for (const item of items) {
+    for (const [key, value] of Object.entries(item)) {
+      if (Array.isArray(value)) {
+        const prior = Array.isArray(out[key]) ? out[key] : [];
+        out[key] = [...prior, ...value];
+      } else if (isRecord(value) && isRecord(out[key])) {
+        out[key] = { ...(out[key] as Record<string, unknown>), ...value };
+      } else {
+        out[key] = value;
+      }
+    }
+  }
+  return out;
+}
+
+function sourceIdsForProvider(doc: Record<string, unknown>, provider: string): string[] {
+  const rawSources = doc.sources;
+  if (!isRecord(rawSources)) return [];
+  const out: string[] = [];
+  for (const raw of Object.values(rawSources)) {
+    if (!isRecord(raw)) continue;
+    const source = typeof raw.source === "string" ? raw.source : null;
+    if (!source) continue;
+    const meta = sourceConnectMetadata(source);
+    if (meta?.provider === provider) out.push(source);
+  }
+  return out;
+}
+
+function validateVector(vectorYaml: string): void {
   writeFileSync("vector.yaml.tmp", vectorYaml);
   const res = spawnSync("vector", ["validate", "vector.yaml.tmp"], {
     encoding: "utf8",
@@ -109,20 +609,43 @@ function validateVectorIfRequested(vectorYaml: string, enabled: boolean) {
   }
 }
 
+function safeEnv(value: string): string {
+  return safeId(value).replace(/-/g, "_").toUpperCase();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
 function help(): string {
-  return `logtura <command> [options]
+  return `logt <command> [options]
 
 Commands:
-  validate      Parse config and render a bundle without writing files
-  bundle        Write Dockerfile, vector.yaml, manifest.json, .env, install.sh
-  install-zip   Write a gzipped install archive
-  stats         Print a simple table from Vector internal_metrics JSON/NDJSON
+  init                              Create logt.yaml
+  connect <provider>                Add a provider connection (cloudflare, fly, railway, ...)
+  source add <source>               Add a source driver (cloudflare-worker-tail, ...)
+  sink add <kind> <name>            Add a sink
+  monitor add <name> [sinks...]     Add a monitor
+  env [--write [file]|--check]      Print, write, or check required env vars
+  validate                          Parse config and render a bundle
+  bundle [-o dir]                   Write Dockerfile, vector.yaml, manifest, .env
+  deploy fly [-W|--write-env]       Deploy locally through flyctl
+  stats --metrics <file>            Print a table from Vector internal_metrics JSON/NDJSON
 
-Options:
-  -c, --config <file>      Config file (default: logtura.yaml)
-  -o, --output <path>      Output directory/archive path
-  --metrics <file>         Metrics JSON/NDJSON for stats
-  --vector-validate        Run vector validate on the generated vector.yaml
+Global options:
+  -c, --config <file>               Config file. Defaults to logt.yaml, then logtura.yaml.
+  --json                            JSON output where supported
+
+Connect options:
+  -q, --quiet                       Never prompt or open a browser
+  --token <value>                   Use a pasted/provider token
+  --force                           Overwrite existing .env token values
+  --all                             Use metadata from all known source drivers for the provider
+
+Fly deploy options:
+  --app <name>                      Fly app name (default: logt-<directory>)
+  --region <code>                   Primary region (default: iad)
+  --org <slug>                      Fly org for first app creation
 `;
 }
 

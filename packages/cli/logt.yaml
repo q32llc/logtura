@@ -1,0 +1,43 @@
+providers:
+  cloudflare:
+    provider: cloudflare
+    display_name: Erik@q32.com's Account
+    account_id: f0c6ed442ab8c6bf9d102678d9421dd8
+    credentials:
+      api_token: env:CLOUDFLARE_API_TOKEN
+sources:
+  cloudflare-worker:
+    source: cloudflare-worker-tail
+    provider: cloudflare
+    scripts:
+      - adgiro
+      - captcha-cc-api
+      - dirtsignal
+      - dirtsignal-heavy-ingestion
+      - getflight-preview
+      - getflight-production
+      - graphilize
+      - ipogrid
+      - logtura
+      - onwardtravel-dev
+      - onwardtravel-preview
+      - onwardtravel-production
+      - onwardtravel-seo-preview
+      - relin
+      - snapog-track
+      - tanstack-start-app
+      - zillow-lookup
+      - zura-chat
+      - zura-ga4-bullionbro-com
+      - zura-ga4-doquix-com
+      - zura-ga4-genvai-com
+      - zura-preview-peptides-work-a3709697
+      - zura-preview-yoga-genvai-com-407dc95e
+      - zura-preview-yoga-genvai-com-4ff52df3
+      - zura-site-peptides-work-906a3b74
+  cloudflare-ai-gateway:
+    source: cloudflare-ai-gateway
+    provider: cloudflare
+    gateways: []
+sinks: {}
+monitors: []
