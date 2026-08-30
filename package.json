@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predeploy": "if [ -z \"${CI:-}\" ]; then /home/erik/bin/q32-deploy-check; fi",
     "dev": "concurrently -n vite,worker -c blue,green \"pnpm dev:vite\" \"pnpm dev:worker\"",
     "dev:vite": "vite",
     "dev:worker": "wrangler dev --port 8787",
