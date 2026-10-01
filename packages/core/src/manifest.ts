@@ -9,12 +9,14 @@ export interface SecretReference {
 export interface DeploymentManifest {
     kind: "logtura.deployment";
     schema_version: 1;
+    discoverMonitors?: boolean;
     connections: Array<{
         connection: Connection;
         selectedSources: Array<Omit<Source, "metadata"> & {
             metadata: SecretReference | null;
         }>;
         selectAll?: boolean;
+        discoverSources?: boolean;
         credentials: SecretReference | null;
     }>;
     monitors: Array<{
@@ -65,8 +67,9 @@ function constructManifest(input:GenerateInput):{document:DeploymentManifest;sec
         return ref;
     };
     const document: DeploymentManifest = { kind: "logtura.deployment", schema_version: 1,
+        ...(input.discoverMonitors === undefined ? {} : {discoverMonitors: input.discoverMonitors}),
         connections: input.connections.map(c => ({ connection: pick(c.connection, ["id", "provider", "displayName", "externalAccountId"]) as unknown as Connection, selectedSources: c.selectedSources.map(s => ({ ...pick(s, ["id", "externalId", "displayName", "sourceKind"]), metadata: s.metadata === null ? null : secret("SOURCE", s.id, s.metadata) })),
-            ...(c.selectAll === undefined ? {} : { selectAll: c.selectAll }), credentials: c.credentials === undefined ? null : secret("CREDENTIALS", c.connection.id, c.credentials) })),
+            ...(c.selectAll === undefined ? {} : { selectAll: c.selectAll }), ...(c.discoverSources === undefined ? {} : {discoverSources:c.discoverSources}), credentials: c.credentials === undefined ? null : secret("CREDENTIALS", c.connection.id, c.credentials) })),
         monitors: input.monitors.map(m => ({ monitor: { ...pick(m.monitor, ["id", "connectionId", "displayName", "enabled"]), filterSteps: filters(m.monitor.filterSteps, "monitor filters") } as unknown as Monitor, sinks: m.sinks.map(s => ({ sink: { id: s.sink.id, filterSteps: filters(s.sink.filterSteps, "sink filters") }, destination: pick(s.destination, ["id", "kind", "displayName"]) as unknown as Destination, destinationConfig: secret("DESTINATION", s.sink.id, s.destinationConfig) })) })),
         ...(input.heartbeat === undefined ? {} : { heartbeat: pick(input.heartbeat, ["kind", "deploymentId", "appUrl"]) as GenerateInput["heartbeat"] }),
         ...(input.metrics === undefined ? {} : { metrics: input.metrics.kind === "destination" ? { kind: "destination", destination: pick(input.metrics.destination, ["id", "kind", "displayName"]) as unknown as Destination, destinationConfig: secret("METRICS", input.metrics.destination.id, input.metrics.destinationConfig) } : input.metrics.kind === "none" ? { kind: "none" } : pick(input.metrics, ["kind", "deploymentId", "appUrl"]) as {
@@ -136,7 +139,7 @@ export function parseDeploymentManifest(value: unknown, options: ConfigParseOpti
     const doc = row(value, "manifest");
     if (doc.kind !== "logtura.deployment" || doc.schema_version !== 1)
         throw new Error("Unsupported deployment manifest schema");
-    only(doc, ["kind", "schema_version", "connections", "monitors", "heartbeat", "metrics", "runtimeEnv"], "manifest");
+    only(doc, ["kind", "schema_version", "discoverMonitors", "connections", "monitors", "heartbeat", "metrics", "runtimeEnv"], "manifest");
     const missing = new Set<string>(), required = new Set<string>(), versions = new Map<string, string>();
     const secret = (value: unknown, path: string, fallback: unknown): unknown => {
         const ref = row(value, path);
@@ -162,17 +165,18 @@ export function parseDeploymentManifest(value: unknown, options: ConfigParseOpti
     };
     const connections = list(doc.connections, "connections").map((value, i) => {
         const r = row(value, `connections[${i}]`), c = row(r.connection, "connection");
-        only(r, ["connection", "selectedSources", "selectAll", "credentials"], "connection entry");
+        only(r, ["connection", "selectedSources", "selectAll", "discoverSources", "credentials"], "connection entry");
         only(c, ["id", "provider", "displayName", "externalAccountId"], "connection");
         const credentials = r.credentials === null ? undefined : row(secret(r.credentials, "credentials", {}), "credentials payload");
         return { connection: { id: text(c.id, "connection.id"), provider: text(c.provider, "provider"), displayName: text(c.displayName, "displayName"), externalAccountId: nullableText(c.externalAccountId, "accountId") }, credentials,
-            ...(r.selectAll === undefined ? {} : { selectAll: bool(r.selectAll, "selectAll") }), selectedSources: list(r.selectedSources, "selectedSources").map(value => {
+            ...(r.selectAll === undefined ? {} : { selectAll: bool(r.selectAll, "selectAll") }), ...(r.discoverSources === undefined ? {} : {discoverSources:bool(r.discoverSources,"discoverSources")}), selectedSources: list(r.selectedSources, "selectedSources").map(value => {
                 const s = row(value, "source");
                 only(s, ["id", "externalId", "displayName", "sourceKind", "metadata"], "source");
                 const metadata = s.metadata === null ? null : secret(s.metadata, "metadata", null);
                 return { id: text(s.id, "source.id"), externalId: text(s.externalId, "externalId"), displayName: text(s.displayName, "displayName"), sourceKind: text(s.sourceKind, "sourceKind"), metadata: metadata === null ? null : row(metadata, "metadata payload") };
             }) };
     });
+    if(connections.some(c=>c.selectAll && c.discoverSources))throw new Error("Native all-source and discovered-source modes are mutually exclusive");
     const destination = (value: unknown): Destination => { const d = row(value, "destination"); only(d, ["id", "kind", "displayName"], "destination"); return { id: text(d.id, "destination.id"), kind: text(d.kind, "destination.kind"), displayName: text(d.displayName, "displayName") }; };
     const monitors = list(doc.monitors, "monitors").map(value => {
         const r = row(value, "monitor entry"), m = row(r.monitor, "monitor");
@@ -205,7 +209,7 @@ export function parseDeploymentManifest(value: unknown, options: ConfigParseOpti
     for (const m of monitors)
         if (m.monitor.connectionId !== null && !connections.some(c => c.connection.id === m.monitor.connectionId))
             throw new Error("Monitor references an unknown connection");
-    return { input: { providers: options.providers ?? [], destinations: options.destinations ?? [], connections, monitors, ...(doc.heartbeat === undefined ? {} : { heartbeat: scoped(doc.heartbeat) }), ...(metrics === undefined ? {} : { metrics }), ...(runtimeEnv === undefined ? {} : { runtimeEnv: runtimeEnv as Record<string, string> }) }, missingEnv: [...missing].sort(), requiredEnv: [...required].sort(), path: options.filename ?? "logt.yaml" };
+    return { input: { ...(doc.discoverMonitors===undefined?{}:{discoverMonitors:bool(doc.discoverMonitors,"discoverMonitors")}), providers: options.providers ?? [], destinations: options.destinations ?? [], connections, monitors, ...(doc.heartbeat === undefined ? {} : { heartbeat: scoped(doc.heartbeat) }), ...(metrics === undefined ? {} : { metrics }), ...(runtimeEnv === undefined ? {} : { runtimeEnv: runtimeEnv as Record<string, string> }) }, missingEnv: [...missing].sort(), requiredEnv: [...required].sort(), path: options.filename ?? "logt.yaml" };
 }
 export function normalizeDeploymentManifest(value: unknown): Record<string, unknown> {
     const clone = JSON.parse(canonicalConfigJson(value)) as Record<string, unknown>;

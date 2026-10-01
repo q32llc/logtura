@@ -34,3 +34,11 @@ it("summarizes mixed all-source/explicit configurations and section-specific web
   expect(deploymentSourceSummary({graphSelection:{...graph,connections:[{id:"only",sourceIds:["one"]}]},sourceIds:[]})).toBe("1 selected source");
   expect(deploymentSourceSummary({graphSelection:{...graph,connections:[{id:"only",sourceIds:[]}]},sourceIds:[]})).toBe("0 selected sources");
 });
+
+it("shows discovered catalog refresh policies in deployment summaries",()=>{
+  expect(deploymentSourceSummary({graphSelection:{schema_version:1,connections:[{id:"discovered",sourceIds:["current"],discoverSources:true},{id:"explicit",sourceIds:["one"]}],monitors:[]},sourceIds:[]})).toBe("All discovered sources on refresh from 1 connection, plus 1 selected");
+});
+
+it("distinguishes native subscriptions from refreshed discovered catalogs",()=>{
+  expect(deploymentSourceSummary({graphSelection:{schema_version:1,connections:[{id:"one",sourceIds:[],discoverSources:true},{id:"two",sourceIds:[],discoverSources:true},{id:"native",sourceIds:[],selectAll:true}],monitors:[]},sourceIds:[]})).toBe("All current and future sources from 1 connection, plus All discovered sources on refresh from 2 connections");
+});

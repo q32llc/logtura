@@ -789,3 +789,59 @@ OAuth export disclosure and standalone versus broker credential policy still nee
 review at the push transport boundary. Broader E2E, final coverage, telemetry
 hardening, dependency updates, publishing and staged rollout remain in scope.
 Migrations 0018–0023 remain unapplied to production. The goal remains active.
+
+
+### Portable discovery intent (implemented, production rollout pending)
+
+Portable schema-1 manifests now retain optional per-connection `discoverSources`
+and root `discoverMonitors` flags. The former means materialize the connection's
+owned discovered catalog on refresh; the latter means include applicable enabled
+monitors and their current sinks. Neither requires provider-native `selectAll`,
+and native all-source and catalog-discovery modes are mutually exclusive for a
+connection. Existing manifests without flags retain their explicit behavior.
+
+The shared package exports `resolveDeploymentDiscovery(inventory,input)` without
+service dependencies or network calls. It keeps snapshot order, appends new rows
+in caller inventory order and retains policy flags. `planDeploymentChanges` uses
+that resolver before planning an atomic owned graph write, including new monitors
+and sinks without dropping existing edges. Standalone rendering remains fully
+functional offline with the materialized snapshot; callers refresh discovery
+against their own catalog before generating updated artifacts.
+
+The hosted assembler exports legacy null source/monitor selection as explicit
+portable policy. Ordered selection storage and resolution preserve the flags,
+expand only owned inventory and validate explicit parents/references. An export
+can pass through the unified storage transaction without freezing legacy discovery.
+A later bundle refresh includes newly discovered sites, newly enabled applicable
+monitors and new sinks. A website source-only override also re-scopes retained
+monitor discovery to the effective source connections, rather than their previous
+saved connection snapshot. Explicit snapshot order remains stable; service additions
+have deterministic catalog order. No schema migration is needed for the optional
+JSON fields; production still requires the previously pending migration chain.
+
+Public graph edits and CLI JSON edit files can change both policies. Source removal
+freezes discovery for the affected connection; monitor/sink removal freezes monitor
+discovery so refresh cannot restore a removed selection. Other edits retain the
+policy. Value-free diffs show policy changes. Website source summaries distinguish
+native future-stream subscriptions from discovered catalog refreshes; this does
+not claim running forwarders automatically apply catalog additions.
+
+Validation: 625 backend/package tests, 416 public package tests and 14 UI tests.
+Coverage gates retain 100% statements/branches/functions/lines for manifest, graph,
+reconciliation and service ordered selectors, and for the UI source summary.
+Backend coverage is 71.62/65.92/76.15/70.48 (statements/branches/functions/lines),
+public coverage is 77.56/73.06/77.52/77.08, and UI coverage is
+6.31/6.31/5.85/4.28. Floors rise to 71/65/76/70, 77/73/77/77 and 6/6/5/4
+respectively. Final backend/public 95/90 and UI 90/85 targets remain outstanding.
+Builds and type checks pass. Isolated packed-consumer validation passes for all
+15 packages and both CLI aliases, including the public discovery resolver and
+policy editing/removal from compiled packages. Policy documentation ships with
+both public core and CLI. Matching updated CLI/library versions must publish
+before production serves the optional fields to clients with strict older parsers.
+
+Next: account-authorized push/secret transport, linked CLI baseline and recovery,
+website desired/applied state, forwarder acknowledgment, full E2E/coverage,
+provider concurrency/telemetry hardening, dependencies, publication and rollout.
+No npm release or production migration/deployment is claimed by this slice.
+The goal remains active, and Codecov repository activation remains an external
+configuration issue rather than a reason to stop independent implementation.

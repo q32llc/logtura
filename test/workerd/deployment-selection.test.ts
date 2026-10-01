@@ -4,6 +4,8 @@ import { parseOrderedDeploymentSelection,orderedSelectionFromInput,loadSelectedD
 import { assembleDeploymentBundle } from "../../src/bundle-assembly";
 import { createConnection,createDestination,createMonitor,createSink,createDeployment,upsertSources,updateDeployment } from "../../src/db";
 import { readConfigurationVersion } from "../../src/config-version";
+import { createSecretVersioner,parseDeploymentManifest } from "@logtura/core";
+import { reconcileDeploymentConfiguration } from "../../src/deployment-reconciliation";
 import { mockFetch,seedUser } from "./_setup";
 async function fixture(){
   const {userId,sessionCookie}=await seedUser();
@@ -104,4 +106,38 @@ it("preserves monitor/sink ordering when the website changes sources, filtering 
   await updateDeployment(env.DB,f.userId,f.deployment.id,{sourceIds:f.selection.connections[1]!.sourceIds});
   const assembled=await assembleDeploymentBundle(env,f.userId,f.deployment.id);expect(assembled.input.monitors.map(m=>m.monitor.id)).toEqual(f.selection.monitors.map(m=>m.id));expect(assembled.input.monitors[1]!.sinks.map(s=>s.sink.id)).toEqual([f.b.id,f.a.id]);
   await updateDeployment(env.DB,f.userId,f.deployment.id,{sourceIds:f.selection.connections[0]!.sourceIds});expect((await assembleDeploymentBundle(env,f.userId,f.deployment.id)).input.monitors.map(m=>m.monitor.id)).toEqual([f.second.id]);
+});
+
+it("round trips legacy future-discovery intent and picks up new sources, monitors and sinks",async()=>{
+  const f=await fixture();
+  const response=await SELF.fetch(`https://local.test/api/deployments/${f.deployment.id}/config?includeSecrets=1`,{headers:{cookie:f.sessionCookie}});expect(response.status).toBe(200);
+  const exported=await response.json() as any;expect(exported.document.connections[0].discoverSources).toBe(true);expect(exported.document.discoverMonitors).toBe(true);
+  const desired=parseDeploymentManifest(exported.document,{env:exported.secretValues}).input;
+  const result=await reconcileDeploymentConfiguration(env,f.userId,f.deployment.id,exported.configurationVersion,0,desired,await createSecretVersioner(env.CREDENTIAL_ENCRYPTION_KEY));
+  expect(result.document).toEqual(exported.document);
+  await upsertSources(env.DB,f.cf.id,[{sourceKind:"cf_worker",externalId:"future",displayName:"Future",metadata:null}]);
+  const monitor=await createMonitor(env.DB,{userId:f.userId,connectionId:f.cf.id,displayName:"Future monitor",filterSteps:[],enabled:true});
+  const sink=await createSink(env.DB,{monitorId:monitor.id,destinationId:f.destination.id,filterSteps:[]}),added=await createSink(env.DB,{monitorId:f.first.id,destinationId:f.destination.id,filterSteps:[]});
+  const assembled=await assembleDeploymentBundle(env,f.userId,f.deployment.id);
+  expect(assembled.input.connections[0]!.selectedSources.map(s=>s.externalId)).toContain("future");expect(assembled.input.connections[0]!.discoverSources).toBe(true);expect(assembled.input.discoverMonitors).toBe(true);
+  expect(assembled.input.monitors.find(m=>m.monitor.id===monitor.id)!.sinks[0]!.sink.id).toBe(sink.id);expect(assembled.input.monitors.find(m=>m.monitor.id===f.first.id)!.sinks.map(s=>s.sink.id)).toContain(added.id);expect(assembled.input.monitors.some(m=>m.monitor.id===f.second.id)).toBe(false);
+});
+it("expands only owned discovery catalogs while retaining explicit order and validated parents",async()=>{
+  const f=await fixture(),other=await fixture(),selection=structuredClone(f.selection);selection.discoverMonitors=true;selection.connections[1]!.discoverSources=true;
+  const extra=await createMonitor(env.DB,{userId:f.userId,connectionId:f.fly.id,displayName:"Extra",filterSteps:[],enabled:true});
+  const later=await createMonitor(env.DB,{userId:f.userId,connectionId:f.fly.id,displayName:"Later",filterSteps:[],enabled:true});
+  const extraGlobal=await createMonitor(env.DB,{userId:f.userId,connectionId:null,displayName:"Global",filterSteps:[],enabled:true});await env.DB.prepare("UPDATE monitors SET created_at=1 WHERE id IN (?,?)").bind(extra.id,extraGlobal.id).run();
+  await upsertSources(env.DB,f.cf.id,[{sourceKind:"cf_worker",externalId:"new-a",displayName:"Identical",metadata:null},{sourceKind:"cf_worker",externalId:"new-b",displayName:"Identical",metadata:null},{sourceKind:"cf_worker",externalId:"new-c",displayName:"Zed",metadata:null},{sourceKind:"other_kind",externalId:"new-d",displayName:"Other",metadata:null}]);
+  const version=await readConfigurationVersion(env.DB,f.userId);await setOrderedDeploymentSelection(env.DB,f.userId,f.deployment.id,version,selection);
+  const graph=await loadSelectedDeploymentGraph(env.DB,f.userId,selection);expect(graph.connections[1]!.sources.slice(0,2).map(s=>s.id)).toEqual(selection.connections[1]!.sourceIds);expect(graph.connections[1]!.sources).toHaveLength(6);expect(graph.monitors.map(m=>m.monitor.id)).toEqual([f.second.id,f.first.id,...[extra.id,extraGlobal.id].sort(),later.id]);expect(JSON.stringify(graph)).not.toContain(other.userId);
+  const bad=structuredClone(selection);bad.monitors.push({id:"missing",sinkIds:[]});await expect(setOrderedDeploymentSelection(env.DB,f.userId,f.deployment.id,await readConfigurationVersion(env.DB,f.userId),bad)).rejects.toThrow("missing or unowned");
+  for(const change of [(s:any)=>s.discoverMonitors=1,(s:any)=>s.connections[0].discoverSources="yes",(s:any)=>{s.connections[0].discoverSources=true;s.connections[0].selectAll=true;}]){const invalid=structuredClone(selection);change(invalid);expect(()=>parseOrderedDeploymentSelection(invalid)).toThrow();}
+});
+
+it("keeps monitor discovery scoped to effective connections after a website source-only override",async()=>{
+  const f=await fixture(),selected={schema_version:1 as const,connections:[{id:f.cf.id,sourceIds:f.sources.filter(s=>s.connection_id===f.cf.id).map(s=>s.id),discoverSources:true}],monitors:[{id:f.first.id,sinkIds:[f.a.id,f.b.id]}],discoverMonitors:true};
+  await setOrderedDeploymentSelection(env.DB,f.userId,f.deployment.id,f.version,selected);
+  const flyMonitor=await createMonitor(env.DB,{userId:f.userId,connectionId:f.fly.id,displayName:"Fly monitor",filterSteps:[],enabled:true});await createSink(env.DB,{monitorId:flyMonitor.id,destinationId:f.destination.id,filterSteps:[]});
+  await updateDeployment(env.DB,f.userId,f.deployment.id,{sourceIds:f.sources.filter(s=>s.connection_id===f.fly.id).map(s=>s.id)});
+  const assembled=await assembleDeploymentBundle(env,f.userId,f.deployment.id);expect(assembled.input.connections[0]!.connection.id).toBe(f.fly.id);expect(assembled.input.connections[0]!.discoverSources).toBeUndefined();expect(assembled.input.discoverMonitors).toBe(true);expect(assembled.input.monitors.map(m=>m.monitor.id)).toEqual([flyMonitor.id]);
 });

@@ -60,7 +60,7 @@ monitors: []
   assert.ok(!yaml.includes("/api/heartbeat/"), "standalone bundle must not require hosted heartbeat");
   assert.ok(!yaml.includes("/api/metrics/"), "standalone bundle must not require hosted metrics");
   const script = `import assert from 'node:assert/strict';
-    import {generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,validateDeploymentInput} from '@logtura/core';
+    import {generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput} from '@logtura/core';
     import {writeFileSync} from 'node:fs';
     import {cloudflareWorkerTailDriver} from '@logtura/driver-cloudflare-worker-tail';
     const input={providers:[cloudflareWorkerTailDriver],destinations:[],monitors:[],
@@ -72,6 +72,11 @@ monitors: []
     assert.equal(plan.connections[0].connection.id,'fixture');
     assert.equal(plan.sources[0].source.id,'worker');
     assert.deepEqual(generateBundle(plan.input),bundle);
+    const discovery=resolveDeploymentDiscovery({connections:[],sources:[{connectionId:'fixture',source:{id:'newly_discovered',externalId:'future-worker',displayName:'Future',sourceKind:'worker',metadata:null}}],destinations:[],monitors:[],sinks:[]},{...input,discoverMonitors:true,connections:input.connections.map(c=>({...c,discoverSources:true}))});
+    assert.equal(discovery.connections[0].selectedSources[1].id,'newly_discovered');
+    assert.equal(discovery.connections[0].discoverSources,true);
+    assert.equal(discovery.discoverMonitors,true);
+    assert.ok(generateBundle(discovery).vectorYaml.includes('future-worker'));
     const exported=await exportDeploymentManifest(input,await createSecretVersioner('private-fixture-key'));
     assert.ok(!JSON.stringify(exported.document).includes('fixture-token'));
     const parsed=parseDeploymentManifest(exported.document,{env:exported.secretValues,providers:input.providers,destinations:input.destinations});
@@ -101,6 +106,14 @@ monitors: []
   assert.ok(readFileSync(join(consumer, "graph bundle", "vector.yaml"), "utf8").includes("fixture-second"));
   bin("logt", ["-c", "graph.yaml", "source", "remove", "src_second"]);
   assert.equal(bin("logt", ["-c", "graph.yaml", "config", "hash"]).trim(), initialGraphRevision);
+  writeFileSync(join(consumer, "discovery-edits.json"), JSON.stringify([{kind:"connection.update",id:"fixture",patch:{},discoverSources:true},{kind:"selection.update",discoverMonitors:true}]));
+  bin("logtura", ["-c", "graph.yaml", "config", "edit", "discovery-edits.json"]);
+  assert.match(readFileSync(join(consumer, "graph.yaml"), "utf8"), /discoverSources: true/);
+  bin("logt", ["-c", "graph.yaml", "source", "select", "fixture", "fixture-second", "--id", "src_second"]);
+  bin("logtura", ["-c", "graph.yaml", "source", "remove", "src_second"]);
+  assert.match(readFileSync(join(consumer, "graph.yaml"), "utf8"), /discoverSources: false/);
+  assert.match(readFileSync(join(consumer, "graph.yaml"), "utf8"), /discoverMonitors: true/);
+  bin("logt", ["-c", "graph.yaml", "validate"]);
   console.log(`Packed consumer checks passed for ${packages.length} packages and both CLI aliases`);
 } finally {
   rmSync(temporary, { recursive: true, force: true });

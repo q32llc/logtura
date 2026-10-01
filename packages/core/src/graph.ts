@@ -3,8 +3,9 @@ import { exportDeploymentManifest, normalizeDeploymentManifest, parseDeploymentM
 import type { Connection, Destination, GenerateInput, Monitor, Sink, Source } from "./types";
 
 export type ManifestEdit =
-  | {kind:"connection.add";connection:Connection;credentials?:Record<string,unknown>;selectAll?:boolean}
-  | {kind:"connection.update";id:string;patch:Partial<Omit<Connection,"id">>;credentials?:Record<string,unknown>;selectAll?:boolean}
+  | {kind:"connection.add";connection:Connection;credentials?:Record<string,unknown>;selectAll?:boolean;discoverSources?:boolean}
+  | {kind:"connection.update";id:string;patch:Partial<Omit<Connection,"id">>;credentials?:Record<string,unknown>;selectAll?:boolean;discoverSources?:boolean}
+  | {kind:"selection.update";discoverMonitors:boolean}
   | {kind:"connection.remove";id:string}
   | {kind:"source.add";connectionId:string;source:Source}
   | {kind:"source.update";id:string;patch:Partial<Omit<Source,"id">>}
@@ -23,7 +24,7 @@ function fields(value:unknown,allowed:string[]):void{
   if(!value || typeof value!=="object" || Array.isArray(value) || Object.keys(value).some(key=>!allowed.includes(key)))throw new Error("Unsupported graph edit fields");
 }
 const editFields:Record<ManifestEdit["kind"],string[]>={
-  "connection.add":["connection","credentials","selectAll"],"connection.update":["id","patch","credentials","selectAll"],"connection.remove":["id"],
+  "connection.add":["connection","credentials","selectAll","discoverSources"],"connection.update":["id","patch","credentials","selectAll","discoverSources"],"connection.remove":["id"],"selection.update":["discoverMonitors"],
   "source.add":["connectionId","source"],"source.update":["id","patch"],"source.remove":["id"],
   "monitor.add":["monitor"],"monitor.update":["id","patch"],"monitor.remove":["id"],
   "sink.add":["monitorId","sink","destination","destinationConfig"],"sink.update":["id","patch"],"sink.remove":["id"],
@@ -61,18 +62,19 @@ export async function editDeploymentManifest(document:DeploymentManifest,secretV
     if(!edit || !Object.hasOwn(editFields,edit.kind))throw new Error("Unsupported graph edit kind");
     fields(edit,["kind",...editFields[edit.kind]]);
     switch(edit.kind){
-      case "connection.add":fields(edit.connection,["id","provider","displayName","externalAccountId"]);input.connections.push({connection:edit.connection,selectedSources:[],...(edit.credentials===undefined?{}:{credentials:edit.credentials}),...(edit.selectAll===undefined?{}:{selectAll:edit.selectAll})});break;
-      case "connection.update":{const item=connection(edit.id);patch(item.connection,edit.patch,["provider","displayName","externalAccountId"]);if(edit.credentials!==undefined)item.credentials=edit.credentials;if(edit.selectAll!==undefined)item.selectAll=edit.selectAll;break;}
+      case "connection.add":fields(edit.connection,["id","provider","displayName","externalAccountId"]);input.connections.push({connection:edit.connection,selectedSources:[],...(edit.credentials===undefined?{}:{credentials:edit.credentials}),...(edit.selectAll===undefined?{}:{selectAll:edit.selectAll}),...(edit.discoverSources===undefined?{}:{discoverSources:edit.discoverSources})});break;
+      case "connection.update":{const item=connection(edit.id);patch(item.connection,edit.patch,["provider","displayName","externalAccountId"]);if(edit.credentials!==undefined)item.credentials=edit.credentials;if(edit.selectAll!==undefined)item.selectAll=edit.selectAll;if(edit.discoverSources!==undefined)item.discoverSources=edit.discoverSources;break;}
+      case "selection.update":input.discoverMonitors=edit.discoverMonitors;break;
       case "connection.remove":connection(edit.id);input.connections=input.connections.filter(c=>c.connection.id!==edit.id);break;
       case "source.add":fields(edit.source,["id","externalId","displayName","sourceKind","metadata"]);connection(edit.connectionId).selectedSources.push(edit.source);break;
       case "source.update":patch(source(edit.id),edit.patch,["externalId","displayName","sourceKind","metadata"]);break;
-      case "source.remove":source(edit.id);for(const c of input.connections)c.selectedSources=c.selectedSources.filter(s=>s.id!==edit.id);break;
+      case "source.remove":source(edit.id);for(const c of input.connections){if(c.discoverSources && c.selectedSources.some(s=>s.id===edit.id))c.discoverSources=false;c.selectedSources=c.selectedSources.filter(s=>s.id!==edit.id);}break;
       case "monitor.add":fields(edit.monitor,["id","connectionId","displayName","filterSteps","enabled"]);input.monitors.push({monitor:edit.monitor,sinks:[]});break;
       case "monitor.update":patch(monitor(edit.id).monitor,edit.patch,["connectionId","displayName","filterSteps","enabled"]);break;
-      case "monitor.remove":monitor(edit.id);input.monitors=input.monitors.filter(m=>m.monitor.id!==edit.id);break;
+      case "monitor.remove":monitor(edit.id);if(input.discoverMonitors)input.discoverMonitors=false;input.monitors=input.monitors.filter(m=>m.monitor.id!==edit.id);break;
       case "sink.add":fields(edit.sink,["id","filterSteps"]);fields(edit.destination,["id","kind","displayName"]);monitor(edit.monitorId).sinks.push({sink:edit.sink,destination:edit.destination,destinationConfig:edit.destinationConfig});break;
       case "sink.update":patch(sink(edit.id).sink,edit.patch,["filterSteps"]);break;
-      case "sink.remove":sink(edit.id);for(const m of input.monitors)m.sinks=m.sinks.filter(s=>s.sink.id!==edit.id);break;
+      case "sink.remove":sink(edit.id);if(input.discoverMonitors)input.discoverMonitors=false;for(const m of input.monitors)m.sinks=m.sinks.filter(s=>s.sink.id!==edit.id);break;
       case "destination.update":{
         const items=input.monitors.flatMap(m=>m.sinks).filter(s=>s.destination.id===edit.id);
         const metrics=input.metrics?.kind==="destination" && input.metrics.destination.id===edit.id?input.metrics:undefined;
@@ -99,9 +101,9 @@ export async function diffDeploymentManifests(before:DeploymentManifest,after:De
   const flatten=(doc:DeploymentManifest)=>{
     const rows=new Map<string,{entity:GraphChange["entity"];id:string;value:Record<string,unknown>}>();
     const add=(entity:GraphChange["entity"],id:string,value:Record<string,unknown>)=>rows.set(`${entity}:${id}`,{entity,id,value});
-    for(const [order,c] of doc.connections.entries()){add("connection",c.connection.id,{...c.connection,credentials:c.credentials,selectAll:c.selectAll??null,order});for(const [order,s] of c.selectedSources.entries())add("source",s.id,{...s,connectionId:c.connection.id,order});}
+    for(const [order,c] of doc.connections.entries()){add("connection",c.connection.id,{...c.connection,credentials:c.credentials,selectAll:c.selectAll??null,discoverSources:c.discoverSources??null,order});for(const [order,s] of c.selectedSources.entries())add("source",s.id,{...s,connectionId:c.connection.id,order});}
     for(const [order,m] of doc.monitors.entries()){add("monitor",m.monitor.id,{...m.monitor,order});for(const [order,s] of m.sinks.entries())add("sink",s.sink.id,{...s.sink,destination:s.destination,destinationConfig:s.destinationConfig,monitorId:m.monitor.id,order});}
-    add("reporting","reporting",{heartbeat:doc.heartbeat??null,metrics:doc.metrics??null,runtimeEnv:doc.runtimeEnv});return rows;
+    add("reporting","reporting",{discoverMonitors:doc.discoverMonitors??null,heartbeat:doc.heartbeat??null,metrics:doc.metrics??null,runtimeEnv:doc.runtimeEnv});return rows;
   };
   const left=flatten(before),right=flatten(after),changes:GraphChange[]=[];
   for(const key of [...new Set([...left.keys(),...right.keys()])].sort()){

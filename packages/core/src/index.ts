@@ -65,5 +65,5 @@ export { exportDeploymentManifest, parseDeploymentManifest, normalizeDeploymentM
 export type { DeploymentManifest, SecretReference, SecretVersioner } from "./manifest";
 export { editDeploymentManifest, diffDeploymentManifests } from "./graph";
 export type { ManifestEdit, GraphChange, GraphDiff } from "./graph";
-export { planDeploymentChanges } from "./reconcile";
+export { planDeploymentChanges, resolveDeploymentDiscovery } from "./reconcile";
 export type { GraphInventory, DeploymentChangePlan, StoredConnection, StoredSource, StoredDestination, StoredSink } from "./reconcile";

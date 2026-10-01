@@ -246,3 +246,28 @@ them as an HTTP diff or log. The caller supplies an owned inventory, validates
 provider/account policy, resolves credentials, and executes changes atomically
 with its concurrency guard. `validateDeploymentInput(input)` validates the graph
 and payloads synchronously without rendering, signing or making network requests.
+
+### Preserve discovery intent
+
+A portable connection's optional `discoverSources: true` refreshes its materialized
+source list from a caller-supplied discovered catalog. The manifest's optional
+`discoverMonitors: true` includes enabled monitors applicable to its connections
+and their current sinks. These flags preserve legacy hosted selections through
+pull/edit/push. They differ from `selectAll: true`, which asks a supporting driver
+to subscribe to every stream directly; native all-source and discovered-source
+modes are mutually exclusive for a connection.
+
+`resolveDeploymentDiscovery(ownedInventory, input)` returns a materialized input
+without network calls, service dependencies or mutation. Explicit snapshot order
+is retained, and new rows append in inventory order. A standalone adapter can
+provide its own catalog before calling `generateBundle`. `planDeploymentChanges`
+resolves the flags against its owned inventory automatically. An already
+materialized manifest can render offline from its captured snapshot; discovery
+flags take effect again when its catalog is refreshed.
+
+Graph `connection.add`/`connection.update` edits accept `discoverSources`; a
+`selection.update` edit accepts `discoverMonitors`. Removing a source freezes that
+connection's discovery policy to the retained explicit snapshot. Removing a
+monitor or sink freezes monitor discovery so a later refresh will not silently
+re-add the removed selection. Other edits retain discovery policy. Diffs expose
+changed policy field names without disclosing private catalog payloads.

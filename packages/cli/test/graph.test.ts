@@ -47,3 +47,10 @@ describe("local portable graph commands",()=>{
     for(const args of [["config","edit"],["config","diff",baseline,"extra"],["config","export","--local"],["source","select"],["source","select","-bad","site"],["source","select","con_site","-bad"],["source","select","con_site","site","--local"],["source","remove"],["diff"],["diff","-bad"],["diff","dep_site","--local"]])expect(await run(args)).toBe(1);expect(error).toHaveBeenCalled();
   });
 });
+
+it("keeps discovery intent through CLI edits and freezes source discovery on explicit removal",async()=>{
+  const {root,path}=await setup(),edits=join(root,"policy.json");writeFileSync(edits,JSON.stringify([{kind:"connection.update",id:"con_site",patch:{},discoverSources:true},{kind:"selection.update",discoverMonitors:true}]));
+  vi.spyOn(console,"log").mockImplementation(()=>{});expect(await main(["-c",path,"config","edit",edits])).toBe(0);
+  expect(await main(["-c",path,"source","select","con_site","new-site","--id","src_new"])).toBe(0);expect((readConfigDoc(path) as any).connections[0].discoverSources).toBe(true);expect(readConfigDoc(path).discoverMonitors).toBe(true);
+  expect(await main(["-c",path,"source","remove","src_new"])).toBe(0);expect((readConfigDoc(path) as any).connections[0].discoverSources).toBe(false);expect(readConfigDoc(path).discoverMonitors).toBe(true);
+});

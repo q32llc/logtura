@@ -41,6 +41,7 @@ export interface GeneratorConnection {
    *  connection's account, including future additions. Driver must
    *  declare capabilities.selection === "all" or "both". */
   selectAll?: boolean;
+  discoverSources?: boolean;
   credentials?: Record<string, unknown>;
 }
 
@@ -56,6 +57,7 @@ export interface GeneratorMonitor {
 }
 
 export interface GenerateInput {
+  discoverMonitors?: boolean;
   runtimeEnv?: Record<string,string>;
   connections: GeneratorConnection[];
   monitors: GeneratorMonitor[];
@@ -81,12 +83,14 @@ export function generateBundle(input: GenerateInput): GeneratedBundle {
 export function toCoreInput(input: GenerateInput): CoreGenerateInput {
   return {
     runtimeEnv: input.runtimeEnv,
+    discoverMonitors: input.discoverMonitors,
     providers: listProviders(),
     destinations: listDestinationDrivers(),
     connections: input.connections.map((c) => ({
       connection: rowToConnection(c.connection),
       selectedSources: c.selectedSources.map(rowToSource),
       selectAll: c.selectAll,
+      discoverSources: c.discoverSources,
       credentials: c.credentials,
     })),
     monitors: input.monitors.map((m) => ({

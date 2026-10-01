@@ -268,7 +268,7 @@ manifest; it does not delete a provider resource or mutate the website.
 The public library implements the same transaction. Available operations are
 `connection.add/update/remove`, `source.add/update/remove`,
 `monitor.add/update/remove`, `sink.add/update/remove`, `destination.update` and
-`reporting.update`. Add operations supply complete entities with stable IDs;
+`reporting.update` and `selection.update`. Add operations supply complete entities with stable IDs;
 updates use `id` plus `patch`. Connection updates may include `credentials`, and
 destination updates may include `destinationConfig`. IDs cannot be patched.
 
@@ -294,3 +294,22 @@ Local `config diff` and account `diff` report identities and changed field names
 including ordering, without printing values. These commands compare manifests;
 they do not push, deploy, resolve conflicts or persist desired/applied revisions.
 Existing `bundle`, `validate`, `env` and local deployment consume the edited graph.
+
+Portable graphs retain `discoverSources` on a connection and `discoverMonitors`
+on the root when the hosted deployment follows discovered inventory. Rendering
+an exported graph offline uses its captured snapshot. Discovery requires a fresh
+catalog and configuration regeneration; it does not subscribe to future streams
+inside the running forwarder. Provider-native `selectAll` is a separate mode.
+
+Use an edit file to change the policy explicitly:
+
+```json
+[
+  {"kind":"connection.update","id":"con_existing","patch":{},"discoverSources":false},
+  {"kind":"selection.update","discoverMonitors":false}
+]
+```
+
+Apply it with `logt config edit edits.json`. Removing a selected source
+freezes discovery for that connection; removing a monitor or sink freezes monitor
+discovery. This keeps a later catalog refresh from restoring a removed selection.

@@ -373,6 +373,8 @@ export interface GeneratorConnection {
    *  the connection's account, including future additions. Requires
    *  the driver to declare `supportsAllSelection: true`. */
   selectAll?: boolean;
+  /** Expand the caller-owned discovered catalog on refresh; unlike native selectAll. */
+  discoverSources?: boolean;
   /** Decrypted credentials matching the driver's TCreds shape.
    *  Optional when the renderer should emit placeholders rather
    *  than inlining values (e.g., self-deploy bundle UI). */
@@ -392,6 +394,8 @@ export interface GeneratorSink {
 }
 
 export interface GenerateInput {
+  /** Include applicable enabled monitors and their current sinks on refresh. */
+  discoverMonitors?: boolean;
   /** Explicit manual runtime values, including deployment reporting tokens. */
   runtimeEnv?: Record<string, string>;
   /** Drivers to look up by id. Caller registers what they want

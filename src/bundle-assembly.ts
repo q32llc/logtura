@@ -55,7 +55,7 @@ export async function assembleDeploymentBundle(
   const selection = parseDeploymentSelection(deployment);
 
   const orderedSelection=deployment.graph_selection_json?parseOrderedDeploymentSelection(JSON.parse(deployment.graph_selection_json)):null;
-  const orderedGraph=orderedSelection?await loadSelectedDeploymentGraph(env.DB,userId,orderedSelection):null;
+  let orderedGraph=orderedSelection?await loadSelectedDeploymentGraph(env.DB,userId,orderedSelection):null;
   const sourcesByConnId=new Map<string,LogSourceRow[]>();
   let connections:ConnectionRow[];
   if(orderedGraph && !orderedSelection?.legacySources){
@@ -108,6 +108,13 @@ export async function assembleDeploymentBundle(
 
   }
 
+  // A website source-only override can change the connection set while keeping
+  // monitor discovery. Resolve that policy against the effective source owners,
+  // rather than the connection snapshot saved before the override.
+  if(orderedSelection?.legacySources && orderedSelection.discoverMonitors && !orderedSelection.legacyMonitors){
+    orderedGraph=await loadSelectedDeploymentGraph(env.DB,userId,{...orderedSelection,connections:connections.map(c=>({id:c.id,sourceIds:[]}))});
+  }
+
   // Same-provider collision is enforced HERE rather than at the
   // route: two CF connections would both want CLOUDFLARE_API_TOKEN
   // and we can't disambiguate. The UI prevents it at picker time,
@@ -133,6 +140,7 @@ export async function assembleDeploymentBundle(
     connection: ConnectionRow;
     selectedSources: LogSourceRow[];
     selectAll?: boolean;
+    discoverSources?: boolean;
     credentials?: Record<string, unknown>;
     fresh: boolean;
     staleReason?: string;
@@ -192,6 +200,7 @@ export async function assembleDeploymentBundle(
       connection: c,
       selectedSources: sources,
       selectAll: orderedGraph?.connections.find(selected=>selected.connection.id===c.id)?.selectAll,
+      discoverSources: orderedGraph && !orderedSelection?.legacySources ? orderedGraph.connections.find(selected=>selected.connection.id===c.id)?.discoverSources : selection.sourceIds===null && c.id===deployment.connection_id ? true : undefined,
       credentials,
       fresh,
       staleReason,
@@ -277,10 +286,12 @@ export async function assembleDeploymentBundle(
   for(const name of ["LOGTURA_HEARTBEAT_TOKEN","LOGTURA_METRICS_TOKEN","LOGTURA_HEARTBEAT_URL","LOGTURA_METRICS_URL"])delete runtimeEnv[name];
   const generatorInput: GenerateInput = {
     runtimeEnv,
+    discoverMonitors: orderedGraph && !orderedSelection?.legacyMonitors ? orderedSelection!.discoverMonitors : selection.monitorIds===null ? true : undefined,
     connections: perConn.map((c) => ({
       connection: c.connection,
       selectedSources: c.selectedSources,
       selectAll: c.selectAll,
+      discoverSources: c.discoverSources,
       credentials: c.fresh ? c.credentials : undefined,
     })),
     monitors: generatorMonitors,
@@ -314,7 +325,7 @@ export async function assembleDeploymentBundle(
   return {
     deployment,
     bundle,
-    input: {...toCoreInput({...generatorInput, connections: perConn.map(c=>({connection:c.connection,selectedSources:c.selectedSources,selectAll:c.selectAll,credentials:c.credentials}))}), runtimeEnv: {...runtimeEnv,LOGTURA_HEARTBEAT_TOKEN: heartbeatToken, LOGTURA_METRICS_TOKEN: heartbeatToken}},
+    input: {...toCoreInput({...generatorInput, connections: perConn.map(c=>({connection:c.connection,selectedSources:c.selectedSources,selectAll:c.selectAll,discoverSources:c.discoverSources,credentials:c.credentials}))}), runtimeEnv: {...runtimeEnv,LOGTURA_HEARTBEAT_TOKEN: heartbeatToken, LOGTURA_METRICS_TOKEN: heartbeatToken}},
     heartbeatToken,
     credentialVersions: new Map(connections.map(c=>[c.id,c.credential_version!])),
     credentialIsFresh,

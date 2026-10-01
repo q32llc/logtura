@@ -1182,7 +1182,7 @@ function ConfigurePanel({
               Pick what to forward. The deployment's connections are whichever
               connections own the selected sources — no separate join step.
             </Text>
-            {deployment.graphSelection && !deployment.graphSelection.legacySources && deployment.graphSelection.connections.some(c=>c.selectAll) && (
+            {deployment.graphSelection && !deployment.graphSelection.legacySources && deployment.graphSelection.connections.some(c=>c.selectAll || c.discoverSources) && (
               <Text size="sm">Current mode: {deploymentSourceSummary(deployment)}. Changing the source selections below switches to an explicit list when saved.</Text>
             )}
             {derivedConnectionIds.size > 0 && (

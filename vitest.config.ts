@@ -61,7 +61,7 @@ export default defineConfig({
         "src/graph-reconciliation.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/config-version.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/cli-auth.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
-        statements: 71, branches: 65, functions: 75, lines: 70,
+        statements: 71, branches: 65, functions: 76, lines: 70,
         "packages/core/src/reconcile.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/graph.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/graph.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
