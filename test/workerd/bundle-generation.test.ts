@@ -1,6 +1,6 @@
 import { SELF, env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { encryptSecret, newId } from "../../src/crypto";
+import { encryptSecret, newId, signCookie } from "../../src/crypto";
 import { mockFetch, seedUser } from "./_setup";
 
 /** End-to-end bundle generation: seed a deep fixture (user →
@@ -212,5 +212,54 @@ describe("GET /api/deployments/:id/bundle", () => {
       { headers: { cookie: sessionCookie } },
     );
     expect(res.status).toBe(404);
+  });
+});
+
+
+describe("install archive delivery", () => {
+  it("serves the public core archive from authenticated and signed downloads", async () => {
+    const seed = await seedFullDeployment();
+    mockFetch("https://api.cloudflare.com", () => Response.json({success: true, result: {status: "active"}}));
+    const headers = {cookie: seed.sessionCookie};
+    const direct = await SELF.fetch(`http://localhost/api/deployments/${seed.deploymentId}/install-bundle.tgz`, {headers});
+    expect(direct.status).toBe(200);
+    expect(direct.headers.get("cache-control")).toBe("no-store");
+    expect(direct.headers.get("content-type")).toBe("application/gzip");
+    const bytes = new Uint8Array(await direct.arrayBuffer());
+    const archive = new Uint8Array(await new Response(new Response(bytes).body!.pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+    const files = new Map<string, {text: string; mode: number}>();
+    const decoder = new TextDecoder();
+    for (let offset = 0; archive[offset];) {
+      const field = (start: number, end: number) => decoder.decode(archive.slice(offset+start,offset+end)).replace(/\0.*$/s, "");
+      const name = field(0,100); const size = parseInt(field(124,136),8); const mode = parseInt(field(100,108),8);
+      files.set(name.split("/").slice(1).join("/"), {text: decoder.decode(archive.slice(offset+512,offset+512+size)), mode});
+      offset += 512 + Math.ceil(size/512)*512;
+    }
+    expect(files.get(".env")?.mode).toBe(0o600);
+    expect(files.get(".env")?.text).toContain("cf_test_token");
+    expect(files.get("install.sh")?.mode).toBe(0o755);
+    expect(files.get("install.sh")?.text).toContain("-e CLOUDFLARE_API_TOKEN");
+    expect(JSON.parse(files.get("manifest.json")!.text)).toEqual(expect.any(Array));
+    expect(files.get("vector.yaml")?.text).toContain("worker-one");
+    const signedResponse = await SELF.fetch(`http://localhost/api/deployments/${seed.deploymentId}/install-bundle/sign`, {method: "POST", headers});
+    expect(signedResponse.status).toBe(200);
+    const signed = await signedResponse.json() as {url: string};
+    const download = await SELF.fetch(signed.url);
+    expect(download.status).toBe(200);
+    expect(new Uint8Array(await download.arrayBuffer())).toEqual(bytes);
+  });
+
+  it("denies other accounts, missing sessions, tampering and expired links", async () => {
+    const seed = await seedFullDeployment(); const other = await seedUser();
+    const base = `http://localhost/api/deployments/${seed.deploymentId}`;
+    expect((await SELF.fetch(`${base}/install-bundle.tgz`, {redirect: "manual"})).status).toBe(303);
+    for (const [suffix, method] of [["install-bundle.tgz", "GET"], ["install-bundle/sign", "POST"]]) {
+      expect((await SELF.fetch(`${base}/${suffix}`, {method, headers:{cookie: other.sessionCookie}})).status).toBe(404);
+    }
+    expect((await SELF.fetch("http://localhost/api/install-bundle/tampered/file.tgz")).status).toBe(401);
+    const expired = await signCookie(JSON.stringify({d: seed.deploymentId,u: seed.userId,exp: Date.now()-1000}), env.SESSION_SECRET);
+    expect((await SELF.fetch(`http://localhost/api/install-bundle/${encodeURIComponent(expired)}/file.tgz`)).status).toBe(410);
+    const bad = await signCookie("not-json",env.SESSION_SECRET);
+    expect((await SELF.fetch(`http://localhost/api/install-bundle/${encodeURIComponent(bad)}/file.tgz`)).status).toBe(401);
   });
 });

@@ -258,3 +258,40 @@ private backend and 56/45/59/60 for public packages. Public verification passes
 140 tests with 60.59% lines and 45.50% branches; shared provider modules remain
 at 100% across all metrics. The real Vector flow also passes independently in
 the public layout.
+
+
+### Shared install backend shipped — 2026-10-01
+
+`@logtura/core` now owns install-file composition and reproducible tar output.
+The service supplies its decrypted bundle and Workers compression; the CLI
+supplies Node compression. Both use the same installer, credential rendering,
+runtime asset layout and component diagram. This removes the duplicate backend
+rather than keeping two implementations synchronized.
+
+Shell-quoted `.env` values previously changed when passed directly through
+Docker `--env-file`. The shared installer sources the generated shell file and
+passes validated exported keys with `-e KEY`, preserving quotes, spaces,
+newlines and literal command-substitution text. It checks every generated key,
+even when a previously populated value was cleared, and fails before replacing
+a running container if credentials are missing. Interactive prompt values are
+exported for that run; save them in `.env` for subsequent runs.
+
+The baseline now includes executable shell tests against a recording runtime,
+native tar extraction, UTF-8 byte limits, path traversal/duplicate rejection,
+archive reproducibility, mode preservation and packed Node consumption of the
+public install APIs. Workerd verifies session and signed downloads produce the
+same bytes, retain private file modes, reject other users and expired/tampered
+links, and preserve the existing authentication redirect.
+
+Validation: 240 private tests and 171 public tests pass. Private coverage is
+56.49% statements / 43.13% branches / 62.91% functions / 58.84% lines; public is
+60.39% / 47.69% / 63.47% / 64.14%. Install composition is 100% lines, statements
+and functions, 95% branches; tar is 100% across all metrics, with per-file gates.
+Global floors increased accordingly. These are intermediate floors; the final
+95% backend / 90% UI coverage requirements remain outstanding.
+
+`manifest.json` still contains the component diagram. Portable desired/applied
+configuration, account CLI authentication and bidirectional synchronization are
+not implemented by this slice. Npm publication and production rollout remain
+pending. Both repositories' latest CI tests/builds pass before the mandatory
+Codecov upload, which still fails with `Repository not found`.

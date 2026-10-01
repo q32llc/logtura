@@ -53,7 +53,9 @@ export default defineConfig({
       // Baseline floor; raise these as the planned coverage slices land.
       // Final scope targets are 95% lines/statements/functions and 90% branches.
       thresholds: {
-        statements: 52, branches: 41, functions: 59, lines: 55,
+        statements: 56, branches: 43, functions: 62, lines: 58,
+        "packages/core/src/install.ts": { statements: 100, branches: 95, functions: 100, lines: 100 },
+        "packages/core/src/tar.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cloudflare-shared/src/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/supabase-shared/src/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
       },

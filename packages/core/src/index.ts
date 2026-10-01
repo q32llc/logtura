@@ -51,3 +51,6 @@ export type {
 } from "./types";
 
 export { DestinationError, ProviderError } from "./types";
+
+export { installBundleFiles, renderEnvFile } from "./install";
+export { buildTar, type TarFile } from "./tar";

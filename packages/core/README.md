@@ -138,9 +138,19 @@ event unless a driver intentionally drops them.
 
 ## Status
 
-`0.2.x`. Packages currently ship raw TypeScript sources. Consumers need a
-TS-aware toolchain such as `tsx`, Bun, Vite, Webpack with ts-loader, or esbuild.
-Compiled `.js` + `.d.ts` distribution is still on the roadmap.
+Packages build to ESM JavaScript and TypeScript declarations. Built artifacts
+work with Node 22+ and Workers without a TypeScript loader.
+
+`installBundleFiles(bundle, directoryName?, displayName?)` composes the same
+Dockerfile, Vector config, runtime assets, credential file, installer and
+component manifest used by the CLI and hosted service. `buildTar(files)` creates
+a reproducible uncompressed ustar archive; callers choose Node or Workers gzip.
+Secrets belong only in the mode-0600 `.env` file. The installer exports them to
+Docker without changing shell-quoted values. `manifest.json` is currently the
+Vector component diagram, not a portable deployment configuration.
+
+Tar paths must be relative, unique, free of traversal and at most 100 UTF-8
+bytes. Install environment variable names must be valid shell identifiers.
 
 ## License
 

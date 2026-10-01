@@ -51,12 +51,16 @@ monitors: []
   assert.ok(!yaml.includes("/api/heartbeat/"), "standalone bundle must not require hosted heartbeat");
   assert.ok(!yaml.includes("/api/metrics/"), "standalone bundle must not require hosted metrics");
   const script = `import assert from 'node:assert/strict';
-    import {generateBundle} from '@logtura/core';
+    import {generateBundle,installBundleFiles,buildTar} from '@logtura/core';
     import {cloudflareWorkerTailDriver} from '@logtura/driver-cloudflare-worker-tail';
     const bundle=generateBundle({providers:[cloudflareWorkerTailDriver],destinations:[],monitors:[],
       connections:[{connection:{id:'fixture',provider:cloudflareWorkerTailDriver.id,displayName:'Fixture',externalAccountId:'fixture-account'},
         selectedSources:[{id:'worker',externalId:'fixture-worker',displayName:'fixture-worker',sourceKind:'worker',metadata:null}],credentials:{apiToken:'fixture-token'}}]});
     assert.ok(bundle.vectorYaml.includes('internal_metrics'));
+    const files=installBundleFiles(bundle);
+    assert.equal(files.find(f=>f.name.endsWith('/.env')).mode,0o600);
+    assert.ok(files.find(f=>f.name.endsWith('/install.sh')).content.includes('-e CLOUDFLARE_API_TOKEN'));
+    assert.ok(buildTar(files).length>1024);
     ${packages.map((name) => `await import(${JSON.stringify(`@logtura/${name}`)});`).join("\n")}
     console.log('all public packages import in ordinary Node');`;
   writeFileSync(join(consumer, "consumer.mjs"), script);

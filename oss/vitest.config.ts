@@ -27,7 +27,9 @@ export default defineConfig({
       reporter: ["text", "html", "lcov", "json-summary"],
       // Initial measured floor; the convergence plan requires 95/90 targets.
       thresholds: {
-        statements: 56, branches: 45, functions: 59, lines: 60,
+        statements: 60, branches: 47, functions: 63, lines: 64,
+        "packages/core/src/install.ts": { statements: 100, branches: 95, functions: 100, lines: 100 },
+        "packages/core/src/tar.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cloudflare-shared/src/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/supabase-shared/src/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
       },
