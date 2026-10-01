@@ -472,3 +472,47 @@ refresh public payload versions; sync needs private baseline fingerprints or
 explicit secret comparison. Unlinked graph deployment still uses the existing
 local deploy adapter. This slice does not imply that the production service or
 npm release has these capabilities yet.
+
+
+### Implemented slice: atomic configuration versions and stable exports (2026-10-01)
+
+Migration 0019 adds account configuration versions and transaction-local write
+guards. SQL triggers cover inserts, material updates, removals and ownership
+changes across connections, sources, destinations, monitors, sinks, deployments,
+deployment connections and deploy targets. This includes existing website writers;
+it does not depend on every route manually incrementing a counter. No-op writes,
+discovery timestamps, ordinary heartbeat/metrics/status/checkpoint updates and
+stale-bundle flags do not advance the version. Versions are deliberately
+account-wide: unrelated configuration changes may conservatively conflict.
+
+`commitConfiguration` inserts a version guard, executes ownership-checked prepared
+mutations, reads the resulting version and deletes the guard in one D1 batch.
+A stale guard aborts the transaction before graph mutation. Late constraint errors
+roll back prior mutations and version changes. The SQL mechanism follows
+[Cloudflare's documented D1 batch transaction behavior](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch),
+with workerd tests proving concurrent-writer exclusion and rollback. This internal
+primitive does not authorize callers or accept SQL through an HTTP endpoint.
+
+Deployment exports now read a configuration version before and after assembly.
+They retry up to three times and return a no-store 409 on ongoing change, with no
+partial graph or secrets. Deletion during assembly returns 404. Exports include an
+optional `configurationVersion`; the public client validates it while accepting
+older responses that omit it. Stable account versions do not yet solve the separate
+OAuth broker payload/revision issue noted above.
+
+Validation: 498 full-suite private tests pass, plus three added export-race cases
+pass in the final nine-case bundle/export suite (501 private cases total). All 395
+independent public tests, private/public builds and type checks, and public packed
+consumers pass. The configuration-version module enforces 100% statements,
+branches, functions and lines. A schema-18 upgrade fixture preserves the existing
+forwarder row, ciphertext and reporting state, backfills version zero, and proves
+runtime reports do not advance it. New-user initialization, direct configuration
+writers, cascades, ownership moves, invalid versions, non-conflict errors, bounded
+read retries and user deletion are covered.
+
+This is the concurrency foundation, not the authenticated push endpoint. Next:
+owned graph reconciliation, persisted desired/applied records, local base/version
+tracking, explicit secret-transfer policy, push/conflict UX and applied reports.
+Migrations 0018 and 0019 are still pending in production; npm publication and the
+staged rollout remain pending. The pushed graph-editing CI passes its code checks
+and image build but still fails Codecov upload with `Repository not found`.

@@ -16,7 +16,7 @@ export function normalizeServiceUrl(value:string):string {
   if(url.protocol!=="https:" && !(url.protocol==="http:" && ["localhost","127.0.0.1","[::1]"].includes(url.hostname)))throw new Error("Service URL requires HTTPS (loopback HTTP is allowed)");
   return url.origin;
 }
-export interface DeploymentConfigExport {document:DeploymentManifest;revision:string;deployment:{id:string;displayName:string};secretValues?:Record<string,string>;}
+export interface DeploymentConfigExport {configurationVersion?:number;document:DeploymentManifest;revision:string;deployment:{id:string;displayName:string};secretValues?:Record<string,string>;}
 export class LogturaServiceClient {
   readonly url:string;
   constructor(private readonly options:ServiceClientOptions){
@@ -63,7 +63,7 @@ export class LogturaServiceClient {
     if(!id)throw new Error("Deployment identity is required");
     const result=await this.request<DeploymentConfigExport>(`/deployments/${encodeURIComponent(id)}/config${includeSecrets?"?includeSecrets=1":""}`);
     normalizeDeploymentManifest(result.document);
-    if(!/^sha256:[a-f0-9]{64}$/.test(result.revision) || result.deployment?.id!==id || typeof result.deployment.displayName!=="string" ||
+    if((result.configurationVersion!==undefined && (!Number.isSafeInteger(result.configurationVersion) || result.configurationVersion<0)) || !/^sha256:[a-f0-9]{64}$/.test(result.revision) || result.deployment?.id!==id || typeof result.deployment.displayName!=="string" ||
       (includeSecrets && (!result.secretValues || typeof result.secretValues!=="object" || Array.isArray(result.secretValues) || Object.values(result.secretValues).some(value=>typeof value!=="string"))))throw new ServiceError(200,"invalid_config_response");
     return result;
   }

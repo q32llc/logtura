@@ -53,6 +53,7 @@ export default defineConfig({
       // Baseline floor; raise these as the planned coverage slices land.
       // Final scope targets are 95% lines/statements/functions and 90% branches.
       thresholds: {
+        "src/config-version.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/cli-auth.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
         statements: 67, branches: 58, functions: 71, lines: 67,
         "packages/core/src/graph.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },

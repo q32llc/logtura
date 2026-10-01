@@ -274,7 +274,7 @@ describe("portable deployment export",()=>{
     const seed=await seedFullDeployment();mockFetch("https://api.cloudflare.com",()=>Response.json({success:true,result:{status:"active"}}));
     const url=`http://localhost/api/deployments/${seed.deploymentId}/config`,headers={cookie:seed.sessionCookie};
     const publicResponse=await SELF.fetch(url,{headers});expect(publicResponse.status).toBe(200);expect(publicResponse.headers.get("cache-control")).toBe("no-store");
-    const publicConfig=await publicResponse.json() as DeploymentConfigExport;expect(publicConfig).not.toHaveProperty("secretValues");expect(JSON.stringify(publicConfig)).not.toContain("cf_test_token");expect(JSON.stringify(publicConfig)).not.toContain("hooks.slack.com");
+    const publicConfig=await publicResponse.json() as DeploymentConfigExport;expect(publicConfig.configurationVersion).toBeTypeOf("number");expect(publicConfig).not.toHaveProperty("secretValues");expect(JSON.stringify(publicConfig)).not.toContain("cf_test_token");expect(JSON.stringify(publicConfig)).not.toContain("hooks.slack.com");
     const response=await SELF.fetch(url+"?includeSecrets=1",{headers});expect(response.status).toBe(200);const exported=await response.json() as DeploymentConfigExport;
     expect(exported.document).toEqual(publicConfig.document);expect(exported.revision).toBe(publicConfig.revision);expect(await hashConfigDocument(exported.document)).toBe(exported.revision);
     const accountToken=`lt_cli_${"A".repeat(43)}`;
@@ -290,4 +290,15 @@ describe("portable deployment export",()=>{
     for(const id of [seed.deploymentId,"dep_missing"]){const response=await SELF.fetch(`http://localhost/api/deployments/${id}/config?includeSecrets=1`,{headers:{cookie:other.sessionCookie}});expect(response.status).toBe(404);expect(await response.json()).toEqual({error:"not_found"});}
     const response=await SELF.fetch(`http://localhost/api/deployments/${seed.deploymentId}/config?includeSecrets=1`,{headers:{authorization:"Bearer heartbeat-token"},redirect:"manual"});expect(response.status).toBe(401);
   });
+  it("returns a retryable conflict rather than an incoherent export during repeated website edits",async()=>{
+    const seed=await seedFullDeployment();let checks=0;
+    mockFetch("https://api.cloudflare.com",async()=>{checks++;await env.DB.prepare("UPDATE monitors SET enabled=1-enabled WHERE user_id=?").bind(seed.userId).run();return Response.json({success:true,result:{status:"active"}});});
+    const response=await SELF.fetch(`http://localhost/api/deployments/${seed.deploymentId}/config?includeSecrets=1`,{headers:{cookie:seed.sessionCookie}});
+    expect(response.status).toBe(409);expect(response.headers.get("cache-control")).toBe("no-store");expect(checks).toBe(3);const body=await response.json() as any;expect(body.error).toBe("configuration_changed");expect(body.configurationVersion).toBeTypeOf("number");expect(body).not.toHaveProperty("secretValues");expect(body).not.toHaveProperty("document");
+  });
+  it.each(["deployments","users"])("handles %s deletion during export without exposing the stale graph",async table=>{
+    const seed=await seedFullDeployment();mockFetch("https://api.cloudflare.com",async()=>{await env.DB.prepare(`DELETE FROM ${table} WHERE id=?`).bind(table==="users"?seed.userId:seed.deploymentId).run();return Response.json({success:true,result:{status:"active"}});});
+    const response=await SELF.fetch(`http://localhost/api/deployments/${seed.deploymentId}/config?includeSecrets=1`,{headers:{cookie:seed.sessionCookie}});expect(response.status).toBe(404);expect(await response.json()).toEqual({error:"not_found"});
+  });
+
 });

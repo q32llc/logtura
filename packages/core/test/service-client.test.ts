@@ -46,7 +46,8 @@ it("validates deployment export identity and secret responses",async()=>{
   const base={document,revision:`sha256:${"a".repeat(64)}`,deployment:{id:"dep id",displayName:"Deployment"}};
   const client=(body:unknown)=>new LogturaServiceClient({url:"https://service.test",fetch:async(url)=>{expect(String(url)).toContain("/deployments/dep%20id/config");return Response.json(body);}});
   await expect(client(base).pullDeploymentConfig("dep id")).resolves.toEqual(base);
+  await expect(client({...base,configurationVersion:0}).pullDeploymentConfig("dep id")).resolves.toHaveProperty("configurationVersion",0);
   await expect(client({...base,secretValues:{KEY:"value"}}).pullDeploymentConfig("dep id",true)).resolves.toHaveProperty("secretValues.KEY","value");
   await expect(client(base).pullDeploymentConfig("")).rejects.toThrow("identity");
-  for(const body of [{...base,revision:"bad"},{...base,deployment:null},{...base,deployment:{id:"wrong",displayName:"Name"}},{...base,deployment:{id:"dep id",displayName:12}},base,{...base,secretValues:[]},{...base,secretValues:"bad"},{...base,secretValues:{KEY:12}}])await expect(client(body).pullDeploymentConfig("dep id",true)).rejects.toThrow("invalid_config_response");
+  for(const body of [{...base,configurationVersion:-1},{...base,configurationVersion:1.2},{...base,configurationVersion:"bad"},{...base,revision:"bad"},{...base,deployment:null},{...base,deployment:{id:"wrong",displayName:"Name"}},{...base,deployment:{id:"dep id",displayName:12}},base,{...base,secretValues:[]},{...base,secretValues:"bad"},{...base,secretValues:{KEY:12}}])await expect(client(body).pullDeploymentConfig("dep id",true)).rejects.toThrow("invalid_config_response");
 });
