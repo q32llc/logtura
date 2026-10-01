@@ -1,3 +1,6 @@
+import { parseDeploymentPush,resolveOwnedDeploymentManifest,DeploymentPushError } from "./deployment-push";
+import { reconcileDeploymentConfiguration } from "./deployment-reconciliation";
+import { readDeploymentConfiguration,DeploymentRevisionConflict } from "./deployment-configuration";
 import { parseOrderedDeploymentSelection } from "./deployment-selection";
 import { ConfigurationConflict, readStableConfiguration } from "./config-version";
 import { exportHostedManifest } from "./credential-intent";
@@ -117,6 +120,7 @@ import {
 
 const app = new Hono<AppContext>();
 
+app.use("/api/deployments/:id/config",async(c,next)=>{c.header("cache-control","no-store");await next();});
 app.use("*", attachOptionalUser);
 
 type DeploymentIngestCacheEntry = {
@@ -476,6 +480,7 @@ api.post("/tail/railway/token", async (c) => {
 });
 
 const apiAuth = new Hono<AppContext>();
+apiAuth.use("/deployments/:id/config",async(c,next)=>{c.header("cache-control","no-store");if(!c.get("user"))return c.json({error:"auth_required"},401);await next();});
 apiAuth.use("*", requireAuth);
 
 apiAuth.get("/connections", async (c) => {
@@ -1233,7 +1238,7 @@ apiAuth.get("/deployments/:id/config", async (c) => {
     const snapshot=await readStableConfiguration(c.env.DB,user.id,async()=>{
       const assembled=await assembleDeploymentBundle(c.env,user.id,id);
       const exported=await exportHostedManifest(assembled.input,assembled.credentialVersions,await createSecretVersioner(c.env.CREDENTIAL_ENCRYPTION_KEY));
-      return {document:exported.document,revision:await hashConfigDocument(exported.document),
+      return {document:exported.document,revision:await hashConfigDocument(exported.document),desiredSequence:(await readDeploymentConfiguration(c.env.DB,user.id,id))?.desired.sequence??0,
         deployment:{id:assembled.deployment.id,displayName:assembled.deployment.display_name},
         ...(c.req.query("includeSecrets")==="1"?{secretValues:exported.secretValues}:{})};
     });
@@ -1242,6 +1247,33 @@ apiAuth.get("/deployments/:id/config", async (c) => {
     if(error instanceof ConfigurationConflict)return c.json({error:"configuration_changed",configurationVersion:error.currentVersion},409);
     if(error instanceof Error && ["deployment not found","connection not found","Configuration owner not found"].some(message=>error.message.includes(message)))return c.json({error:"not_found"},404);
     throw error;
+  }
+});
+
+apiAuth.put("/deployments/:id/config",async c=>{
+  c.header("cache-control","no-store");
+  const user=c.get("user")!,id=c.req.param("id");
+  try{if(!await getDeployment(c.env.DB,user.id,id))return c.json({error:"not_found"},404);}catch{return c.json({error:"configuration_unavailable"},503);}
+  // Bound streamed bodies too; a missing or dishonest Content-Length cannot
+  // cause an unbounded allocation before JSON validation.
+  const reader=c.req.raw.body?.getReader();if(!reader)return c.json({error:"invalid_push"},400);
+  const chunks:Uint8Array[]=[];let length=0;
+  try{
+    while(true){const part=await reader.read();if(part.done)break;length+=part.value.byteLength;if(length>1_048_576){await reader.cancel();return c.json({error:"push_too_large"},413);}chunks.push(part.value);}
+  }catch{return c.json({error:"invalid_push"},400);}
+  const bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
+  try{
+    let value:unknown;try{value=JSON.parse(new TextDecoder().decode(bytes));}catch{return c.json({error:"invalid_push"},400);}
+    const body=parseDeploymentPush(value),resolved=await resolveOwnedDeploymentManifest(c.env,user.id,id,body);
+    const result=await reconcileDeploymentConfiguration(c.env,user.id,id,body.expectedConfigurationVersion,body.expectedSequence,resolved.input,await createSecretVersioner(c.env.CREDENTIAL_ENCRYPTION_KEY),resolved.retainedCredentials);
+    return c.json(result);
+  }catch(error){
+    if(error instanceof DeploymentPushError)return c.json({error:error.code},error.status);
+    if(error instanceof ConfigurationConflict)return c.json({error:"configuration_changed",configurationVersion:error.currentVersion},409);
+    if(error instanceof DeploymentRevisionConflict)return c.json({error:"desired_changed"},409);
+    if(error instanceof Error && /constraint failed/i.test(error.message))return c.json({error:"identity_conflict"},409);
+    if(!(error instanceof Error) || /D1_ERROR|D1_EXEC_ERROR/.test(error.message))return c.json({error:"configuration_unavailable"},503);
+    return c.json({error:"invalid_configuration"},400);
   }
 });
 

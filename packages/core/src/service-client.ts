@@ -1,5 +1,6 @@
 import type { DeploymentManifest } from "./manifest";
-import { normalizeDeploymentManifest } from "./manifest";
+import { normalizeDeploymentManifest,parseDeploymentManifest } from "./manifest";
+import { hashConfigDocument } from "./config";
 /** Optional hosted-account transport. Callers supply fetch; standalone rendering
  * never constructs this client or contacts a service. */
 export interface ServiceClientOptions {url:string;token?:string;fetch:typeof fetch;}
@@ -16,14 +17,16 @@ export function normalizeServiceUrl(value:string):string {
   if(url.protocol!=="https:" && !(url.protocol==="http:" && ["localhost","127.0.0.1","[::1]"].includes(url.hostname)))throw new Error("Service URL requires HTTPS (loopback HTTP is allowed)");
   return url.origin;
 }
-export interface DeploymentConfigExport {configurationVersion?:number;document:DeploymentManifest;revision:string;deployment:{id:string;displayName:string};secretValues?:Record<string,string>;}
+export interface DeploymentConfigExport {configurationVersion?:number;desiredSequence?:number;document:DeploymentManifest;revision:string;deployment:{id:string;displayName:string};secretValues?:Record<string,string>;}
+export interface DeploymentConfigPush {document:DeploymentManifest;expectedConfigurationVersion:number;expectedSequence:number;uploadSecrets?:boolean;secretValues?:Record<string,string>;}
+export interface DeploymentConfigCommit {configurationVersion:number;sequence:number;revision:string;document:DeploymentManifest;sourceAliases:Record<string,string>;}
 export class LogturaServiceClient {
   readonly url:string;
   constructor(private readonly options:ServiceClientOptions){
     this.url=normalizeServiceUrl(options.url);
     if(options.token!==undefined && !/^lt_cli_[A-Za-z0-9_-]{43}$/.test(options.token))throw new ServiceError(401,"invalid_account_token");
   }
-  private async response(path:string,init:RequestInit={}) {
+  private async response(path:string,init:RequestInit) {
     if(!path.startsWith("/") || path.startsWith("//"))throw new Error("Invalid service API path");
     const url=new URL(`/api${path}`,this.url);
     if(url.origin!==this.url || !url.pathname.startsWith("/api/"))throw new Error("Invalid service API path");
@@ -40,9 +43,11 @@ export class LogturaServiceClient {
   }
   async startDevice(label:string):Promise<DeviceAuthorization>{
     const device=await this.request<DeviceAuthorization>("/cli/device/start",{method:"POST",body:JSON.stringify({label})});
+    if(typeof device.verificationUri!=="string")throw new ServiceError(200,"invalid_device_response");
+    let verification:URL;try{verification=new URL(device.verificationUri);}catch{throw new ServiceError(200,"invalid_device_response");}
     if(!/^[A-Za-z0-9_-]{43}$/.test(device.deviceCode) || !/^[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(device.userCode) ||
       !Number.isFinite(device.expiresIn) || device.expiresIn<=0 || device.expiresIn>3600 || !Number.isFinite(device.interval) || device.interval<1 || device.interval>60 ||
-      typeof device.verificationUri!=="string" || new URL(device.verificationUri).origin!==this.url || !new URL(device.verificationUri).pathname.startsWith("/app/cli"))throw new ServiceError(200,"invalid_device_response");
+      verification.origin!==this.url || verification.pathname!=="/app/cli")throw new ServiceError(200,"invalid_device_response");
     return device;
   }
   async pollDevice(deviceCode:string):Promise<DevicePoll>{
@@ -63,8 +68,25 @@ export class LogturaServiceClient {
     if(!id)throw new Error("Deployment identity is required");
     const result=await this.request<DeploymentConfigExport>(`/deployments/${encodeURIComponent(id)}/config${includeSecrets?"?includeSecrets=1":""}`);
     normalizeDeploymentManifest(result.document);
-    if((result.configurationVersion!==undefined && (!Number.isSafeInteger(result.configurationVersion) || result.configurationVersion<0)) || !/^sha256:[a-f0-9]{64}$/.test(result.revision) || result.deployment?.id!==id || typeof result.deployment.displayName!=="string" ||
+    if((result.desiredSequence!==undefined && (!Number.isSafeInteger(result.desiredSequence) || result.desiredSequence<0)) || (result.configurationVersion!==undefined && (!Number.isSafeInteger(result.configurationVersion) || result.configurationVersion<0)) || !/^sha256:[a-f0-9]{64}$/.test(result.revision) || result.deployment?.id!==id || typeof result.deployment.displayName!=="string" ||
       (includeSecrets && (!result.secretValues || typeof result.secretValues!=="object" || Array.isArray(result.secretValues) || Object.values(result.secretValues).some(value=>typeof value!=="string"))))throw new ServiceError(200,"invalid_config_response");
+    return result;
+  }
+  async pushDeploymentConfig(id:string,input:DeploymentConfigPush):Promise<DeploymentConfigCommit>{
+    if(!id)throw new Error("Deployment identity is required");
+    normalizeDeploymentManifest(input.document);
+    if(!Number.isSafeInteger(input.expectedConfigurationVersion) || input.expectedConfigurationVersion<0 || !Number.isSafeInteger(input.expectedSequence) || input.expectedSequence<0 || input.expectedSequence>=Number.MAX_SAFE_INTEGER || (input.uploadSecrets!==undefined && typeof input.uploadSecrets!=="boolean"))throw new Error("Invalid push baseline");
+    if(input.secretValues!==undefined && !input.uploadSecrets)throw new Error("Secret upload must be explicitly authorized");
+    if(input.secretValues!==undefined){
+      const required=new Set(parseDeploymentManifest(input.document).requiredEnv);
+      if(!input.secretValues || typeof input.secretValues!=="object" || Array.isArray(input.secretValues) || Object.values(input.secretValues).some(v=>typeof v!=="string" || !v) || Object.keys(input.secretValues).some(name=>!required.has(name)))throw new Error("Invalid secret upload");
+      try{parseDeploymentManifest(input.document,{env:input.secretValues});}catch{throw new Error("Invalid secret upload");}
+    }
+    const result=await this.request<DeploymentConfigCommit>(`/deployments/${encodeURIComponent(id)}/config`,{method:"PUT",body:JSON.stringify(input)});
+    try{
+      normalizeDeploymentManifest(result.document);
+      if(!Number.isSafeInteger(result.configurationVersion) || result.configurationVersion<input.expectedConfigurationVersion || !Number.isSafeInteger(result.sequence) || result.sequence<input.expectedSequence || result.sequence>input.expectedSequence+1 || result.sequence<=0 || result.revision!==await hashConfigDocument(result.document) || !result.sourceAliases || typeof result.sourceAliases!=="object" || Array.isArray(result.sourceAliases) || Object.values(result.sourceAliases).some(v=>typeof v!=="string" || !v))throw new Error();
+    }catch{throw new ServiceError(200,"invalid_config_commit");}
     return result;
   }
   async logout():Promise<void>{await this.request("/cli/logout",{method:"POST",body:"{}"});}

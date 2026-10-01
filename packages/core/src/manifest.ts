@@ -6,6 +6,9 @@ export interface SecretReference {
     env: string;
     version: string;
 }
+export function manifestSecretName(category:"CREDENTIALS"|"SOURCE"|"DESTINATION"|"METRICS"|"RUNTIME",id:string):string{
+    return `LOGT_${category}_${[...new TextEncoder().encode(id)].map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase()}`;
+}
 export interface DeploymentManifest {
     kind: "logtura.deployment";
     schema_version: 1;
@@ -56,8 +59,8 @@ export async function createSecretVersioner(key: string): Promise<SecretVersione
 function constructManifest(input:GenerateInput):{document:DeploymentManifest;secretValues:Record<string,string>;versions:Array<{ref:SecretReference;name:string;value:string}>} {
     const secretValues: Record<string, string> = {};
     const versions:Array<{ref:SecretReference;name:string;value:string}>=[];
-    const secret = (category: string, id: string, value: unknown): SecretReference => {
-        const name = `LOGT_${category}_${[...new TextEncoder().encode(id)].map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase()}`;
+    const secret = (category: Parameters<typeof manifestSecretName>[0], id: string, value: unknown): SecretReference => {
+        const name = manifestSecretName(category,id);
         const encoded = canonicalConfigJson(value);
         if (secretValues[name] !== undefined && secretValues[name] !== encoded)
             throw new Error(`Conflicting secret payload: ${name}`);

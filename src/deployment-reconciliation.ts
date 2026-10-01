@@ -18,10 +18,10 @@ export interface ReconciledDeploymentConfiguration {
  * Runtime OAuth broker envelopes must never be supplied as stored credentials.
  * Inventory, selectors, reporting targets, encrypted runtime overrides and public
  * desired history commit together, or nothing changes. No provider I/O occurs. */
-export async function reconcileDeploymentConfiguration(env:Env,userId:string,deploymentId:string,expectedVersion:number,expectedSequence:number,desired:GenerateInput,versioner:SecretVersioner):Promise<ReconciledDeploymentConfiguration>{
+export async function reconcileDeploymentConfiguration(env:Env,userId:string,deploymentId:string,expectedVersion:number,expectedSequence:number,desired:GenerateInput,versioner:SecretVersioner,retainedCredentials?:Map<string,string>):Promise<ReconciledDeploymentConfiguration>{
   if(!Number.isSafeInteger(expectedSequence) || expectedSequence<0 || expectedSequence>=Number.MAX_SAFE_INTEGER)throw new Error("Invalid desired sequence");
   const deployment=await getDeployment(env.DB,userId,deploymentId);if(!deployment)throw new Error("Deployment not found");
-  const {plan,inventory,credentialVersions}=await prepareGraphReconciliation(env,userId,expectedVersion,desired);
+  const {plan,inventory,credentialVersions}=await prepareGraphReconciliation(env,userId,expectedVersion,desired,retainedCredentials);
   const state=await readDeploymentConfiguration(env.DB,userId,deploymentId);if((state?.desired.sequence??0)!==expectedSequence)throw new DeploymentRevisionConflict();
   const input=plan.input;input.providers=listProviders();input.destinations=listDestinationDrivers();
   const providers=new Set<string>();

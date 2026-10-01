@@ -60,7 +60,7 @@ monitors: []
   assert.ok(!yaml.includes("/api/heartbeat/"), "standalone bundle must not require hosted heartbeat");
   assert.ok(!yaml.includes("/api/metrics/"), "standalone bundle must not require hosted metrics");
   const script = `import assert from 'node:assert/strict';
-    import {generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput} from '@logtura/core';
+    import {generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,LogturaServiceClient,manifestSecretName} from '@logtura/core';
     import {writeFileSync} from 'node:fs';
     import {cloudflareWorkerTailDriver} from '@logtura/driver-cloudflare-worker-tail';
     const input={providers:[cloudflareWorkerTailDriver],destinations:[],monitors:[],
@@ -79,6 +79,15 @@ monitors: []
     assert.ok(generateBundle(discovery).vectorYaml.includes('future-worker'));
     const exported=await exportDeploymentManifest(input,await createSecretVersioner('private-fixture-key'));
     assert.ok(!JSON.stringify(exported.document).includes('fixture-token'));
+    assert.equal(manifestSecretName('CREDENTIALS','fixture'),exported.document.connections[0].credentials.env);
+    const service=new LogturaServiceClient({url:'https://service.test',token:'lt_cli_'+'T'.repeat(43),fetch:async(url,init)=>{
+      assert.equal(url,'https://service.test/api/deployments/fixture/config');
+      assert.equal(init.method,'PUT');assert.equal(init.redirect,'manual');assert.equal(init.credentials,'omit');
+      assert.equal(new Headers(init.headers).get('authorization'),'Bearer lt_cli_'+'T'.repeat(43));
+      const body=JSON.parse(init.body);assert.equal(body.expectedSequence,0);assert.equal(body.secretValues,undefined);
+      return Response.json({configurationVersion:1,sequence:1,revision:await hashConfigDocument(exported.document),document:exported.document,sourceAliases:{}});
+    }});
+    assert.equal((await service.pushDeploymentConfig('fixture',{document:exported.document,expectedConfigurationVersion:0,expectedSequence:0})).sequence,1);
     const parsed=parseDeploymentManifest(exported.document,{env:exported.secretValues,providers:input.providers,destinations:input.destinations});
     assert.deepEqual(generateBundle(parsed.input),bundle);
     const edited=await editDeploymentManifest(exported.document,exported.secretValues,[{kind:'source.add',connectionId:'fixture',source:{id:'src_second',externalId:'fixture-second',displayName:'Second',sourceKind:'worker',metadata:null}}],await createSecretVersioner('local-private-key'));

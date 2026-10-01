@@ -40,11 +40,17 @@ export async function loadOwnedGraphInventory(env:Env,userId:string):Promise<{ve
  * registry capabilities and reporting scope, then compile and execute this plan
  * with commitConfiguration at this same version. Never return private plan rows
  * in an HTTP diff or log them. */
-export async function prepareGraphReconciliation(env:Env,userId:string,expectedVersion:number,desired:GenerateInput):Promise<{version:number;plan:DeploymentChangePlan;inventory:GraphInventory;credentialVersions:Map<string,string>}>{
+export async function prepareGraphReconciliation(env:Env,userId:string,expectedVersion:number,desired:GenerateInput,retainedCredentials:Map<string,string>=new Map()):Promise<{version:number;plan:DeploymentChangePlan;inventory:GraphInventory;credentialVersions:Map<string,string>}>{
   if(!Number.isSafeInteger(expectedVersion) || expectedVersion<0)throw new Error("Invalid configuration version");
   const snapshot=await loadOwnedGraphInventory(env,userId);
   if(snapshot.version!==expectedVersion)throw new ConfigurationConflict(expectedVersion,snapshot.version);
-  return {version:snapshot.version,plan:planDeploymentChanges(snapshot.value,desired),inventory:snapshot.value,credentialVersions:snapshot.credentialVersions};
+  const resolved={...desired,connections:desired.connections.map(c=>{
+    const identity=retainedCredentials.get(c.connection.id);if(identity===undefined)return c;
+    if(snapshot.credentialVersions.get(c.connection.id)!==identity)throw new ConfigurationConflict(expectedVersion,snapshot.version);
+    const stored=snapshot.value.connections.find(owned=>owned.connection.id===c.connection.id)!;
+    return {...c,credentials:stored.credentials};
+  })};
+  return {version:snapshot.version,plan:planDeploymentChanges(snapshot.value,resolved),inventory:snapshot.value,credentialVersions:snapshot.credentialVersions};
 }
 
 /** Persist resolved, raw storage values, never OAuth broker credentials from a
@@ -97,7 +103,7 @@ export async function compileGraphMutations(env:Env,userId:string,plan:Deploymen
   if(statements.length>0)statements.push(db.prepare("UPDATE deployments SET bundle_outdated=1,updated_at=? WHERE user_id=? AND bundle_outdated=0").bind(timestamp,userId));
   return statements;
 }
-export async function reconcileOwnedGraph(env:Env,userId:string,expectedVersion:number,desired:GenerateInput):Promise<{version:number;plan:DeploymentChangePlan}>{
+export async function reconcileOwnedGraph(env:Env,userId:string,expectedVersion:number,desired:GenerateInput,retainedCredentials:Map<string,string>=new Map()):Promise<{version:number;plan:DeploymentChangePlan}>{
   const {plan,inventory}=await prepareGraphReconciliation(env,userId,expectedVersion,desired);
   const statements=await compileGraphMutations(env,userId,plan,inventory);
   const {version}=await commitConfiguration(env.DB,userId,expectedVersion,statements);

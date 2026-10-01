@@ -34,7 +34,7 @@ export default defineConfig({
         "packages/core/src/manifest.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/json.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/pull.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
-        "packages/core/src/service-client.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
+        "packages/core/src/service-client.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/account.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
         "packages/core/src/config.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
         "packages/core/src/install.ts": { statements: 100, branches: 95, functions: 100, lines: 100 },

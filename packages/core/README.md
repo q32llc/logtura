@@ -271,3 +271,32 @@ connection's discovery policy to the retained explicit snapshot. Removing a
 monitor or sink freezes monitor discovery so a later refresh will not silently
 re-add the removed selection. Other edits retain discovery policy. Diffs expose
 changed policy field names without disclosing private catalog payloads.
+
+### Optional account configuration push
+
+`LogturaServiceClient.pushDeploymentConfig(deploymentId, request)` sends a portable
+manifest to an authenticated account. Supply `expectedConfigurationVersion` and
+`expectedSequence` from the most recent `pullDeploymentConfig` response; newer
+services return both counters. Older exports can omit them, so callers must check
+availability before offering push rather than guessing a baseline.
+
+Unchanged references resolve from account-owned storage without uploading secret
+values. New or changed payloads require `uploadSecrets: true` plus `secretValues`
+containing only referenced JSON environment values. The client rejects unrelated
+or malformed uploads before sending them. Change the reference version when
+editing a private payload; unchanged versions with changed values are rejected.
+Hosted OAuth references retain grant identity across renewal and resolve fresh raw
+credentials without persisting an exported broker envelope.
+
+A successful commit returns the canonical public `document`, its `revision`,
+`configurationVersion`, desired `sequence` and canonical `sourceAliases`. The
+client verifies the response's schema, counters and document hash. A conflict
+returns a `ServiceError` with status 409; pull and reconcile before retrying.
+Push records desired configuration; it does not acknowledge that a forwarder has
+applied it. The client uses caller-provided fetch, authenticated HTTPS (or loopback
+HTTP), manual redirects, omitted cookies and bounded request timeouts. Standalone
+parsing, rendering and discovery do not construct this client or need the service.
+
+`manifestSecretName(category,id)` exposes the schema's canonical UTF-8 identity
+encoding for reference namespaces. Hosted secret resolution restricts unchanged
+references to their owned connection, source, destination or deployment purpose.

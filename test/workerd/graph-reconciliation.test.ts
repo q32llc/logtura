@@ -105,3 +105,8 @@ it("preserves a concurrent renewal while committing label-only changes from an o
   const statements=await compileGraphMutations(env,own.userId,prepared.plan,prepared.inventory);await commitConfiguration(env.DB,own.userId,snapshot.version,statements);
   const after=(await getConnection(env.DB,own.userId,own.connection.id))!;expect(after.display_name).toBe("Updated label");expect(after.credential_version).toBe(connection.credential_version);expect(await decryptConnectionCredentials(env,after)).toEqual({apiToken:"renewed-token"});
 });
+
+it("rejects a retained credential identity that changed before transaction preparation",async()=>{
+  const own=await fixture(),snapshot=await loadOwnedGraphInventory(env,own.userId);
+  await expect(prepareGraphReconciliation(env,own.userId,snapshot.version,input(snapshot),new Map([[own.connection.id,"stale-intent"]]))).rejects.toMatchObject({name:"ConfigurationConflict"});
+});

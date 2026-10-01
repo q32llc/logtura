@@ -845,3 +845,73 @@ provider concurrency/telemetry hardening, dependencies, publication and rollout.
 No npm release or production migration/deployment is claimed by this slice.
 The goal remains active, and Codecov repository activation remains an external
 configuration issue rather than a reason to stop independent implementation.
+
+
+### Authenticated configuration push and public transport (implemented)
+
+`PUT /api/deployments/:id/config` now accepts a portable manifest plus both the
+account `expectedConfigurationVersion` and deployment `expectedSequence` fences.
+Website sessions and active CLI account credentials use the same owned account
+boundary; forwarder reporting tokens, revoked/expired tokens and foreign-owned
+deployments cannot authorize push. Configuration GET/PUT return JSON 401 rather
+than redirecting unauthenticated callers, and apply no-store headers including
+authentication failures. GET exports now include the current desired sequence.
+Streamed requests have a 1 MiB byte limit even without Content-Length.
+
+Push resolves unchanged private references from owned storage, and requires
+explicit `uploadSecrets:true` for new/changed JSON-valued payloads. Only referenced
+variables may be uploaded; unrelated environment values are rejected. The public
+client performs that check and payload validation before transmission. Changed
+values retaining an unchanged version are rejected rather than silently lost.
+Reference resolution is restricted to owned connection/source/destination purpose
+names, preventing a foreign namespace from becoming a keyed verification oracle
+even when two accounts have identical payloads. Canonical naming uses the public
+`manifestSecretName` helper. Aliased native source identities reuse owned metadata;
+new source metadata and owned metrics payloads follow the same transfer rules.
+Conflicting uses of a single reference cannot overwrite each other's resolution.
+
+Unchanged OAuth references resolve the latest raw stored grant. Exported broker
+envelopes can be supplied with an unchanged verified grant reference, but are
+never persisted as raw credentials; changed broker references require raw values.
+Verified retained credential identities are carried into transaction preparation,
+where current raw credentials replace the earlier read. Subsequent label-only
+writes preserve renewal committed after preparation. Both read-phase renewal
+races are covered, preventing automatic renewal from being restored to stale tokens
+or counted as an explicit grant replacement. Explicit raw replacements remain
+possible with authorized payload uploads and changed references.
+
+The existing atomic graph transaction persists inventory, selectors, encrypted
+credential/destination/runtime values and desired public history together. HTTP
+conflicts return 409; invalid configurations return sanitized 400 errors; unavailable
+storage returns 503 without reflecting private payloads or storage details. No
+provider API calls, forwarder application or applied acknowledgement are performed
+by push. Existing reporting tokens remain authoritative and retained.
+
+The packaged library exposes `pushDeploymentConfig`, push/commit DTOs, optional
+pull desired-sequence metadata, canonical response/hash verification, retained
+caller cancellation and exact-origin/approval-path device URI validation. It
+continues to require caller-provided fetch and contacts the service only when an
+explicit account method is called. Isolated compiled consumers exercise push with
+an injected transport and no network access.
+
+Validation: 652 backend/package tests, 421 public tests and 14 UI tests pass;
+package/service type checks and builds pass. The push resolver, manifest,
+graph/deployment reconciliation and public service transport enforce 100%
+statements, branches, functions and lines. Tests cover cookie/account authorization,
+revocation/expiry, cross-account namespaces and identity collisions, explicit uploads,
+manual-env revision protection, raw/broker policy, native aliases, metrics/runtime,
+concurrent/stale writers, sanitized storage failures, stream errors/limits and both
+renewal timing races. A prior discovery test's random-ID ordering expectation was
+replaced with fixed fixture identities. Backend coverage is
+72.47/67.35/76.69/71.02, with floors raised to 72/67/76/71; public coverage is
+77.78/73.65/77.72/77.24 under 77/73/77/77 floors. All 15 packed packages and both
+CLI aliases pass isolated checks.
+
+The linked CLI push command, persisted baselines/private fingerprints and crash
+recovery remain the next required consumer work; this is the authenticated API and
+library capability. Website desired/applied display, existing-target forwarder
+updates and acknowledgement hooks, full remote/browser E2E, final coverage,
+provider/telemetry hardening, dependency updates, npm publication and staged
+production rollout remain required. Migrations 0018–0023 and this route remain
+unreleased in production. The goal remains active; Codecov activation remains an
+external configuration issue while independent work continues.
