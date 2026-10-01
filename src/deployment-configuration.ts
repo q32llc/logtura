@@ -35,10 +35,25 @@ export async function readDeploymentConfiguration(db:D1Database,userId:string,de
 async function requireOwnedDeployment(db:D1Database,userId:string,deploymentId:string):Promise<void>{
   if(!await db.prepare("SELECT id FROM deployments WHERE id=? AND user_id=?").bind(deploymentId,userId).first())throw new Error("Deployment not found");
 }
+/** Compile validated public history/state writes for the same transaction as
+ * inventory and selectors. The final statement records the post-mutation graph
+ * version. Callers check owner, base sequence and account version first. */
+export async function compileDeploymentRevision(db:D1Database,userId:string,deploymentId:string,sequence:number,manifest:DeploymentManifest):Promise<{document:DeploymentManifest;revision:string;statements:D1PreparedStatement[]}>{
+  if(!Number.isSafeInteger(sequence) || sequence<=0)throw new Error("Invalid revision sequence");
+  const document=validatedDocument(manifest),revision=await hashConfigDocument(document);
+  return {document,revision,statements:[
+    db.prepare(`INSERT INTO deployment_configuration_revisions(deployment_id,sequence,revision,document_json,configuration_version,created_at)
+      SELECT id,?,?,?,(SELECT version FROM configuration_versions WHERE user_id=?),? FROM deployments WHERE id=? AND user_id=?`)
+      .bind(sequence,revision,canonicalConfigJson(document),userId,Date.now(),deploymentId,userId),
+    db.prepare(`INSERT INTO deployment_configuration_state(deployment_id,desired_sequence) VALUES (?,?)
+      ON CONFLICT(deployment_id) DO UPDATE SET desired_sequence=excluded.desired_sequence`).bind(deploymentId,sequence),
+    db.prepare(`UPDATE deployment_configuration_revisions SET configuration_version=(SELECT version FROM configuration_versions WHERE user_id=?) WHERE deployment_id=? AND sequence=?`).bind(userId,deploymentId,sequence),
+  ]};
+}
 /** Issue a public desired revision. This internal primitive does not resolve
  * secrets, update graph inventory/selectors, or authorize HTTP requests. Graph
- * reconciliation must eventually include these statements in its same guarded
- * transaction; this standalone path supports issuing an already stable graph. */
+ * reconciliation uses compileDeploymentRevision in its same guarded transaction;
+ * this standalone path supports issuing an already stable graph. */
 export async function issueDeploymentConfiguration(db:D1Database,userId:string,deploymentId:string,expectedVersion:number,expectedSequence:number,manifest:DeploymentManifest):Promise<{sequence:number;revision:string;configurationVersion:number}>{
   if(!Number.isSafeInteger(expectedSequence) || expectedSequence<0 || expectedSequence>=Number.MAX_SAFE_INTEGER)throw new Error("Invalid desired sequence");
   await requireOwnedDeployment(db,userId,deploymentId);
@@ -53,14 +68,8 @@ export async function issueDeploymentConfiguration(db:D1Database,userId:string,d
   const sequence=expectedSequence+1;
   let configurationVersion:number;
   try{
-    const committed=await commitConfiguration(db,userId,expectedVersion,[
-      db.prepare(`INSERT INTO deployment_configuration_revisions(deployment_id,sequence,revision,document_json,configuration_version,created_at)
-        SELECT id,?,?,?,(SELECT version FROM configuration_versions WHERE user_id=?),? FROM deployments WHERE id=? AND user_id=?`)
-        .bind(sequence,revision,canonicalConfigJson(document),userId,Date.now(),deploymentId,userId),
-      db.prepare(`INSERT INTO deployment_configuration_state(deployment_id,desired_sequence) VALUES (?,?)
-        ON CONFLICT(deployment_id) DO UPDATE SET desired_sequence=excluded.desired_sequence`).bind(deploymentId,sequence),
-      db.prepare(`UPDATE deployment_configuration_revisions SET configuration_version=(SELECT version FROM configuration_versions WHERE user_id=?) WHERE deployment_id=? AND sequence=?`).bind(userId,deploymentId,sequence),
-    ]);
+    const compiled=await compileDeploymentRevision(db,userId,deploymentId,sequence,document);
+    const committed=await commitConfiguration(db,userId,expectedVersion,compiled.statements);
     configurationVersion=committed.version;
   }catch(error){if(error instanceof Error && error.message.includes("LOGT_REVISION_CONFLICT"))throw new DeploymentRevisionConflict();throw error;}
   return {sequence,revision,configurationVersion};

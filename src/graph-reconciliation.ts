@@ -53,8 +53,9 @@ export async function prepareGraphReconciliation(env:Env,userId:string,expectedV
  * New identities use INSERT so a foreign account's ID cannot become a successful
  * no-op UPSERT. Any collision or concurrent owned edit rolls back the full batch.
  */
-export async function reconcileOwnedGraph(env:Env,userId:string,expectedVersion:number,desired:GenerateInput):Promise<{version:number;plan:DeploymentChangePlan}>{
-  const {plan,inventory}=await prepareGraphReconciliation(env,userId,expectedVersion,desired);
+/** Compile only a plan derived from this user's stable owned inventory. The
+ * statements are private and must execute under its configuration guard. */
+export async function compileGraphMutations(env:Env,userId:string,plan:DeploymentChangePlan,inventory:GraphInventory):Promise<D1PreparedStatement[]>{
   const db=env.DB,statements:D1PreparedStatement[]=[],timestamp=Date.now();
   const connectionIds=new Set(inventory.connections.map(c=>c.connection.id)),sourceIds=new Set(inventory.sources.map(s=>s.source.id)),destinationIds=new Set(inventory.destinations.map(d=>d.destination.id)),monitorIds=new Set(inventory.monitors.map(m=>m.id)),sinkIds=new Set(inventory.sinks.map(s=>s.sink.id));
   for(const value of plan.connections){
@@ -91,6 +92,11 @@ export async function reconcileOwnedGraph(env:Env,userId:string,expectedVersion:
   }
   for(const id of plan.removeSinkIds)statements.push(db.prepare("DELETE FROM sinks WHERE id=? AND monitor_id IN (SELECT id FROM monitors WHERE user_id=?)").bind(id,userId));
   if(statements.length>0)statements.push(db.prepare("UPDATE deployments SET bundle_outdated=1,updated_at=? WHERE user_id=? AND bundle_outdated=0").bind(timestamp,userId));
-  const {version}=await commitConfiguration(db,userId,expectedVersion,statements);
+  return statements;
+}
+export async function reconcileOwnedGraph(env:Env,userId:string,expectedVersion:number,desired:GenerateInput):Promise<{version:number;plan:DeploymentChangePlan}>{
+  const {plan,inventory}=await prepareGraphReconciliation(env,userId,expectedVersion,desired);
+  const statements=await compileGraphMutations(env,userId,plan,inventory);
+  const {version}=await commitConfiguration(env.DB,userId,expectedVersion,statements);
   return {version,plan};
 }

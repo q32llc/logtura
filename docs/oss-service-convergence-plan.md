@@ -685,3 +685,59 @@ it is distinct from a provider-native all-source stream. Full baseline coverage,
 remote/browser E2E, telemetry checkpoint hardening, dependency upgrades and the
 verified release/rollout remain required. Migrations 0018–0021 remain unapplied in
 production; this goal is active.
+
+### Implemented slice: atomic complete-graph reconciliation and private runtime storage (2026-10-01)
+
+`reconcileDeploymentConfiguration` now combines owned inventory mutations,
+ordered selectors, heartbeat/metrics targets, encrypted deployment runtime values
+and public desired revision/history into one account-version-guarded D1 batch.
+The stored desired configuration version is the final version after every graph
+mutation and history/state trigger, so a freshly committed graph is not
+immediately marked stale. A fully unchanged graph preserves its sequence,
+version, ciphertext and selector state. Canonical source adoption is returned as
+an ID map without exposing private plan rows or values. A late history failure
+rolls back inventory, runtime, selectors, reporting metadata, outdated flags,
+version changes and write guards together.
+
+The adapter selects the service's trusted packaged registry, validates provider
+capabilities and destination flows, and renders before any writes. Reporting
+scope must match this deployment and service origin. Neither submitted reporting
+tokens nor runtime URL overrides can replace or redirect its authenticated
+heartbeat/metrics traffic. A missing legacy reporting token is generated and
+stored inside the same transaction. Supabase and Railway broker envelopes are
+rejected as storage inputs; raw OAuth credentials remain encrypted unchanged,
+while normal bundle assembly derives the runtime broker credentials separately.
+The desired manifest in this primitive represents resolved raw storage intent;
+stable broker payloads in the exported render-ready manifest still need the
+separate boundary/transport work recorded below.
+
+Migration 0022 adds nullable encrypted runtime environment storage. Known
+reporting variables remain authoritative and derived; other private runtime values
+survive bundle assembly and portable export, and the packaged renderer applies
+values only to its declared manual variables. No private runtime JSON is stored
+in public revision history. Malformed stored objects or ciphertext fail with a
+sanitized error. Material runtime changes advance the account configuration
+version and mark the bundle outdated; unchanged payloads retain their ciphertext.
+
+Validation: all 603 backend/package tests pass, including concurrent complete-
+graph writers, late transactional failures, foreign identity collisions, source
+adoption, no-op/rebase behavior, valid metrics/all-source graphs, invalid registry
+flows, report-scope/URL protection, signer failures, raw OAuth/runtime bridge
+separation and storage error classification. Both new modules enforce 100%
+statements, branches, functions and lines. The schema-21 upgrade fixture preserves
+existing ordered selectors, desired/applied history, instance/report sequences,
+tokens, image digest, metrics, ciphertext and account versions; only a new null
+runtime column is added. Earlier upgrade fixtures remain pinned and passing.
+Aggregate backend coverage is 70.50% statements, 63.90% branches, 74.78% functions
+and 69.49% lines; floors rise to 70/63/74/69. Builds/type checks pass and the
+existing 12 UI tests remain passing under their coverage gates.
+
+This is the complete private storage transaction, not an authenticated HTTP push
+or publication. The caller must authorize uploads and resolve raw storage secrets;
+the transaction primitive performs no provider verification/network calls. Next:
+stable raw-versus-broker export/version semantics, explicit preservation of legacy
+future-discovery intent, then account push transport, linked CLI baseline/push,
+website state display and forwarder acknowledgement hooks. Final full coverage,
+remote/browser baseline, telemetry hardening, dependency upgrades, npm publication
+and staged production rollout remain required. Migrations 0018–0022 remain pending
+in production and the goal remains active.

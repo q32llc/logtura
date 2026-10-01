@@ -56,6 +56,7 @@ export interface GeneratorMonitor {
 }
 
 export interface GenerateInput {
+  runtimeEnv?: Record<string,string>;
   connections: GeneratorConnection[];
   monitors: GeneratorMonitor[];
   heartbeat?: {
@@ -79,6 +80,7 @@ export function generateBundle(input: GenerateInput): GeneratedBundle {
 
 export function toCoreInput(input: GenerateInput): CoreGenerateInput {
   return {
+    runtimeEnv: input.runtimeEnv,
     providers: listProviders(),
     destinations: listDestinationDrivers(),
     connections: input.connections.map((c) => ({

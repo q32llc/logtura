@@ -23,6 +23,7 @@ import {
   toCoreInput,
 } from "./generator";
 import { getProvider } from "./providers";
+import { readDeploymentRuntime } from "./deployment-runtime";
 import { loadSelectedDeploymentGraph,parseOrderedDeploymentSelection } from "./deployment-selection";
 
 export interface AssembledBundle {
@@ -271,7 +272,10 @@ export async function assembleDeploymentBundle(
     }
   }
 
+  const runtimeEnv={...await readDeploymentRuntime(env,deployment.runtime_env_encrypted)};
+  for(const name of ["LOGTURA_HEARTBEAT_TOKEN","LOGTURA_METRICS_TOKEN","LOGTURA_HEARTBEAT_URL","LOGTURA_METRICS_URL"])delete runtimeEnv[name];
   const generatorInput: GenerateInput = {
+    runtimeEnv,
     connections: perConn.map((c) => ({
       connection: c.connection,
       selectedSources: c.selectedSources,
@@ -309,7 +313,7 @@ export async function assembleDeploymentBundle(
   return {
     deployment,
     bundle,
-    input: {...toCoreInput({...generatorInput, connections: perConn.map(c=>({connection:c.connection,selectedSources:c.selectedSources,selectAll:c.selectAll,credentials:c.credentials}))}), runtimeEnv: {LOGTURA_HEARTBEAT_TOKEN: heartbeatToken, LOGTURA_METRICS_TOKEN: heartbeatToken}},
+    input: {...toCoreInput({...generatorInput, connections: perConn.map(c=>({connection:c.connection,selectedSources:c.selectedSources,selectAll:c.selectAll,credentials:c.credentials}))}), runtimeEnv: {...runtimeEnv,LOGTURA_HEARTBEAT_TOKEN: heartbeatToken, LOGTURA_METRICS_TOKEN: heartbeatToken}},
     heartbeatToken,
     credentialIsFresh,
     credentialStaleReason,
