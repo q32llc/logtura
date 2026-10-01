@@ -155,3 +155,33 @@ bytes. Install environment variable names must be valid shell identifiers.
 ## License
 
 [Apache 2.0](./LICENSE).
+
+
+## Portable configuration
+
+`parseConfigDocument(document, options?)` accepts a decoded YAML/JSON object.
+Supply `providers`, `destinations`, `env` and an optional `readInclude(path)`
+callback. The parser performs no filesystem access, provider requests, or ambient
+environment lookup, so the same API runs in Node and Workers. `env:KEY` values
+resolve only through the supplied environment; missing keys are returned in
+`missingEnv` and all explicit references in `requiredEnv`.
+
+`normalizeConfigDocument(document, options?)` upgrades unversioned documents to
+`schema_version: 1`, adds explicit `con_`, `dst_` and `mon_` identities, captures
+monitor defaults, stores source links as `connection_id`, and embeds custom
+Vector includes as `vector.fragment`. Existing derived identities are preserved.
+Explicit IDs survive label/key edits. Collisions and ambiguous source references
+fail validation. A monitor without a source link applies to every connection.
+
+`hashConfigDocument(document, options?)` returns `sha256:<hex>` over deterministic,
+normalized JSON. Object key order and resolved environment values do not affect
+the revision; ordered filter/monitor arrays and included fragment contents do.
+`canonicalConfigJson(value)` exposes the JSON encoding and rejects cycles,
+non-finite numbers, non-JSON values and non-plain objects.
+
+Normalization preserves literal credentials if the original document contains
+them. Use `env:` references for configuration intended to be stored or shared;
+these APIs do not silently redact or guess which custom fields contain secrets.
+Portable documents and revisions are a foundation for deployment synchronization;
+account authentication, remote conflict handling and applied-revision reporting
+are separate service capabilities.

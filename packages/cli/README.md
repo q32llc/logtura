@@ -160,3 +160,26 @@ Per-source drivers own:
 
 This keeps the model scalable: adding a ninth Cloudflare source driver should
 not create a ninth Cloudflare credential flow.
+
+
+## Portable configuration and revisions
+
+```sh
+logt config normalize               # update the selected file in place
+logt config normalize -o portable.yaml
+logt config hash
+logt --json config hash
+```
+
+Normalization adds `schema_version: 1` and stable IDs, makes monitor defaults and
+connection links explicit, and embeds custom Vector include files. The resulting
+file no longer depends on the original include paths. Keep explicit IDs when
+renaming sources, destinations or monitors. Invalid or duplicate identities and unsupported
+schema versions fail before writing output.
+
+The hash includes the normalized configuration and custom fragment contents,
+while retaining unresolved `env:` references. It does not contact Logtura or a
+provider, require credentials to be present, or hash resolved environment secrets.
+Normalization preserves any literal credentials already in the input file; use
+`env:` references for a portable file you intend to share. CLI/website account
+synchronization is not enabled by these local commands.

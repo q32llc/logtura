@@ -53,7 +53,8 @@ export default defineConfig({
       // Baseline floor; raise these as the planned coverage slices land.
       // Final scope targets are 95% lines/statements/functions and 90% branches.
       thresholds: {
-        statements: 56, branches: 43, functions: 62, lines: 58,
+        statements: 60, branches: 49, functions: 66, lines: 61,
+        "packages/core/src/config.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
         "packages/core/src/install.ts": { statements: 100, branches: 95, functions: 100, lines: 100 },
         "packages/core/src/tar.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cloudflare-shared/src/**": { statements: 100, branches: 100, functions: 100, lines: 100 },

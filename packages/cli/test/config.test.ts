@@ -303,3 +303,30 @@ monitors: []
     }
   });
 });
+
+describe("portable config CLI", () => {
+  it("normalizes a local config and produces an unchanged revision after normalization", async () => {
+    const dir=mkdtempSync(join(tmpdir(),"logt-portable-"));const path=join(dir,"logt.yaml");
+    writeFileSync(path,`providers: {cloudflare: {credentials: {api_token: 'env:CF_TOKEN'}}}\nsources: {workers: {scripts: [api]}}\nsinks: {alerts: {sink: webhook, url: 'env:URL'}}\nmonitors: [{name: errors, sinks: [alerts]}]\n`);
+    const {hashConfigFile,readConfigDoc}=await import("../src/config");const before=await hashConfigFile(path);
+    expect(await main(["--config",path,"config","normalize"])).toBe(0);
+    const doc=readConfigDoc(path);expect(doc.schema_version).toBe(1);expect((doc.sources as any).workers.id).toBe("con_workers");
+    expect(await hashConfigFile(path)).toBe(before);expect(await main(["--config",path,"--json","config","hash"])).toBe(0);
+    expect(await main(["--config",path,"config","hash","extra"])).toBe(1);
+    expect(await main(["--config",join(dir,"missing.yaml"),"config","hash"])).toBe(1);
+    expect(await main(["--config",path,"config","unknown"])).toBe(1);
+  });
+  it("writes self-contained custom fragments to a separate output file", async () => {
+    const dir=mkdtempSync(join(tmpdir(),"logt-portable-includes-"));const path=join(dir,"logt.yaml");const output=join(dir,"portable.yaml");
+    const original="sources: {events: {source: custom-vector, vector: {include: './source.yaml', feed: events}}}\n";
+    writeFileSync(path,original);writeFileSync(join(dir,"source.yaml"),"sources: {events: {type: stdin}}\n");
+    expect(await main(["--config",path,"--json","config","normalize","--output",output])).toBe(0);
+    const {readFileSync}=await import("node:fs");expect(readFileSync(path,"utf8")).toBe(original);expect(readFileSync(output,"utf8")).toContain("fragment:");
+    const parsed=parseConfig(readFileSync(output,"utf8"),output);expect(parsed.input.connections[0]!.selectedSources[0]!.metadata).toHaveProperty("customVector.fragment.sources.events.type","stdin");
+  });
+});
+
+it("reports asynchronous connection errors as CLI exit codes", async () => {
+  const dir=mkdtempSync(join(tmpdir(),"logt-connect-error-"));
+  expect(await main(["--config",join(dir,"logt.yaml"),"connect","unknown-provider"])).toBe(1);
+});

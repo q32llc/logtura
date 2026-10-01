@@ -15,6 +15,8 @@ import {
   ensureSection,
   findConfigPath,
   loadConfigFile,
+  normalizeConfigFile,
+  hashConfigFile,
   readConfigDoc,
   safeId,
   writeConfigDoc,
@@ -43,7 +45,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return 0;
     }
     if (command === "init") return cmdInit(global, args);
-    if (command === "connect") return cmdConnect(global, args);
+    if (command === "config") return await cmdConfig(global, args);
+    if (command === "connect") return await cmdConnect(global, args);
     if (command === "source") return cmdSource(global, args);
     if (command === "sink") return cmdSink(global, args);
     if (command === "monitor") return cmdMonitor(global, args);
@@ -57,6 +60,25 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     console.error(err instanceof Error ? err.message : String(err));
     return 1;
   }
+}
+
+async function cmdConfig(global: GlobalArgs, args: string[]): Promise<number> {
+  const ref = findConfigPath(global.config);
+  if (args[0] === "hash") {
+    rejectExtra(args.slice(1));
+    const hash = await hashConfigFile(ref.path);
+    console.log(global.json ? JSON.stringify({schemaVersion: 1, hash}) : hash);
+    return 0;
+  }
+  if (args[0] === "normalize") {
+    const flags = parseFlags(args.slice(1));
+    const output = stringFlag(flags, "output") ?? ref.path;
+    const document = normalizeConfigFile(ref.path);
+    writeConfigDoc(output, document);
+    console.log(global.json ? JSON.stringify({schemaVersion: 1, path: output}) : `normalized ${output}`);
+    return 0;
+  }
+  throw new Error("config supports: normalize [-o file], hash");
 }
 
 function cmdInit(global: GlobalArgs, args: string[]): number {
@@ -621,6 +643,8 @@ function help(): string {
 
 Commands:
   init                              Create logt.yaml
+  config normalize [-o file]        Add stable IDs and inline custom fragments
+  config hash                       Print the portable configuration revision
   connect <provider>                Add a provider connection (cloudflare, fly, railway, ...)
   source add <source>               Add a source driver (cloudflare-worker-tail, ...)
   sink add <kind> <name>            Add a sink

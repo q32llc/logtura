@@ -54,3 +54,6 @@ export { DestinationError, ProviderError } from "./types";
 
 export { installBundleFiles, renderEnvFile } from "./install";
 export { buildTar, type TarFile } from "./tar";
+
+export { parseConfigDocument, normalizeConfigDocument, canonicalConfigJson, hashConfigDocument, ensureSection, ensureListSection, safeId, defaultProviderName } from "./config";
+export type { ConfigParseOptions, ConfigIncludeReader, ParsedConfig } from "./config";

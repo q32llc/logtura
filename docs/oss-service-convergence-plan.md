@@ -295,3 +295,45 @@ configuration, account CLI authentication and bidirectional synchronization are
 not implemented by this slice. Npm publication and production rollout remain
 pending. Both repositories' latest CI tests/builds pass before the mandatory
 Codecov upload, which still fails with `Repository not found`.
+
+
+### Portable configuration parsing and revisions shipped — 2026-10-01
+
+The CLI now calls public `@logtura/core` configuration APIs instead of maintaining
+its own parser. `parseConfigDocument` accepts decoded documents and explicit
+registry/environment/include adapters; it runs without Node, ambient credentials
+or provider requests. Workerd and packed Node tests exercise the same API.
+
+`normalizeConfigDocument` and `logt config normalize [-o file]` produce version-1
+configuration with explicit stable connection/destination/monitor IDs, materialized
+monitor defaults, stable `connection_id` links and embedded custom Vector
+fragments. Legacy generated IDs and routing behavior survive normalization.
+Renaming keys or labels preserves identities; renaming `errors` no longer changes
+its implicit filter after normalization. Duplicate sanitized identities, repeated
+selections/routes, malformed references and unsupported versions fail validation.
+
+`hashConfigDocument` and `logt config hash` produce deterministic SHA-256 revisions
+of normalized unresolved configuration. Object ordering and resolved secret values
+do not change revisions. Pipeline arrays and included fragment contents do. The
+JSON encoder rejects cycles and values that JSON would silently discard/coerce.
+Normalization retains any literal credentials the caller put in the original
+document; shared configuration should use `env:` references. This is a format and
+revision foundation, not a secret-redacting manifest export or remote sync endpoint.
+
+The baseline adds provider/selection aliases, destination settings, source-specific
+routing, default materialization, explicit-ID rename stability, include portability,
+revision changes, malformed documents and adapter isolation. It also catches async
+CLI connection errors as exit codes instead of uncaught promise rejections.
+
+Validation: 329 private tests and 259 public tests pass. Private coverage is
+60.27% statements / 49.56% branches / 66.00% functions / 61.73% lines; public is
+68.31% / 60.75% / 69.33% / 70.27%. The public configuration module is 98.38%
+statements / 95.43% branches / 97.36% functions / 98.96% lines. Its enforced gate
+already meets the final backend targets; aggregate floors increased again.
+Builds, typechecks and both independent packed-consumer checks pass.
+
+Still required: secret-reference manifest export, shared provider registry/backend
+operations, service storage adapters, account CLI authentication, optimistic
+concurrency and desired/applied synchronization, expanded remote/browser/runtime
+E2E, final aggregate/per-package/UI coverage, dependency upgrades and publishing/
+production rollout. Codecov repository activation remains an external blocker.

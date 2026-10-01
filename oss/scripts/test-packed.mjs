@@ -46,6 +46,11 @@ sinks: {}
 monitors: []
 `);
   bin("logt", ["validate"]);
+  const revision = bin("logt", ["config", "hash"]).trim();
+  assert.match(revision, /^sha256:[a-f0-9]{64}$/);
+  bin("logtura", ["config", "normalize", "--output", "portable.yaml"]);
+  assert.equal(bin("logt", ["--config", "portable.yaml", "config", "hash"]).trim(), revision);
+  assert.match(readFileSync(join(consumer, "portable.yaml"), "utf8"), /schema_version: 1/);
   bin("logt", ["bundle", "--output", "bundle with spaces"]);
   const yaml = readFileSync(join(consumer, "bundle with spaces", "vector.yaml"), "utf8");
   assert.ok(!yaml.includes("/api/heartbeat/"), "standalone bundle must not require hosted heartbeat");
