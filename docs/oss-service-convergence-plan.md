@@ -243,3 +243,18 @@ recursive type checks, and packed-consumer checks. Public coverage starts at
 floor is 55/43/57/58 pending the planned increases. Both layouts pin Vitest and
 the Istanbul provider to the same version. The public sync excludes generated
 package output and the private CLI account inventory configuration.
+
+The runtime/provider baseline slice adds a real generated Vector delivery test
+for normalization, filtering, context, and webhook retry after a 503, without
+the hosted service. CI runs this flow. Shared Cloudflare and Supabase provider
+contracts now have dedicated projects and 100% line/statement/function/branch
+coverage gates. Expiry boundary tests fixed an epoch-zero expiry bug. The
+private suite now passes 207 tests with 55.07% lines and 41.17% branches. Both
+repositories currently need Codecov enablement; upload errors are retained as
+fatal configuration failures rather than hidden.
+
+After the provider/runtime slice, CI floors ratchet to 52/41/59/55 for the
+private backend and 56/45/59/60 for public packages. Public verification passes
+140 tests with 60.59% lines and 45.50% branches; shared provider modules remain
+at 100% across all metrics. The real Vector flow also passes independently in
+the public layout.

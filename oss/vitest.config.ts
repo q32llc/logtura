@@ -10,6 +10,8 @@ export default defineConfig({
       "./packages/core",
       "./packages/cli",
       "./packages/custom-vector",
+      "./packages/cloudflare-shared",
+      "./packages/supabase-shared",
       "./packages/destination-datadog-metrics",
       "./packages/destination-prometheus-remote-write",
       "./packages/destination-slack",
@@ -24,7 +26,11 @@ export default defineConfig({
       provider: "istanbul",
       reporter: ["text", "html", "lcov", "json-summary"],
       // Initial measured floor; the convergence plan requires 95/90 targets.
-      thresholds: { statements: 55, branches: 43, functions: 57, lines: 58 },
+      thresholds: {
+        statements: 56, branches: 45, functions: 59, lines: 60,
+        "packages/cloudflare-shared/src/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/supabase-shared/src/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
+      },
       include: ["packages/*/src/**/*.ts"],
       exclude: ["**/*.d.ts"],
     },

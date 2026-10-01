@@ -42,6 +42,9 @@ jobs:
         # phase below run with no per-suite docker latency.
         run: docker pull timberio/vector:0.55.0-debian
 
+      - name: real Vector delivery flow
+        run: pnpm test:flow
+
       - name: test
         # Runs every vitest project: workerd integration tests (real
         # D1 + Queues, only external HTTP mocked), @logtura/core unit

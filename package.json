@@ -24,7 +24,8 @@
     "test": "pnpm typecheck && vitest run",
     "test:e2e:http": "tsx scripts/e2e-http.ts",
     "build:packages": "pnpm -r --workspace-concurrency=1 --if-present build",
-    "test:packed": "node scripts/test-packed.mjs"
+    "test:packed": "node scripts/test-packed.mjs",
+    "test:flow": "node scripts/test-vector-flow.mjs"
   },
   "dependencies": {
     "@logtura/cloudflare-shared": "workspace:*",

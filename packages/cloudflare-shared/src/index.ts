@@ -87,7 +87,8 @@ export async function checkCfCredentialFreshness(
   if (info.status !== "active") {
     return { fresh: false, reason: `status: ${info.status}`, expiresAt: null };
   }
-  const expiresAt = info.expires_on ? Date.parse(info.expires_on) || null : null;
+  const parsedExpiry = info.expires_on ? Date.parse(info.expires_on) : NaN;
+  const expiresAt = Number.isFinite(parsedExpiry) ? parsedExpiry : null;
   if (expiresAt !== null) {
     const oneDay = 24 * 60 * 60 * 1000;
     if (expiresAt - Date.now() < oneDay) {

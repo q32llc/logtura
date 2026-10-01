@@ -31,6 +31,8 @@ export default defineConfig({
       "./packages/core",
       "./packages/cli",
       "./packages/custom-vector",
+      "./packages/cloudflare-shared",
+      "./packages/supabase-shared",
       "./packages/destination-datadog-metrics",
       "./packages/destination-prometheus-remote-write",
       "./packages/destination-slack",
@@ -50,7 +52,11 @@ export default defineConfig({
       reporter: ["text", "html", "lcov", "json-summary"],
       // Baseline floor; raise these as the planned coverage slices land.
       // Final scope targets are 95% lines/statements/functions and 90% branches.
-      thresholds: { statements: 52, branches: 40, functions: 58, lines: 54 },
+      thresholds: {
+        statements: 52, branches: 41, functions: 59, lines: 55,
+        "packages/cloudflare-shared/src/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/supabase-shared/src/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
+      },
       include: ["src/**/*.{ts,tsx}", "packages/*/src/**/*.ts"],
       exclude: [
         "src/web/**",
