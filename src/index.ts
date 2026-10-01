@@ -1,3 +1,4 @@
+import { cliAuthorizationRoutes } from "./cli-auth";
 import { Hono } from "hono";
 import {
   attachOptionalUser,
@@ -343,6 +344,7 @@ app.get("/logout", logout);
 // --- JSON API --------------------------------------------------------------
 
 const api = new Hono<AppContext>();
+api.route("/cli", cliAuthorizationRoutes());
 
 api.get("/me", (c) => {
   const user = c.get("user");

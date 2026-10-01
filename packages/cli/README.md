@@ -183,3 +183,31 @@ provider, require credentials to be present, or hash resolved environment secret
 Normalization preserves any literal credentials already in the input file; use
 `env:` references for a portable file you intend to share. CLI/website account
 synchronization is not enabled by these local commands.
+
+
+## Optional website account login
+
+```sh
+logt login
+logt login --service http://localhost:8787 --no-browser
+logt --json whoami
+logt logout
+logt logout --local
+```
+
+`login` prints a short code and opens the website. Confirm the code and account
+before approving. The credential expires after 90 days and can be revoked from
+**CLI access** on the website. Default logout revokes it on the service; `--local`
+only removes the local file. Network revocation failures preserve the credential
+so logout can be retried. Revoked/expired credentials can be removed normally.
+
+Credentials are saved atomically with mode 0600 under
+`$XDG_CONFIG_HOME/logtura/account.json` (default `~/.config/logtura/account.json`).
+Use `LOGT_AUTH_FILE` for an explicit file. `LOGT_SERVICE_URL` selects the service;
+`LOGT_SERVICE_TOKEN` supplies an existing account token for automation. Credentials
+for one service origin are not sent to another, and token values are not printed.
+Forwarder reporting tokens cannot authorize account configuration operations.
+
+These account commands require a service deployment with CLI authorization
+support. Standalone setup, config, bundle and provider deployment commands do not
+require login. Pull/push deployment synchronization is a separate upcoming slice.

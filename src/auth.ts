@@ -4,6 +4,8 @@ import type { AppContext, Env } from "./env";
 import { newToken, signCookie, verifyCookie } from "./crypto";
 import { getUserById, upsertGithubUser } from "./db";
 
+import { findCliIdentity } from "./cli-auth";
+
 const SESSION_COOKIE = "logtura_session";
 const STATE_COOKIE = "logtura_oauth_state";
 
@@ -88,7 +90,8 @@ export async function startGithubLogin(c: Context<AppContext>) {
     return c.text("GitHub OAuth not configured", 500);
   }
   const state = newToken();
-  const signed = await signCookie(state, env.SESSION_SECRET);
+  const returnTo = safeLoginReturn(c.req.query("return_to"), env.APP_URL);
+  const signed = await signCookie(JSON.stringify({nonce: state, returnTo}), env.SESSION_SECRET);
   setCookie(c, STATE_COOKIE, signed, {
     httpOnly: true,
     secure: env.APP_URL.startsWith("https://"),
@@ -108,7 +111,16 @@ export async function finishGithubLogin(c: Context<AppContext>) {
     env.SESSION_SECRET,
   );
   deleteCookie(c, STATE_COOKIE, { path: "/" });
-  if (!code || !state || !expected || state !== expected) {
+  let expectedState = expected;
+  let returnTo = "/app";
+  if (expected) {
+    try {
+      const payload = JSON.parse(expected) as {nonce?: unknown; returnTo?: unknown};
+      expectedState = typeof payload.nonce === "string" ? payload.nonce : null;
+      returnTo = safeLoginReturn(payload.returnTo, env.APP_URL);
+    } catch { /* accept in-flight state cookies minted by the previous version */ }
+  }
+  if (!code || !state || !expectedState || state !== expectedState) {
     return c.redirect("/?error=oauth_state", 303);
   }
   const token = await exchangeCode(env, code);
@@ -129,7 +141,7 @@ export async function finishGithubLogin(c: Context<AppContext>) {
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
   });
-  return c.redirect("/app", 303);
+  return c.redirect(returnTo, 303);
 }
 
 export function logout(c: Context<AppContext>) {
@@ -138,6 +150,8 @@ export function logout(c: Context<AppContext>) {
 }
 
 export const requireAuth: MiddlewareHandler<AppContext> = async (c, next) => {
+  if (c.get("user")) {await next();return;}
+  if (c.req.header("authorization")) return c.json({error: "invalid_account_token"},401);
   const cookie = getCookie(c, SESSION_COOKIE);
   const userId = await verifyCookie(cookie, c.env.SESSION_SECRET);
   if (!userId) return c.redirect("/?error=auth_required", 303);
@@ -160,11 +174,20 @@ export const attachOptionalUser: MiddlewareHandler<AppContext> = async (
   c,
   next,
 ) => {
+  const authorization = c.req.header("authorization");
+  if (authorization?.startsWith("Bearer lt_cli_")) {
+    const identity = await findCliIdentity(c.env,authorization);
+    if (!identity) return c.json({error:"invalid_account_token"},401);
+    c.set("user", {id:identity.id,githubLogin:identity.github_login,email:identity.email,name:identity.name,avatarUrl:identity.avatar_url});
+    c.set("authKind","cli");c.set("cliTokenId",identity.cli_token_id);
+    await next();return;
+  }
   const cookie = getCookie(c, SESSION_COOKIE);
   const userId = await verifyCookie(cookie, c.env.SESSION_SECRET);
   if (userId) {
     const user = await getUserById(c.env.DB, userId);
     if (user) {
+      c.set("authKind", "session");
       c.set("user", {
         id: user.id,
         githubLogin: user.github_login,
@@ -176,3 +199,10 @@ export const attachOptionalUser: MiddlewareHandler<AppContext> = async (
   }
   await next();
 };
+
+function safeLoginReturn(value: unknown, appUrl: string): string {
+  if (typeof value !== "string" || value.length > 512 || !value.startsWith("/app") || value.startsWith("//")) return "/app";
+  const url = new URL(value, appUrl);
+  if (url.origin !== new URL(appUrl).origin || !(url.pathname === "/app" || url.pathname.startsWith("/app/"))) return "/app";
+  return url.pathname + url.search;
+}

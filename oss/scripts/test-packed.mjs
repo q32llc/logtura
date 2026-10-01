@@ -26,10 +26,14 @@ try {
   run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", ...archives], consumer);
   const guard = join(consumer, "deny-network.mjs");
   writeFileSync(guard, "globalThis.fetch = () => { throw new Error('Network access denied in standalone consumer smoke'); };\n");
-  const offline = { NODE_OPTIONS: `--import=${pathToFileURL(guard)}` };
+  const offline = { NODE_OPTIONS: `--import=${pathToFileURL(guard)}`, LOGT_AUTH_FILE: join(consumer, "account.json"), LOGT_SERVICE_TOKEN: "", LOGT_SERVICE_URL: "https://fixture.test" };
   const bin = (alias, args) => run(join(consumer, "node_modules", ".bin", alias), args, consumer, offline);
   assert.match(bin("logt", ["--help"]), /logt/);
   assert.match(bin("logtura", ["--help"]), /logt/);
+  const anonymous = spawnSync(join(consumer, "node_modules", ".bin", "logt"), ["whoami"], {cwd: consumer, encoding: "utf8", env: {...process.env, ...offline}});
+  assert.equal(anonymous.status, 1);
+  assert.match(anonymous.stderr, /Sign in first/);
+  bin("logtura", ["logout", "--local"]);
   bin("logt", ["init"]); bin("logt", ["init"]);
   assert.match(readFileSync(join(consumer, "logt.yaml"), "utf8"), /providers:/);
   writeFileSync(join(consumer, "logt.yaml"), `providers:

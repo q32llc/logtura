@@ -56,7 +56,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return json as T;
 }
 
+export interface CliDevice {userCode: string;label: string;expiresAt: number;decision: "pending" | "approved" | "denied";scope: string;}
+export interface CliAccountToken {id: string;label: string;created_at: number;expires_at: number;revoked_at: number | null;}
+
 export const api = {
+  cliDevice: (code: string) => request<CliDevice>(`/cli/devices/${encodeURIComponent(code)}`),
+  decideCliDevice: (code: string, approve: boolean) => request<{ok: boolean}>(`/cli/devices/${encodeURIComponent(code)}/decision`, {method: "POST",body: JSON.stringify({approve})}),
+  cliTokens: () => request<{tokens: CliAccountToken[]}>("/cli/tokens"),
+  revokeCliToken: (id: string) => request<{ok: boolean}>(`/cli/tokens/${encodeURIComponent(id)}`, {method: "DELETE"}),
   me: () => request<{ user: ApiUser | null }>("/me"),
   providers: () => request<{ providers: ApiProvider[] }>("/providers"),
   listConnections: () =>

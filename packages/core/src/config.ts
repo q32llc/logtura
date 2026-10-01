@@ -130,7 +130,7 @@ function parseSources(
         displayName: stringField(s, "display_name", stringField(s, "displayName", id)) ?? id,
         externalAccountId,
       },
-      selectedSources: sourceRows(stringField(s, "id", id)!.replace(/^con_/, ""), sourceDriver, s, externalAccountId),
+      selectedSources: sourceRows(identityOwner(s, id, "con"), sourceDriver, s, externalAccountId),
       selectAll: boolField(s, "all", false),
       credentials: credentialsForSource(sourceDriver, provider, s, env),
     });
@@ -211,7 +211,7 @@ function customVectorConnection(id: string, s: UnknownRecord, readInclude: Confi
     },
     selectedSources: [
       {
-        id: `src_${safeId(stringField(s, "id", id)!.replace(/^con_/, ""))}_custom_vector`,
+        id: `src_${safeId(identityOwner(s, id, "con"))}_custom_vector`,
         externalId: vector.feed,
         displayName: stringField(s, "display_name", id) ?? id,
         sourceKind: "custom_vector",
@@ -431,7 +431,7 @@ function parseMonitors(
       const dest = sinks.get(sinkId);
       if (!dest) throw new Error(`monitors[${i}] references unknown sink ${sinkId}`);
       return {
-        sink: { id: `snk_${safeId(stringField(m, "id", name)!.replace(/^mon_/, ""))}_${safeId(dest.destination.id.replace(/^dst_/, ""))}`, filterSteps: [] },
+        sink: { id: `snk_${safeId(identityOwner(m, name, "mon"))}_${safeId(dest.destination.id.replace(/^dst_/, ""))}`, filterSteps: [] },
         destination: dest.destination,
         destinationConfig: dest.config,
       };
@@ -732,4 +732,8 @@ export async function hashConfigDocument(document: unknown, options: ConfigParse
   const canonical = canonicalConfigJson(normalizeConfigDocument(document, options));
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
   return `sha256:${[...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function identityOwner(record: UnknownRecord, fallback: string, prefix: string): string {
+  return record.id === undefined ? fallback : (record.id as string).replace(new RegExp(`^${prefix}_`), "");
 }

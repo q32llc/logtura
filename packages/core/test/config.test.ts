@@ -192,3 +192,11 @@ describe("portable custom fragments", () => {
     expect(() => normalize({sources:{source:{source:"custom-vector",vector:{feed:"events",include:"x"}}}})).toThrow("No include reader");
   });
 });
+
+it("preserves legacy keys and labels that already start with entity prefixes",()=>{
+ const doc=fixture();const sources=doc.sources as Record<string,unknown>;sources.con_workers=sources.workers;delete sources.workers;
+ doc.monitors[0]!.source="con_workers";doc.monitors[0]!.name="mon_errors";
+ const before=parse(doc,options);expect(before.input.connections[0]!.selectedSources[0]!.id).toBe("src_con_workers_api");
+ expect(before.input.monitors[0]!.sinks[0]!.sink.id).toBe("snk_mon_errors_alerts");
+ expect(parse(normalize(doc,options),options)).toEqual(before);
+});

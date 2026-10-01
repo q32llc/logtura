@@ -185,3 +185,21 @@ these APIs do not silently redact or guess which custom fields contain secrets.
 Portable documents and revisions are a foundation for deployment synchronization;
 account authentication, remote conflict handling and applied-revision reporting
 are separate service capabilities.
+
+
+## Optional hosted account access
+
+`LogturaServiceClient({ url, token?, fetch })` provides account API access through
+an explicit fetch adapter. Service origins require HTTPS, except loopback HTTP
+for local testing. API paths remain on that origin, redirects are not followed,
+and browser cookies are omitted. Only `lt_cli_` account tokens are accepted.
+
+`authorizeCliDevice(client, label, { show, sleep, now? })` starts browser approval,
+polls with backoff, and returns an expiring credential. `show` receives the
+verification URL and terminal code; the user must explicitly approve on the
+website. `client.whoami()` resolves the account and `client.logout()` revokes the
+current credential. Lost poll responses can be retried during the authorization
+window. Server denial, expiration and malformed responses fail closed.
+
+The hosted client is opt-in. Configuration parsing, rendering, drivers and
+standalone deployment do not require it or hosted authentication.

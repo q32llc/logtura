@@ -28,6 +28,7 @@ import {
   sourceConnectMetadata,
 } from "./source-metadata";
 import { installBundleFiles, renderEnvFile } from "./install";
+import { accountClient, loginAccount, logoutAccount } from "./account";
 import { printStats } from "./metrics";
 
 interface GlobalArgs {
@@ -45,6 +46,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return 0;
     }
     if (command === "init") return cmdInit(global, args);
+    if (command === "login" || command === "whoami" || command === "logout") return await cmdAccount(command, global, args);
     if (command === "config") return await cmdConfig(global, args);
     if (command === "connect") return await cmdConnect(global, args);
     if (command === "source") return cmdSource(global, args);
@@ -60,6 +62,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     console.error(err instanceof Error ? err.message : String(err));
     return 1;
   }
+}
+
+async function cmdAccount(command: string, global: GlobalArgs, args: string[]): Promise<number> {
+  const flags=parseFlags(args);
+  const allowed=command==="login"?["service","name","noBrowser"]:command==="logout"?["service","local"]:["service"];
+  for(const flag of Object.keys(flags))if(!allowed.includes(flag))throw new Error(`Unsupported ${command} option: ${flag}`);
+  const service=stringFlag(flags,"service");
+  if(command==="login")await loginAccount({service,label:stringFlag(flags,"name"),noBrowser:booleanFlag(flags,"noBrowser")});
+  else if(command==="logout")await logoutAccount({service,local:booleanFlag(flags,"local")});
+  else {const client=accountClient(service);const user=await client.whoami();console.log(global.json?JSON.stringify({service:client.url,user}):`${user.githubLogin} (${user.id}) at ${client.url}`);}
+  return 0;
 }
 
 async function cmdConfig(global: GlobalArgs, args: string[]): Promise<number> {
@@ -436,6 +449,9 @@ function parseFlags(argv: string[]): Record<string, string | boolean> {
     else if (a === "--webhook") flags.webhook = needValue(argv, ++i, a);
     else if (a.startsWith("--webhook=")) flags.webhook = a.slice("--webhook=".length);
     else if (a === "-o" || a === "--output") flags.output = needValue(argv, ++i, a);
+    else if (a === "--service") flags.service = needValue(argv, ++i, a);
+    else if (a === "--no-browser") flags.noBrowser = true;
+    else if (a === "--local") flags.local = true;
     else if (a === "--metrics") flags.metrics = needValue(argv, ++i, a);
     else if (a === "--name") flags.name = needValue(argv, ++i, a);
     else if (a === "--provider") flags.provider = needValue(argv, ++i, a);
@@ -643,6 +659,9 @@ function help(): string {
 
 Commands:
   init                              Create logt.yaml
+  login [--service URL]             Approve CLI access in your browser
+  whoami [--service URL]            Show the signed-in service account
+  logout [--local]                  Revoke CLI access and remove credentials
   config normalize [-o file]        Add stable IDs and inline custom fragments
   config hash                       Print the portable configuration revision
   connect <provider>                Add a provider connection (cloudflare, fly, railway, ...)

@@ -3,7 +3,8 @@
  *
  * Drivers (providers, destinations) and the renderer live here.
  * Bring your own credentials + storage layer; this package is pure
- * TS, no D1, no Hono, no I/O.
+ * TS, no D1 or Hono. Rendering performs no I/O; the optional hosted
+ * account client uses an explicitly supplied fetch adapter.
  */
 
 export { generateBundle, renderDockerfile } from "./render";
@@ -57,3 +58,5 @@ export { buildTar, type TarFile } from "./tar";
 
 export { parseConfigDocument, normalizeConfigDocument, canonicalConfigJson, hashConfigDocument, ensureSection, ensureListSection, safeId, defaultProviderName } from "./config";
 export type { ConfigParseOptions, ConfigIncludeReader, ParsedConfig } from "./config";
+export { LogturaServiceClient, ServiceError, normalizeServiceUrl, authorizeCliDevice } from "./service-client";
+export type { ServiceClientOptions, DeviceAuthorization, AccountCredential, DevicePoll, ServiceUser } from "./service-client";

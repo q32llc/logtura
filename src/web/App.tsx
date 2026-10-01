@@ -17,6 +17,7 @@ import {
   IconCloudUpload,
   IconLink,
   IconSend,
+  IconTerminal,
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import {
@@ -28,6 +29,7 @@ import {
 } from "react-router-dom";
 import { ApiError, api } from "./api";
 import { ConnectionDetail } from "./pages/ConnectionDetail";
+import { CliAccess } from "./pages/CliAccess";
 import { Dashboard } from "./pages/Dashboard";
 import { DeployWizard } from "./pages/DeployWizard";
 import { DeploymentDetail } from "./pages/DeploymentDetail";
@@ -67,6 +69,7 @@ export function App() {
       <AppShellLayout user={auth.user} loading={auth.loading}>
         <Routes>
           <Route path="/" element={<Home user={auth.user} />} />
+          <Route path="/app/cli" element={<CliAccess user={auth.user} loading={auth.loading} />} />
           <Route path="/docs" element={<Docs />} />
           <Route path="/docs/:slug" element={<Docs />} />
           <Route
@@ -280,6 +283,7 @@ function AppShellLayout({
               label="Monitors"
               icon={<IconBell size={16} />}
             />
+            <NavItem to="/app/cli" label="CLI access" icon={<IconTerminal size={16} />} />
             <NavItem
               to="/app/deployments"
               label="Deployments"

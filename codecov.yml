@@ -21,3 +21,8 @@ component_management:
       name: Service backend
       paths:
         - src/**
+        - "!src/web/**"
+    - component_id: service_ui
+      name: Service UI
+      paths:
+        - src/web/**

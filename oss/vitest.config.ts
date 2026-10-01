@@ -27,7 +27,9 @@ export default defineConfig({
       reporter: ["text", "html", "lcov", "json-summary"],
       // Initial measured floor; the convergence plan requires 95/90 targets.
       thresholds: {
-        statements: 68, branches: 60, functions: 69, lines: 70,
+        statements: 70, branches: 64, functions: 71, lines: 71,
+        "packages/core/src/service-client.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
+        "packages/cli/src/account.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
         "packages/core/src/config.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
         "packages/core/src/install.ts": { statements: 100, branches: 95, functions: 100, lines: 100 },
         "packages/core/src/tar.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },

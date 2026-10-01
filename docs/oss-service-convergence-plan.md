@@ -337,3 +337,55 @@ operations, service storage adapters, account CLI authentication, optimistic
 concurrency and desired/applied synchronization, expanded remote/browser/runtime
 E2E, final aggregate/per-package/UI coverage, dependency upgrades and publishing/
 production rollout. Codecov repository activation remains an external blocker.
+
+
+### Account CLI authorization and UI baseline shipped in source — 2026-10-01
+
+Public `LogturaServiceClient` and `authorizeCliDevice` now provide the optional
+hosted-account protocol through an explicit fetch adapter. The CLI supports
+`login`, `whoami`, and `logout`; local provider setup/rendering/deployment still
+needs no hosted login. Login prints a terminal code, opens browser approval, polls
+with backoff and saves credentials atomically with private file permissions.
+Service origins are isolated, unrelated token types are rejected, redirects are
+not followed, tokens are not printed, and logout retains retryable credentials
+when revocation fails. `--local` removes only the local credential. Expired/already
+revoked credentials and repeated logout are handled without requiring relogin.
+
+Migration 0018 adds separate device authorization and account-token tables.
+Only token/device hashes are persisted; account tokens expire after 90 days and
+can be revoked. Authorization requests expire after ten minutes and are bounded
+per requester. Lost poll responses can be retried during that window without
+reviving revoked access. CLI credentials cannot approve devices or create other
+credentials. Existing forwarder reporting tokens gain no account authority.
+
+The website has explicit approve/deny UI, an account/code/scope display and client
+revocation. GitHub sign-in returns to the approval page, validates return paths,
+and accepts in-flight state cookies from the previous implementation. Workerd
+covers ownership, denial, expiration, malformed requests, Origin checks, rate
+limits, session-only management, retryable delivery, token hashes, legacy OAuth
+state and the actual public authorization client against D1-backed endpoints.
+The CLI has a real local HTTP login/poll/browser-launch/whoami/logout test.
+
+Validation: 380 private backend/package tests, 300 independent public tests and
+seven UI interaction tests pass. Backend/package coverage is 63.29% statements /
+53.64% branches / 68.69% functions / 64.21% lines; public coverage is 70.33% /
+64.41% / 71.33% / 71.60%. Authorization, transport and credential storage have
+100% lines/functions, at least 95% statements and 90% branches, enforced per file.
+The approval page has 100% lines/functions, 98.11% statements and 85.71% branches.
+
+UI coverage now runs separately and reports **every existing UI module**, including
+untested pages, rather than excluding the UI from the only report. The initial
+aggregate UI result is 2.00% lines / 3.61% statements / 3.38% functions / 2.69%
+branches. Small baseline ratchets and the final-target approval-page gate are
+active; the required aggregate 90/90/90/85 remains far from complete. Private CI
+runs the UI suite and uploads both reports; Codecov backend and UI components are
+separate. Repository activation is still required for successful Codecov uploads.
+
+This slice is committed/pushed capability support, not a claim that production
+CLI login is live: npm publication, remote migration 0018 and production service
+rollout are pending. Desired/applied manifest export, account storage adapters,
+optimistic-concurrency sync, full browser/remote E2E and final coverage remain next.
+
+A final compatibility case preserves legacy source keys and monitor labels that
+already start with `con_`/`mon_`; normalization must strip prefixes only from
+explicit entity IDs, not from legacy display/key values.
