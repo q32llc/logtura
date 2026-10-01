@@ -8,8 +8,8 @@
     "dev": "concurrently -n vite,worker -c blue,green \"pnpm dev:vite\" \"pnpm dev:worker\"",
     "dev:vite": "vite",
     "dev:worker": "wrangler dev --port 8787",
-    "build": "vite build",
-    "deploy": "vite build && wrangler deploy",
+    "build": "pnpm build:packages && vite build",
+    "deploy": "pnpm build && wrangler deploy",
     "typecheck": "tsc --noEmit",
     "db:create": "wrangler d1 create logtura",
     "db:migrate:local": "wrangler d1 migrations apply logtura --local",
@@ -22,7 +22,9 @@
     "test:destinations": "vitest run --project '@logtura/destination-*'",
     "test:coverage": "vitest run --coverage",
     "test": "pnpm typecheck && vitest run",
-    "test:e2e:http": "tsx scripts/e2e-http.ts"
+    "test:e2e:http": "tsx scripts/e2e-http.ts",
+    "build:packages": "pnpm -r --workspace-concurrency=1 --if-present build",
+    "test:packed": "node scripts/test-packed.mjs"
   },
   "dependencies": {
     "@logtura/cloudflare-shared": "workspace:*",
@@ -62,6 +64,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-istanbul": "4.1.5",
     "concurrently": "^9.1.0",
+    "esbuild": "0.27.3",
     "postcss": "^8.4.49",
     "postcss-preset-mantine": "^1.17.0",
     "postcss-simple-vars": "^7.0.1",

@@ -48,6 +48,12 @@ jobs:
       - name: pull vector image
         run: docker pull timberio/vector:0.55.0-debian
 
+      - name: build public packages
+        run: pnpm -r --workspace-concurrency=1 --if-present build
+
+      - name: packed consumer checks
+        run: pnpm test:packed
+
       - name: typecheck
         run: pnpm typecheck
 

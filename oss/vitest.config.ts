@@ -23,6 +23,8 @@ export default defineConfig({
     coverage: {
       provider: "istanbul",
       reporter: ["text", "html", "lcov", "json-summary"],
+      // Initial measured floor; the convergence plan requires 95/90 targets.
+      thresholds: { statements: 55, branches: 43, functions: 57, lines: 58 },
       include: ["packages/*/src/**/*.ts"],
       exclude: ["**/*.d.ts"],
     },

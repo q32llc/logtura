@@ -224,3 +224,22 @@ E2E, clean packed-consumer verification, required branch-protection setup,
 Codecov upload validation, final coverage targets, shared operation extraction,
 and synchronization are still outstanding. No production rollout or public npm
 release has been performed for this slice.
+
+The second packaging slice builds JavaScript and declarations for all fifteen
+public packages, removes the CLI runtime loader dependency, and adds packed
+consumer checks to private/public test and release workflows. All package
+tarballs install together in a fresh directory; both CLI aliases, standalone
+validation/bundle generation with outbound fetch disabled, and ordinary Node
+imports pass. Source coverage remains unchanged. This slice does not yet claim
+full standalone provider/deployment lifecycle coverage or shared synchronization.
+
+Private baseline CI passes tests and forwarder image creation. Its Codecov upload
+currently fails with `Repository not found`; private repository enablement is
+an external configuration dependency. Upload failures remain fatal.
+
+Independent public-layout verification passes 114 tests, package builds,
+recursive type checks, and packed-consumer checks. Public coverage starts at
+55.04% statements, 43.56% branches, 57.21% functions, and 58.79% lines; its CI
+floor is 55/43/57/58 pending the planned increases. Both layouts pin Vitest and
+the Istanbul provider to the same version. The public sync excludes generated
+package output and the private CLI account inventory configuration.

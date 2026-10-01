@@ -132,6 +132,8 @@ rsync -a --delete \
   --exclude='*.log' \
   --exclude='coverage/' \
   --exclude='.turbo/' \
+  --exclude='dist/' \
+  --exclude='/cli/logt.yaml' \
   "$ROOT/packages/" "$PUBLIC_REPO/packages/"
 
 cp "$COMMIT_MESSAGE_FILE" "$PUBLIC_REPO/.git/logtura-oss-commit-message"

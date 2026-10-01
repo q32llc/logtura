@@ -41,6 +41,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: build public package artifacts
+        run: pnpm build:packages
+
       - name: regenerate kitchen-sink Dockerfile from drivers
         run: pnpm tsx scripts/build-forwarder-dockerfile.mjs
 

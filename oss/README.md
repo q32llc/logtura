@@ -177,3 +177,17 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md).
 ## License
 
 [Apache 2.0](./LICENSE).
+
+## Build and verify release artifacts
+
+```sh
+pnpm install
+pnpm build
+pnpm test:packed
+pnpm test
+```
+
+Packages publish ordinary JavaScript and TypeScript declarations. The CLI has
+compiled `logt` and `logtura` executables and requires Node 22 or newer.
+`test:packed` installs every package tarball outside the workspace and checks
+standalone CLI generation with outbound fetch disabled, plus normal Node imports.

@@ -22,6 +22,7 @@ renderer, drivers, destinations, and CLI that can be synced to
 
 ```bash
 pnpm install
+pnpm build:packages
 pnpm dev
 ```
 
@@ -140,3 +141,19 @@ git push origin v0.X.Y
 
 The public tag runs `.github/workflows/release.yml`, which publishes via npm
 Trusted Publishing and creates the GitHub release.
+
+## Package artifact validation
+
+Public packages ship JavaScript and declarations. Build them before running
+Node-based development commands or packaging a release:
+
+```sh
+pnpm build:packages
+pnpm test:packed
+```
+
+The packed consumer check installs all tarballs outside the workspace, invokes
+both CLI aliases, validates and generates a standalone bundle with outbound
+fetch disabled, and imports every public package in ordinary Node. The service
+production build also builds these package artifacts. Tests use the development
+export condition so coverage continues measuring package source.
