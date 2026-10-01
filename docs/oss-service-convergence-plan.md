@@ -563,3 +563,50 @@ linked local baselines, explicit secret-transfer policy and push/apply reporting
 Production migrations, npm publication, staged rollout and final full coverage
 remain pending; the goal is active. Codecov repository activation remains an
 external CI blocker recorded above.
+
+### Implemented slice: desired/applied revision storage and instance fencing (2026-10-01)
+
+Additive migration 0020 records public revision history and separate desired/applied
+state. Existing deployments remain legacy/unreported until an owner issues a
+revision and activates an instance. No migration rewrites existing deployment
+rows or bootstraps an invented applied revision. Desired sequence changes advance
+the account configuration version; instance activation and applied reports do not.
+The stored desired graph version makes subsequent website/configuration edits
+observable as `stale`, without clearing known applied state or guessing what is
+running. Public revision documents are structurally validated, canonicalized and
+hashed, and reject a private secret-values map. Historical revision identity and
+documents are immutable; foreign keys enforce known desired/applied revisions and
+cascade history when the deployment is removed.
+
+Internal storage APIs issue revisions with both configuration-version and desired-
+sequence fences. Identical documents at the same graph version are no-op writes.
+A new desired revision preserves the last acknowledged applied revision. Instance
+activation uses a fresh server-generated ID and compare-and-swap on the prior
+active ID. Acknowledgements accept only issued desired history from the active
+instance, require increasing safe-integer report sequences, and cannot regress
+the applied configuration sequence. Unknown, legacy, replayed, retired-instance,
+invalid and out-of-order reports make no state change. Applying a rollback requires
+issuing the previous document as a new desired sequence. The caller authenticates
+the reporting token before using this internal acknowledgement primitive.
+
+Validation: all 552 private tests pass; builds and type checking pass. The revision
+state module enforces 100% statements, branches, functions and lines. Tests cover
+owner isolation, no-op issuance, website conflicts, simultaneous writers, separate
+desired/applied state, instance replacement, report replay/order validation,
+immutable history, uncommitted history rejection, cascades and storage failure
+classification. A pinned schema-19 upgrade fixture preserves the deployed row,
+reporting token, image digest, selectors, metrics, ciphertext and configuration
+version. The earlier schema-18 upgrade test now pins migration 0019 by name so
+later additive migrations cannot silently change its baseline. Aggregate private
+coverage is 68.73% statements, 60.58% branches, 73.21% functions and 68.21% lines.
+
+This slice adds internal persistence, not the account push/reporting routes or
+forwarder hook. Push must combine inventory, ordered deployment selectors and
+revision issuance in one guarded transaction; it must validate registry/reporting
+policy and explicit secret transfer before writes. An already stable graph can
+use the standalone issuance primitive, but it does not prove that an arbitrary
+submitted document matches inventory. Linked CLI baselines, complete website
+round trips, broker revision stability and production rollout remain pending.
+Migrations 0018–0020 are not applied in production. The pushed reconciliation CI
+passes its code checks and image build; private Codecov upload still fails with
+`Repository not found`. The final coverage and release goals remain active.

@@ -2,8 +2,8 @@ import { applyD1Migrations,env } from "cloudflare:test";
 import { expect,it,inject } from "vitest";
 
 it("upgrades the existing schema without rewriting forwarder configuration or reporting state",async()=>{
-  const migrations=inject("migrations"),last=migrations.at(-1)!;expect(last.name).toBe("0019_configuration_versions.sql");
-  await applyD1Migrations(env.DB,migrations.slice(0,-1));
+  const migrations=inject("migrations"),index=migrations.findIndex(m=>m.name==="0019_configuration_versions.sql");expect(index).toBeGreaterThan(-1);const last=migrations[index]!;
+  await applyD1Migrations(env.DB,migrations.slice(0,index));
   await env.DB.batch([
     env.DB.prepare("INSERT INTO users(id,github_id,github_login,created_at,updated_at) VALUES ('legacy-user','legacy-github','legacy',1,1)"),
     env.DB.prepare("INSERT INTO connections(id,user_id,provider,display_name,credentials_encrypted,created_at,updated_at) VALUES ('legacy-con','legacy-user','cloudflare-worker-tail','Existing','unchanged-ciphertext',1,1)"),
