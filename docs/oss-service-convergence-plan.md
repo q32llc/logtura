@@ -610,3 +610,14 @@ round trips, broker revision stability and production rollout remain pending.
 Migrations 0018–0020 are not applied in production. The pushed reconciliation CI
 passes its code checks and image build; private Codecov upload still fails with
 `Repository not found`. The final coverage and release goals remain active.
+
+Clean-checkout follow-up: public reconciliation CI exposed undeclared driver imports
+in the core graph fixture. The local nested checkout inherited private workspace
+resolution and had masked this error. The fixture now imports the actual driver
+and destination implementations through explicit workspace source paths, avoiding
+a core-to-driver dependency cycle. A new public-only checkout under `/tmp`, with
+an offline frozen-lockfile install and no inherited parent dependencies, passes
+all 409 tests, the unchanged coverage gates, builds, type checks and all 15 packed
+consumers/both CLI aliases. Future public validation must include a clean install
+when dependency resolution or new cross-package fixtures change. The earlier
+public CI failure was test-fixture resolution, not verified to be Codecov failure.
