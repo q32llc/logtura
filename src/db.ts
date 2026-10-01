@@ -22,6 +22,8 @@ export interface ConnectionRow {
   provider_installation_id: string | null;
   /** AES-GCM(JSON-stringified credential object) — opaque blob, parsed by driver */
   credentials_encrypted: ArrayBuffer;
+  credential_version?: string;
+  credentials_refresh_nonce?: string | null;
   created_at: number;
   updated_at: number;
   last_discovered_at: number | null;
@@ -206,6 +208,17 @@ export async function updateConnectionCredentials(
     )
     .run();
   return getConnection(db, userId, connectionId);
+}
+
+/** OAuth renewal is compare-and-swap on the exact credential snapshot, owner
+ * and provider. A reconnect or concurrent renewal wins over this stale result.
+ * The nonce classifies this write as renewal without changing credential intent. */
+export async function refreshConnectionCredentials(db:D1Database,env:Env,connection:ConnectionRow,credentials:unknown):Promise<boolean>{
+  const encrypted=await encryptSecret(JSON.stringify(credentials),env.CREDENTIAL_ENCRYPTION_KEY);
+  const result=await db.prepare(`UPDATE connections SET credentials_encrypted=?,credentials_refresh_nonce=?,updated_at=?
+    WHERE id=? AND user_id=? AND provider=? AND credential_version=? AND credentials_encrypted=?`)
+    .bind(encrypted,newToken(),Date.now(),connection.id,connection.user_id,connection.provider,connection.credential_version??"",connection.credentials_encrypted).run();
+  return result.meta.changes===1;
 }
 
 export async function createConnection(

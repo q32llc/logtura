@@ -1,4 +1,5 @@
-import { canonicalConfigJson,exportDeploymentManifest,generateBundle,hashConfigDocument,type GenerateInput,type DeploymentManifest,type SecretVersioner } from "@logtura/core";
+import { canonicalConfigJson,generateBundle,hashConfigDocument,type GenerateInput,type DeploymentManifest,type SecretVersioner } from "@logtura/core";
+import { exportHostedManifest } from "./credential-intent";
 import { getDeployment } from "./db";
 import type { Env } from "./env";
 import { encryptSecret,newToken } from "./crypto";
@@ -20,7 +21,7 @@ export interface ReconciledDeploymentConfiguration {
 export async function reconcileDeploymentConfiguration(env:Env,userId:string,deploymentId:string,expectedVersion:number,expectedSequence:number,desired:GenerateInput,versioner:SecretVersioner):Promise<ReconciledDeploymentConfiguration>{
   if(!Number.isSafeInteger(expectedSequence) || expectedSequence<0 || expectedSequence>=Number.MAX_SAFE_INTEGER)throw new Error("Invalid desired sequence");
   const deployment=await getDeployment(env.DB,userId,deploymentId);if(!deployment)throw new Error("Deployment not found");
-  const {plan,inventory}=await prepareGraphReconciliation(env,userId,expectedVersion,desired);
+  const {plan,inventory,credentialVersions}=await prepareGraphReconciliation(env,userId,expectedVersion,desired);
   const state=await readDeploymentConfiguration(env.DB,userId,deploymentId);if((state?.desired.sequence??0)!==expectedSequence)throw new DeploymentRevisionConflict();
   const input=plan.input;input.providers=listProviders();input.destinations=listDestinationDrivers();
   const providers=new Set<string>();
@@ -43,12 +44,16 @@ export async function reconcileDeploymentConfiguration(env:Env,userId:string,dep
   input.runtimeEnv={...runtime,LOGTURA_HEARTBEAT_TOKEN:token,LOGTURA_METRICS_TOKEN:token};
   input.heartbeat={kind:input.heartbeat?.kind??"none",deploymentId,appUrl:env.APP_URL};input.metrics??={kind:"none"};
   generateBundle(input); // Validate the actual trusted registry/render graph before writes.
-  const selection=orderedSelectionFromInput(input),exported=await exportDeploymentManifest(input,versioner),revision=await hashConfigDocument(exported.document);
+  for(const c of plan.connections){
+    const stored=inventory.connections.find(old=>old.connection.id===c.connection.id);
+    if(!stored || canonicalConfigJson(stored.credentials)!==canonicalConfigJson(c.credentials))credentialVersions.set(c.connection.id,newToken());
+  }
+  const selection=orderedSelectionFromInput(input),exported=await exportHostedManifest(input,credentialVersions,versioner),revision=await hashConfigDocument(exported.document);
   const heartbeat=input.heartbeat.kind,metrics=input.metrics.kind==="destination"?input.metrics.destination.id:input.metrics.kind;
   const graphChanges=plan.connections.length+plan.sources.length+plan.destinations.length+plan.monitors.length+plan.sinks.length+plan.removeSinkIds.length;
   const unchanged=state && state.desired.configurationVersion===expectedVersion && state.desired.revision===revision && graphChanges===0 && !runtimeChanged && deployment.graph_selection_json===canonicalConfigJson(selection) && deployment.heartbeat_target===heartbeat && (deployment.metrics_target??"none")===metrics && deployment.heartbeat_token===token;
   if(unchanged){await commitConfiguration(env.DB,userId,expectedVersion,[]);return {configurationVersion:expectedVersion,sequence:state.desired.sequence,revision,document:exported.document,sourceAliases:plan.sourceAliases};}
-  const statements=await compileGraphMutations(env,userId,plan,inventory);
+  const statements=await compileGraphMutations(env,userId,plan,inventory,credentialVersions);
   statements.push(...compileDeploymentSelection(env.DB,userId,deploymentId,selection));
   const encrypted=runtimeChanged?(Object.keys(runtime).length===0?null:await encryptSecret(canonicalConfigJson(runtime),env.CREDENTIAL_ENCRYPTION_KEY)):deployment.runtime_env_encrypted??null;
   statements.push(env.DB.prepare(`UPDATE deployments SET heartbeat_target=?,metrics_target=?,heartbeat_token=?,runtime_env_encrypted=?,updated_at=?,bundle_outdated=1

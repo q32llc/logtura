@@ -1,9 +1,9 @@
 import { env } from "cloudflare:test";
 import { expect,it } from "vitest";
-import { loadOwnedGraphInventory,prepareGraphReconciliation,reconcileOwnedGraph } from "../../src/graph-reconciliation";
-import { createConnection,createDestination,createMonitor,createSink,createDeployment,upsertSources } from "../../src/db";
+import { loadOwnedGraphInventory,prepareGraphReconciliation,reconcileOwnedGraph,compileGraphMutations } from "../../src/graph-reconciliation";
+import { createConnection,createDestination,createMonitor,createSink,createDeployment,upsertSources,getConnection,refreshConnectionCredentials,decryptConnectionCredentials } from "../../src/db";
 import { encryptSecret } from "../../src/crypto";
-import { readConfigurationVersion } from "../../src/config-version";
+import { commitConfiguration,readConfigurationVersion } from "../../src/config-version";
 import { seedUser } from "./_setup";
 import type { GenerateInput } from "@logtura/core";
 
@@ -96,4 +96,12 @@ it("refuses unresolved connection credentials and invalid versions without write
   await expect(reconcileOwnedGraph(env,own.userId,snapshot.version,desired)).rejects.toThrow("Resolve connection credentials");
   for(const version of [-1,0.1,NaN,Infinity])await expect(prepareGraphReconciliation(env,own.userId,version,desired)).rejects.toThrow("Invalid configuration version");
   expect(await loadOwnedGraphInventory(env,own.userId)).toEqual(snapshot);
+});
+
+it("preserves a concurrent renewal while committing label-only changes from an older inventory",async()=>{
+  const own=await fixture(),snapshot=await loadOwnedGraphInventory(env,own.userId),desired=structuredClone(input(snapshot));desired.connections[0]!.connection.displayName="Updated label";
+  const prepared=await prepareGraphReconciliation(env,own.userId,snapshot.version,desired),connection=(await getConnection(env.DB,own.userId,own.connection.id))!;
+  expect(await refreshConnectionCredentials(env.DB,env,connection,{apiToken:"renewed-token"})).toBe(true);
+  const statements=await compileGraphMutations(env,own.userId,prepared.plan,prepared.inventory);await commitConfiguration(env.DB,own.userId,snapshot.version,statements);
+  const after=(await getConnection(env.DB,own.userId,own.connection.id))!;expect(after.display_name).toBe("Updated label");expect(after.credential_version).toBe(connection.credential_version);expect(await decryptConnectionCredentials(env,after)).toEqual({apiToken:"renewed-token"});
 });

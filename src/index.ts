@@ -1,6 +1,7 @@
 import { parseOrderedDeploymentSelection } from "./deployment-selection";
 import { ConfigurationConflict, readStableConfiguration } from "./config-version";
-import { exportDeploymentManifest, createSecretVersioner, hashConfigDocument } from "@logtura/core";
+import { exportHostedManifest } from "./credential-intent";
+import { createSecretVersioner, hashConfigDocument } from "@logtura/core";
 import { cliAuthorizationRoutes } from "./cli-auth";
 import { Hono } from "hono";
 import {
@@ -1231,7 +1232,7 @@ apiAuth.get("/deployments/:id/config", async (c) => {
   try {
     const snapshot=await readStableConfiguration(c.env.DB,user.id,async()=>{
       const assembled=await assembleDeploymentBundle(c.env,user.id,id);
-      const exported=await exportDeploymentManifest(assembled.input,await createSecretVersioner(c.env.CREDENTIAL_ENCRYPTION_KEY));
+      const exported=await exportHostedManifest(assembled.input,assembled.credentialVersions,await createSecretVersioner(c.env.CREDENTIAL_ENCRYPTION_KEY));
       return {document:exported.document,revision:await hashConfigDocument(exported.document),
         deployment:{id:assembled.deployment.id,displayName:assembled.deployment.display_name},
         ...(c.req.query("includeSecrets")==="1"?{secretValues:exported.secretValues}:{})};

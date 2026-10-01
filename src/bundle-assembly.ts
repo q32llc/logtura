@@ -31,6 +31,7 @@ export interface AssembledBundle {
   bundle: GeneratedBundle;
   heartbeatToken: string;
   input: import("@logtura/core").GenerateInput;
+  credentialVersions: Map<string,string>;
   credentialIsFresh: boolean;
   credentialStaleReason?: string;
   credentialExpiresAt?: number | null;
@@ -315,6 +316,7 @@ export async function assembleDeploymentBundle(
     bundle,
     input: {...toCoreInput({...generatorInput, connections: perConn.map(c=>({connection:c.connection,selectedSources:c.selectedSources,selectAll:c.selectAll,credentials:c.credentials}))}), runtimeEnv: {...runtimeEnv,LOGTURA_HEARTBEAT_TOKEN: heartbeatToken, LOGTURA_METRICS_TOKEN: heartbeatToken}},
     heartbeatToken,
+    credentialVersions: new Map(connections.map(c=>[c.id,c.credential_version!])),
     credentialIsFresh,
     credentialStaleReason,
     credentialExpiresAt: credentialExpiresAt ?? undefined,

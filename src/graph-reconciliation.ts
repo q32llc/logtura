@@ -1,8 +1,8 @@
-import { planDeploymentChanges, type GenerateInput, type GraphInventory, type DeploymentChangePlan } from "@logtura/core";
+import { canonicalConfigJson,planDeploymentChanges, type GenerateInput, type GraphInventory, type DeploymentChangePlan } from "@logtura/core";
 import type { Env } from "./env";
 import { decryptConnectionCredentials,decryptDestinationConfig,parseFilterSteps,type ConnectionRow,type LogSourceRow,type DestinationRow,type MonitorRow,type SinkRow } from "./db";
 import { ConfigurationConflict,commitConfiguration,readStableConfiguration } from "./config-version";
-import { encryptSecret } from "./crypto";
+import { encryptSecret,newToken } from "./crypto";
 
 function metadata(value:string|null):Record<string,unknown>|null{
   if(value===null)return null;
@@ -11,8 +11,8 @@ function metadata(value:string|null):Record<string,unknown>|null{
 }
 /** Read only owned rows in a single D1 read batch. No provider verification,
  * broker token minting or implicit credential renewal belongs in this snapshot. */
-export async function loadOwnedGraphInventory(env:Env,userId:string):Promise<{version:number;value:GraphInventory}>{
-  return readStableConfiguration(env.DB,userId,async()=>{
+export async function loadOwnedGraphInventory(env:Env,userId:string):Promise<{version:number;value:GraphInventory;credentialVersions:Map<string,string>}>{
+  const snapshot=await readStableConfiguration(env.DB,userId,async()=>{
     const rows=await env.DB.batch([
       env.DB.prepare("SELECT * FROM connections WHERE user_id=?").bind(userId),
       env.DB.prepare("SELECT s.* FROM log_sources s JOIN connections c ON c.id=s.connection_id WHERE c.user_id=?").bind(userId),
@@ -30,20 +30,21 @@ export async function loadOwnedGraphInventory(env:Env,userId:string):Promise<{ve
       let config:unknown;try{config=await decryptDestinationConfig(env,d);}catch{throw new Error("Invalid stored destination configuration");}
       return {destination:{id:d.id,kind:d.kind,displayName:d.display_name},config};
     }));
-    return {connections:connectionValues,sources:sources.map(s=>({connectionId:s.connection_id,source:{id:s.id,externalId:s.external_id,displayName:s.display_name,sourceKind:s.source_kind,metadata:metadata(s.metadata_json)}})),destinations:destinationValues,
+    return {credentialVersions:new Map(connections.map(c=>[c.id,c.credential_version!])),inventory:{connections:connectionValues,sources:sources.map(s=>({connectionId:s.connection_id,source:{id:s.id,externalId:s.external_id,displayName:s.display_name,sourceKind:s.source_kind,metadata:metadata(s.metadata_json)}})),destinations:destinationValues,
       monitors:monitors.map(m=>({id:m.id,connectionId:m.connection_id,displayName:m.display_name,enabled:m.enabled===1,filterSteps:parseFilterSteps(m.filter_steps_json)})),
-      sinks:sinks.map(s=>({sink:{id:s.id,filterSteps:parseFilterSteps(s.filter_steps_json)},monitorId:s.monitor_id,destinationId:s.destination_id}))};
+      sinks:sinks.map(s=>({sink:{id:s.id,filterSteps:parseFilterSteps(s.filter_steps_json)},monitorId:s.monitor_id,destinationId:s.destination_id}))}};
   });
+  return {version:snapshot.version,value:snapshot.value.inventory,credentialVersions:snapshot.value.credentialVersions};
 }
 /** Preparation performs no writes. The caller must validate all incoming IDs,
  * registry capabilities and reporting scope, then compile and execute this plan
  * with commitConfiguration at this same version. Never return private plan rows
  * in an HTTP diff or log them. */
-export async function prepareGraphReconciliation(env:Env,userId:string,expectedVersion:number,desired:GenerateInput):Promise<{version:number;plan:DeploymentChangePlan;inventory:GraphInventory}>{
+export async function prepareGraphReconciliation(env:Env,userId:string,expectedVersion:number,desired:GenerateInput):Promise<{version:number;plan:DeploymentChangePlan;inventory:GraphInventory;credentialVersions:Map<string,string>}>{
   if(!Number.isSafeInteger(expectedVersion) || expectedVersion<0)throw new Error("Invalid configuration version");
   const snapshot=await loadOwnedGraphInventory(env,userId);
   if(snapshot.version!==expectedVersion)throw new ConfigurationConflict(expectedVersion,snapshot.version);
-  return {version:snapshot.version,plan:planDeploymentChanges(snapshot.value,desired),inventory:snapshot.value};
+  return {version:snapshot.version,plan:planDeploymentChanges(snapshot.value,desired),inventory:snapshot.value,credentialVersions:snapshot.credentialVersions};
 }
 
 /** Persist resolved, raw storage values, never OAuth broker credentials from a
@@ -55,16 +56,18 @@ export async function prepareGraphReconciliation(env:Env,userId:string,expectedV
  */
 /** Compile only a plan derived from this user's stable owned inventory. The
  * statements are private and must execute under its configuration guard. */
-export async function compileGraphMutations(env:Env,userId:string,plan:DeploymentChangePlan,inventory:GraphInventory):Promise<D1PreparedStatement[]>{
+export async function compileGraphMutations(env:Env,userId:string,plan:DeploymentChangePlan,inventory:GraphInventory,credentialVersions:Map<string,string>=new Map()):Promise<D1PreparedStatement[]>{
   const db=env.DB,statements:D1PreparedStatement[]=[],timestamp=Date.now();
   const connectionIds=new Set(inventory.connections.map(c=>c.connection.id)),sourceIds=new Set(inventory.sources.map(s=>s.source.id)),destinationIds=new Set(inventory.destinations.map(d=>d.destination.id)),monitorIds=new Set(inventory.monitors.map(m=>m.id)),sinkIds=new Set(inventory.sinks.map(s=>s.sink.id));
   for(const value of plan.connections){
     const c=value.connection;
     if(value.credentials===undefined)throw new Error("Resolve connection credentials before persisting a graph");
-    const encrypted=await encryptSecret(JSON.stringify(value.credentials),env.CREDENTIAL_ENCRYPTION_KEY);
+    const stored=inventory.connections.find(existing=>existing.connection.id===c.id);
+    const credentialChanged=!stored || canonicalConfigJson(stored.credentials)!==canonicalConfigJson(value.credentials);
+    const encrypted=await encryptSecret(JSON.stringify(value.credentials),env.CREDENTIAL_ENCRYPTION_KEY),credentialVersion=credentialVersions.get(c.id)??newToken();
     statements.push(connectionIds.has(c.id)
-      ?db.prepare("UPDATE connections SET provider=?,display_name=?,external_account_id=?,credentials_encrypted=?,updated_at=? WHERE id=? AND user_id=?").bind(c.provider,c.displayName,c.externalAccountId,encrypted,timestamp,c.id,userId)
-      :db.prepare("INSERT INTO connections(id,user_id,provider,display_name,external_account_id,credentials_encrypted,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)").bind(c.id,userId,c.provider,c.displayName,c.externalAccountId,encrypted,timestamp,timestamp));
+      ?db.prepare("UPDATE connections SET provider=?,display_name=?,external_account_id=?,credentials_encrypted=CASE WHEN ? THEN ? ELSE credentials_encrypted END,credential_version=CASE WHEN ? THEN ? ELSE credential_version END,updated_at=? WHERE id=? AND user_id=?").bind(c.provider,c.displayName,c.externalAccountId,credentialChanged?1:0,encrypted,credentialChanged?1:0,credentialVersion,timestamp,c.id,userId)
+      :db.prepare("INSERT INTO connections(id,user_id,provider,display_name,external_account_id,credentials_encrypted,credential_version,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)").bind(c.id,userId,c.provider,c.displayName,c.externalAccountId,encrypted,credentialVersion,timestamp,timestamp));
   }
   for(const value of plan.sources){
     const s=value.source,metadataJson=s.metadata===null?null:JSON.stringify(s.metadata);

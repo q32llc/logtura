@@ -2,7 +2,8 @@ import type { RailwayCredentials } from "@logtura/driver-railway-logs";
 import {
   type ConnectionRow,
   decryptConnectionCredentials,
-  updateConnectionCredentials,
+  refreshConnectionCredentials,
+  getConnection,
 } from "../db";
 import type { Env } from "../env";
 import { refreshRailwayToken } from "./railway-oauth";
@@ -32,8 +33,11 @@ export async function ensureFreshRailwayAccessToken(
     refreshToken: body.refresh_token ?? creds.refreshToken,
     expiresAt: Date.now() + body.expires_in * 1000,
   };
-  await updateConnectionCredentials(env.DB, env, conn.user_id, conn.id, {
-    credentials: next,
-  });
+  if(!await refreshConnectionCredentials(env.DB,env,conn,next)){
+    const current=await getConnection(env.DB,conn.user_id,conn.id);if(!current || current.provider!==conn.provider)throw new Error("Connection changed during OAuth renewal");
+    const latest=await decryptConnectionCredentials<RailwayCredentials>(env,current);
+    if(!latest.refreshToken || (latest.expiresAt && latest.expiresAt>Date.now()+REFRESH_SKEW_MS))return latest.apiToken;
+    throw new Error("Credentials changed during OAuth renewal; retry");
+  }
   return next.apiToken;
 }

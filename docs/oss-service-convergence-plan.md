@@ -741,3 +741,51 @@ website state display and forwarder acknowledgement hooks. Final full coverage,
 remote/browser baseline, telemetry hardening, dependency upgrades, npm publication
 and staged production rollout remain required. Migrations 0018–0022 remain pending
 in production and the goal remains active.
+
+
+### Credential intent and OAuth renewal (implemented, production rollout pending)
+
+Supabase and Railway hosted credential references now identify an owner's OAuth
+grant rather than its renewable access/refresh tokens or derived broker envelope.
+The broker token is a deterministic signed connection/account payload; it was not
+time-varying. The actual export mismatch was raw versus render-ready credentials,
+coupled with normal OAuth renewal being counted as a configuration edit.
+
+Migration 0023 assigns existing connections opaque credential identities without
+changing ciphertext, account versions or existing deployment/reporting state.
+Explicit credential replacement rotates that identity and advances the account
+configuration version. Renewal changes a private nonce and encrypted token payload
+while preserving credential intent. Renewal uses compare-and-swap on owner,
+provider, intent and exact ciphertext; stale results cannot overwrite a reconnect
+or another successful renewal. Provider helpers reuse a concurrent valid winner
+or return a retry error instead of storing a stale response. Label-only graph
+changes preserve credentials, including renewal committed after preparation.
+
+Hosted export and the unified deployment transaction use the same keyed versions
+for OAuth intent. Render-ready secret payloads can differ from storage payloads
+without changing the public document/revision. PAT credentials and other secret
+references retain payload-based versions. Explicit credential edits allocate the
+new identity before signing and persist it in the same atomic graph transaction.
+No opaque raw identity, access token or refresh token enters public history.
+Renewal alone leaves desired state current and does not issue another sequence.
+
+Validation: 615 backend/package tests pass, including schema-22 upgrade preservation,
+raw/broker equality, renewal stability, explicit reconnect revision changes, stale
+CAS rejection, concurrent replacement/deletion, cached/PAT paths and renewal versus
+label commits. Credential intent and graph/deployment reconciliation retain 100%
+statements, branches, functions and lines. Aggregate backend coverage is 71.32%
+statements, 65.06% branches, 75.45% functions and 70.36% lines; CI floors rise to
+71/65/75/70. Type checks and builds pass, and all 12 UI tests pass under their
+existing coverage gates. Final aggregate targets remain 95/90; UI coverage still
+requires the planned expansion to 90/85.
+
+This does not serialize outbound provider renewal calls before they occur; tests
+prove persistence fencing. Provider refresh-token concurrency/lease behavior needs
+explicit coverage in the provider reliability baseline. Authenticated push and
+secret transfer, linked CLI baseline/push, portable legacy future-discovery intent,
+website/applied-state display and forwarder acknowledgement remain outstanding.
+Explicit private exports currently retain the existing credential payload shape;
+OAuth export disclosure and standalone versus broker credential policy still need
+review at the push transport boundary. Broader E2E, final coverage, telemetry
+hardening, dependency updates, publishing and staged rollout remain in scope.
+Migrations 0018–0023 remain unapplied to production. The goal remains active.

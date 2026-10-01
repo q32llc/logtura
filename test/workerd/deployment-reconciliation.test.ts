@@ -6,7 +6,8 @@ import { readDeploymentConfiguration,compileDeploymentRevision,issueDeploymentCo
 import { readDeploymentRuntime } from "../../src/deployment-runtime";
 import { readConfigurationVersion } from "../../src/config-version";
 import { loadOwnedGraphInventory } from "../../src/graph-reconciliation";
-import { createConnection,createDestination,createMonitor,createSink,createDeployment,upsertSources } from "../../src/db";
+import { createConnection,createDestination,createMonitor,createSink,createDeployment,upsertSources,getConnection,refreshConnectionCredentials } from "../../src/db";
+import { exportHostedManifest } from "../../src/credential-intent";
 import { assembleDeploymentBundle } from "../../src/bundle-assembly";
 import { encryptSecret } from "../../src/crypto";
 import { seedUser,mockFetch } from "./_setup";
@@ -92,7 +93,15 @@ it("fails closed on version signing failures before any changes",async()=>{
 it.each(["supabase-edge-logs","railway-logs"])("persists raw %s OAuth credentials while the runtime bridge remains derived",async provider=>{
   const f=await fixture(),input=structuredClone(f.desired);input.connections[0]!.connection.id=`con_${provider}_oauth`;input.connections[0]!.connection.provider=provider;input.connections[0]!.selectedSources=[];input.connections[0]!.selectAll=provider==="supabase-edge-logs";input.monitors=[];input.connections[0]!.credentials={apiToken:"raw-private-token",refreshToken:"raw-private-refresh"};
   const result=await reconcileDeploymentConfiguration(env,f.userId,f.deployment.id,f.version,0,input,f.versioner);expect(result.sequence).toBe(1);expect((await loadOwnedGraphInventory(env,f.userId)).value.connections.find(c=>c.connection.id===input.connections[0]!.connection.id)!.credentials).toEqual(input.connections[0]!.credentials);
-  const runtime=(await assembleDeploymentBundle(env,f.userId,f.deployment.id)).input.connections[0]!.credentials!;if(provider==="supabase-edge-logs")expect(runtime.tailToken).toEqual(expect.any(String));else expect(runtime.apiToken).toContain("/api/tail/railway/token#");
+  const assembled=await assembleDeploymentBundle(env,f.userId,f.deployment.id),runtime=assembled.input.connections[0]!.credentials!;if(provider==="supabase-edge-logs")expect(runtime.tailToken).toEqual(expect.any(String));else expect(runtime.apiToken).toContain("/api/tail/railway/token#");
+  expect((await exportHostedManifest(assembled.input,assembled.credentialVersions,f.versioner)).document).toEqual(result.document);
+  const connection=(await getConnection(env.DB,f.userId,input.connections[0]!.connection.id))!;
+  const renewed={apiToken:"renewed-token",refreshToken:"renewed-refresh",expiresAt:Date.now()+120_000};expect(await refreshConnectionCredentials(env.DB,env,connection,renewed)).toBe(true);
+  expect((await readDeploymentConfiguration(env.DB,f.userId,f.deployment.id))!.stale).toBe(false);
+  const refreshed=await assembleDeploymentBundle(env,f.userId,f.deployment.id);expect((await exportHostedManifest(refreshed.input,refreshed.credentialVersions,f.versioner)).document).toEqual(result.document);
+  input.connections[0]!.credentials=renewed;expect(await reconcileDeploymentConfiguration(env,f.userId,f.deployment.id,result.configurationVersion,1,input,f.versioner)).toEqual(result);
+  input.connections[0]!.credentials={apiToken:"explicit-reconnect",refreshToken:"explicit-refresh"};const changed=await reconcileDeploymentConfiguration(env,f.userId,f.deployment.id,result.configurationVersion,1,input,f.versioner);expect(changed.sequence).toBe(2);expect(changed.revision).not.toBe(result.revision);
+  const reconnected=await assembleDeploymentBundle(env,f.userId,f.deployment.id);expect((await exportHostedManifest(reconnected.input,reconnected.credentialVersions,f.versioner)).document).toEqual(changed.document);
 });
 it("treats a rebased legacy null metrics target as the same disabled target without another write",async()=>{
   const f=await fixture(),first=await reconcileDeploymentConfiguration(env,f.userId,f.deployment.id,f.version,0,f.desired,f.versioner);
