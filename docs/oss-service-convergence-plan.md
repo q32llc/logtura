@@ -516,3 +516,50 @@ tracking, explicit secret-transfer policy, push/conflict UX and applied reports.
 Migrations 0018 and 0019 are still pending in production; npm publication and the
 staged rollout remain pending. The pushed graph-editing CI passes its code checks
 and image build but still fails Codecov upload with `Repository not found`.
+
+### Implemented slice: shared inventory reconciliation and guarded persistence (2026-10-01)
+
+The public `planDeploymentChanges` API validates resolved graph inputs and computes
+private, dependency-ordered inventory changes without network or storage I/O.
+Already discovered sources are adopted by connection/kind/provider-resource key,
+with an explicit local-to-canonical source ID map. Null incoming metadata retains
+known discovery metadata during adoption; explicit labels and metadata can update
+it. Resource identities cannot be rebound, connection providers cannot change,
+and sinks cannot move between monitors. Repeated shared destinations must agree.
+Deselecting inventory or a monitor preserves it; only omitted sink edges of a
+retained monitor are removed. Ordered selections and select-all intent are returned
+for the deployment-state adapter. The caller's graph and inventory are not mutated.
+
+The private adapter reads only account-owned rows in a stable configuration-version
+snapshot, decrypts raw stored payloads, and delegates to the public planner. It does
+not mint OAuth broker credentials or refresh providers. `reconcileOwnedGraph`
+prepares encrypted writes and commits them through the version guard in one D1
+batch. Inserts use plain INSERT, so a foreign account's colliding identity aborts
+rather than becoming a successful no-op or overwriting that account. Updates and
+edge removals retain ownership predicates. Late collisions roll back all earlier
+writes, epoch changes and deployment-outdated flags. Dirty graphs mark only the
+owner's bundles outdated. Unchanged graphs make no inventory or epoch changes.
+Connection credentials must be explicitly resolved before persistence; rendered
+OAuth broker values are not raw credential inputs for this adapter.
+
+Validation: all 536 private tests and 409 independent public tests pass. Both
+reconciliation modules enforce 100% statements, branches, functions and lines.
+Workerd exercises all five foreign-identity collision types, concurrent writers,
+full new graph creation, encrypted storage, all update/removal paths, source-ID
+adoption, no-op/deselection behavior, owner-only stale flags, nullable metadata,
+invalid stored payloads and sanitized decrypt failures. Installed tarballs expose
+and execute the planner and synchronous validator without hosted access; all 15
+packages and both compiled CLI aliases pass the packed-consumer checks. Private
+and public builds/type checks pass. Aggregate private coverage is now 68.51%
+statements, 60.27% branches, 73.03% functions and 68.03% lines, with floors raised
+to 68/60/73/68. Public coverage is 77.25/72.41/76.96/76.93, respectively. Final
+95/90 backend and 90/85 UI coverage targets remain required.
+
+This internal inventory writer does not yet expose authenticated push, persist
+ordered deployment selectors or desired/applied revisions, upload implicit secret
+values, or deploy a forwarder. Next: additive deployment state storage, legacy
+selector compatibility, registry/reporting validation at the account API boundary,
+linked local baselines, explicit secret-transfer policy and push/apply reporting.
+Production migrations, npm publication, staged rollout and final full coverage
+remain pending; the goal is active. Codecov repository activation remains an
+external CI blocker recorded above.

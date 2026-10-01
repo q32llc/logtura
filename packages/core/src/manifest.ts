@@ -51,21 +51,17 @@ export async function createSecretVersioner(key: string): Promise<SecretVersione
 }
 /** Export driver payloads as JSON-valued environment references, never guessing
  * which custom fields contain secrets. Only entity topology is public. */
-export async function exportDeploymentManifest(input: GenerateInput, versioner: SecretVersioner): Promise<{
-    document: DeploymentManifest;
-    secretValues: Record<string, string>;
-}> {
+function constructManifest(input:GenerateInput):{document:DeploymentManifest;secretValues:Record<string,string>;versions:Array<{ref:SecretReference;name:string;value:string}>} {
     const secretValues: Record<string, string> = {};
-    const tasks: Promise<void>[] = [];
+    const versions:Array<{ref:SecretReference;name:string;value:string}>=[];
     const secret = (category: string, id: string, value: unknown): SecretReference => {
         const name = `LOGT_${category}_${[...new TextEncoder().encode(id)].map(b => b.toString(16).padStart(2, "0")).join("").toUpperCase()}`;
         const encoded = canonicalConfigJson(value);
         if (secretValues[name] !== undefined && secretValues[name] !== encoded)
             throw new Error(`Conflicting secret payload: ${name}`);
         secretValues[name] = encoded;
-        const ref = { env: name, version: "" };
-        tasks.push(versioner(name, encoded).then(version => { if (!version)
-            throw new Error("Secret version must be nonempty"); ref.version = version; }));
+        const ref = { env: name, version: "validation" };
+        versions.push({ref,name,value:encoded});
         return ref;
     };
     const document: DeploymentManifest = { kind: "logtura.deployment", schema_version: 1,
@@ -80,9 +76,17 @@ export async function exportDeploymentManifest(input: GenerateInput, versioner: 
             } }),
         runtimeEnv: input.runtimeEnv === undefined ? null : secret("RUNTIME", "ENV", input.runtimeEnv),
     };
-    await Promise.all(tasks);
-    parseDeploymentManifest(document, { env: secretValues });
-    return { document: JSON.parse(canonicalConfigJson(document)), secretValues };
+    return {document,secretValues,versions};
+}
+/** Validate structural and private payload inputs synchronously without I/O. */
+export function validateDeploymentInput(input:GenerateInput):void {
+    const result=constructManifest(input);parseDeploymentManifest(result.document,{env:result.secretValues});
+}
+export async function exportDeploymentManifest(input:GenerateInput,versioner:SecretVersioner):Promise<{document:DeploymentManifest;secretValues:Record<string,string>}> {
+    const {document,secretValues,versions}=constructManifest(input);
+    await Promise.all(versions.map(async item=>{const version=await versioner(item.name,item.value);if(!version)throw new Error("Secret version must be nonempty");item.ref.version=version;}));
+    parseDeploymentManifest(document,{env:secretValues});
+    return {document:JSON.parse(canonicalConfigJson(document)),secretValues};
 }
 function pick<T extends object, K extends keyof T>(value: T, keys: K[]): Pick<T, K> { return Object.fromEntries(keys.map(key => [key, value[key]])) as Pick<T, K>; }
 function only(r: Row, keys: string[], path: string): void { if (Object.keys(r).some(key => !keys.includes(key)))

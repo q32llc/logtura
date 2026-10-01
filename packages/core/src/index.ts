@@ -61,7 +61,9 @@ export type { ConfigParseOptions, ConfigIncludeReader, ParsedConfig } from "./co
 export { LogturaServiceClient, ServiceError, normalizeServiceUrl, authorizeCliDevice } from "./service-client";
 export type { ServiceClientOptions, DeviceAuthorization, AccountCredential, DevicePoll, ServiceUser, DeploymentConfigExport } from "./service-client";
 
-export { exportDeploymentManifest, parseDeploymentManifest, normalizeDeploymentManifest, createSecretVersioner } from "./manifest";
+export { exportDeploymentManifest, parseDeploymentManifest, normalizeDeploymentManifest, createSecretVersioner, validateDeploymentInput } from "./manifest";
 export type { DeploymentManifest, SecretReference, SecretVersioner } from "./manifest";
 export { editDeploymentManifest, diffDeploymentManifests } from "./graph";
 export type { ManifestEdit, GraphChange, GraphDiff } from "./graph";
+export { planDeploymentChanges } from "./reconcile";
+export type { GraphInventory, DeploymentChangePlan, StoredConnection, StoredSource, StoredDestination, StoredSink } from "./reconcile";

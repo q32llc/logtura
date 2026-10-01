@@ -229,3 +229,20 @@ return changed values, even for labels, filter patterns or credential payloads.
 Source and routing order changes are represented explicitly. These shared pure
 operations can be used by terminal, browser and storage adapters; they do not
 perform service persistence or optimistic-concurrency writes.
+
+`planDeploymentChanges(ownedInventory, resolvedInput)` computes storage changes
+without I/O. It reuses an existing source ID when the connection, source kind and
+provider resource match, and returns the ID mapping in `sourceAliases`. An adopted
+source retains discovered metadata when the incoming metadata is null. Explicit
+labels and metadata can update it. Existing source identities cannot be rebound
+to another resource, connection providers cannot change, and sinks cannot move
+between monitors.
+
+The plan contains dependency-ordered upsert lists, retained-monitor sink removals,
+and ordered deployment selections. Deselecting an inventory entity or monitor
+does not delete it. Shared destinations must have consistent payloads. Plans
+contain private values: keep them local to the storage adapter and never expose
+them as an HTTP diff or log. The caller supplies an owned inventory, validates
+provider/account policy, resolves credentials, and executes changes atomically
+with its concurrency guard. `validateDeploymentInput(input)` validates the graph
+and payloads synchronously without rendering, signing or making network requests.
