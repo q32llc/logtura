@@ -213,6 +213,9 @@ export function generateBundle(input: GenerateInput): GeneratedBundle {
     }
   }
 
+  for (const variable of envVars) {
+    if (variable.source === "manual" && input.runtimeEnv?.[variable.name] !== undefined) variable.value = input.runtimeEnv[variable.name]!;
+  }
   const runCommand = renderRunCommand(envVars);
   const sinkCount = input.monitors.reduce(
     (n, m) => n + m.sinks.length,

@@ -203,3 +203,18 @@ window. Server denial, expiration and malformed responses fail closed.
 
 The hosted client is opt-in. Configuration parsing, rendering, drivers and
 standalone deployment do not require it or hosted authentication.
+
+
+### Portable deployment manifests
+
+`exportDeploymentManifest(input, await createSecretVersioner(privateKey))` returns
+`{document, secretValues}`. It preserves complete public rendering inputs while
+moving driver payloads, metadata and runtime values to versioned JSON environment
+references. Retain the version key privately and use the same key to generate
+stable revisions; do not publish it. `parseDeploymentManifest(document, {env,
+providers, destinations})` resolves those references with caller-supplied values.
+The normal `parseConfigDocument`, `normalizeConfigDocument` and
+`hashConfigDocument` functions also accept this schema. Unknown graph fields,
+filter kinds and broken identities fail rather than being silently dropped.
+`LogturaServiceClient.pullDeploymentConfig(id, true)` is the optional account
+transport; the standalone parser and renderer perform no hosted requests.

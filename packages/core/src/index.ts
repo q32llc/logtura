@@ -59,4 +59,7 @@ export { buildTar, type TarFile } from "./tar";
 export { parseConfigDocument, normalizeConfigDocument, canonicalConfigJson, hashConfigDocument, ensureSection, ensureListSection, safeId, defaultProviderName } from "./config";
 export type { ConfigParseOptions, ConfigIncludeReader, ParsedConfig } from "./config";
 export { LogturaServiceClient, ServiceError, normalizeServiceUrl, authorizeCliDevice } from "./service-client";
-export type { ServiceClientOptions, DeviceAuthorization, AccountCredential, DevicePoll, ServiceUser } from "./service-client";
+export type { ServiceClientOptions, DeviceAuthorization, AccountCredential, DevicePoll, ServiceUser, DeploymentConfigExport } from "./service-client";
+
+export { exportDeploymentManifest, parseDeploymentManifest, normalizeDeploymentManifest, createSecretVersioner } from "./manifest";
+export type { DeploymentManifest, SecretReference, SecretVersioner } from "./manifest";

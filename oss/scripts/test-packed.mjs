@@ -60,11 +60,17 @@ monitors: []
   assert.ok(!yaml.includes("/api/heartbeat/"), "standalone bundle must not require hosted heartbeat");
   assert.ok(!yaml.includes("/api/metrics/"), "standalone bundle must not require hosted metrics");
   const script = `import assert from 'node:assert/strict';
-    import {generateBundle,installBundleFiles,buildTar} from '@logtura/core';
+    import {generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument} from '@logtura/core';
     import {cloudflareWorkerTailDriver} from '@logtura/driver-cloudflare-worker-tail';
-    const bundle=generateBundle({providers:[cloudflareWorkerTailDriver],destinations:[],monitors:[],
+    const input={providers:[cloudflareWorkerTailDriver],destinations:[],monitors:[],
       connections:[{connection:{id:'fixture',provider:cloudflareWorkerTailDriver.id,displayName:'Fixture',externalAccountId:'fixture-account'},
-        selectedSources:[{id:'worker',externalId:'fixture-worker',displayName:'fixture-worker',sourceKind:'worker',metadata:null}],credentials:{apiToken:'fixture-token'}}]});
+        selectedSources:[{id:'worker',externalId:'fixture-worker',displayName:'fixture-worker',sourceKind:'worker',metadata:null}],credentials:{apiToken:'fixture-token'}}]};
+    const bundle=generateBundle(input);
+    const exported=await exportDeploymentManifest(input,await createSecretVersioner('private-fixture-key'));
+    assert.ok(!JSON.stringify(exported.document).includes('fixture-token'));
+    const parsed=parseDeploymentManifest(exported.document,{env:exported.secretValues,providers:input.providers,destinations:input.destinations});
+    assert.deepEqual(generateBundle(parsed.input),bundle);
+    assert.match(await hashConfigDocument(exported.document),/^sha256:[a-f0-9]{64}$/);
     assert.ok(bundle.vectorYaml.includes('internal_metrics'));
     const files=installBundleFiles(bundle);
     assert.equal(files.find(f=>f.name.endsWith('/.env')).mode,0o600);

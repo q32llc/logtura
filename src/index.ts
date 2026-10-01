@@ -1,3 +1,4 @@
+import { exportDeploymentManifest, createSecretVersioner, hashConfigDocument } from "@logtura/core";
 import { cliAuthorizationRoutes } from "./cli-auth";
 import { Hono } from "hono";
 import {
@@ -1216,6 +1217,20 @@ apiAuth.post("/connections/:id/reconnect", async (c) => {
   await markUserDeploymentsOutdated(c.env.DB, user.id);
 
   return c.json({ connection: toApiConnection(updated) });
+});
+
+// Portable graph export. Secret payloads are returned only by explicit request.
+// Revisions describe the current graph; desired/applied tracking is a separate layer.
+apiAuth.get("/deployments/:id/config", async (c) => {
+  c.header("cache-control", "no-store");
+  const user = c.get("user")!;
+  const id = c.req.param("id");
+  if (!await getDeployment(c.env.DB, user.id, id)) return c.json({error:"not_found"},404);
+  const assembled = await assembleDeploymentBundle(c.env,user.id,id);
+  const exported = await exportDeploymentManifest(assembled.input,await createSecretVersioner(c.env.CREDENTIAL_ENCRYPTION_KEY));
+  return c.json({document:exported.document,revision:await hashConfigDocument(exported.document),
+    deployment:{id:assembled.deployment.id,displayName:assembled.deployment.display_name},
+    ...(c.req.query("includeSecrets")==="1"?{secretValues:exported.secretValues}:{})});
 });
 
 apiAuth.get("/deployments/:id/bundle", async (c) => {

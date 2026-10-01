@@ -29,6 +29,7 @@ import {
 } from "./source-metadata";
 import { installBundleFiles, renderEnvFile } from "./install";
 import { accountClient, loginAccount, logoutAccount } from "./account";
+import { pullDeploymentConfig } from "./pull";
 import { printStats } from "./metrics";
 
 interface GlobalArgs {
@@ -47,6 +48,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     if (command === "init") return cmdInit(global, args);
     if (command === "login" || command === "whoami" || command === "logout") return await cmdAccount(command, global, args);
+    if (command === "pull") return await cmdPull(global,args);
     if (command === "config") return await cmdConfig(global, args);
     if (command === "connect") return await cmdConnect(global, args);
     if (command === "source") return cmdSource(global, args);
@@ -62,6 +64,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     console.error(err instanceof Error ? err.message : String(err));
     return 1;
   }
+}
+
+async function cmdPull(global:GlobalArgs,args:string[]):Promise<number>{
+  const id=args[0];if(!id || id.startsWith("-"))throw new Error("pull requires a deployment identity");
+  const flags=parseFlags(args.slice(1));
+  for(const flag of Object.keys(flags))if(!["service","output","force"].includes(flag))throw new Error(`Unsupported pull option: ${flag}`);
+  const path=stringFlag(flags,"output")??findConfigPath(global.config).path;
+  const revision=await pullDeploymentConfig(accountClient(stringFlag(flags,"service")),id,path,booleanFlag(flags,"force"));
+  console.log(global.json?JSON.stringify({path,revision}):`Pulled ${id} to ${path} (${revision})`);return 0;
 }
 
 async function cmdAccount(command: string, global: GlobalArgs, args: string[]): Promise<number> {
@@ -117,6 +128,7 @@ async function cmdConnect(global: GlobalArgs, args: string[]): Promise<number> {
   const flags = parseFlags(args.slice(1));
   const ref = findConfigPath(global.config);
   const doc = readConfigDoc(ref.path);
+  if (doc.kind === "logtura.deployment") throw new Error("Edit portable graph identities and selections in the manifest; this command edits the shorthand configuration format");
   const providers = ensureSection(doc, "providers");
   const name = stringFlag(flags, "name") ?? defaultProviderName(provider, providers);
   const connector = getProviderConnector(provider);
@@ -166,6 +178,7 @@ function cmdSource(global: GlobalArgs, args: string[]): number {
   const flags = parseFlags(args.slice(2));
   const ref = findConfigPath(global.config);
   const doc = readConfigDoc(ref.path);
+  if (doc.kind === "logtura.deployment") throw new Error("Edit portable graph identities and selections in the manifest; this command edits the shorthand configuration format");
   const sources = ensureSection(doc, "sources");
   const name = stringFlag(flags, "name") ?? defaultSourceName(source, sources);
   sources[name] = {
@@ -188,6 +201,7 @@ function cmdSink(global: GlobalArgs, args: string[]): number {
   const flags = parseFlags(args.slice(3));
   const ref = findConfigPath(global.config);
   const doc = readConfigDoc(ref.path);
+  if (doc.kind === "logtura.deployment") throw new Error("Edit portable graph identities and selections in the manifest; this command edits the shorthand configuration format");
   const sinks = ensureSection(doc, "sinks");
   sinks[name] = {
     ...(isRecord(sinks[name]) ? sinks[name] : {}),
@@ -216,6 +230,7 @@ function cmdMonitor(global: GlobalArgs, args: string[]): number {
   const sinkIds = args.slice(2);
   const ref = findConfigPath(global.config);
   const doc = readConfigDoc(ref.path);
+  if (doc.kind === "logtura.deployment") throw new Error("Edit portable graph identities and selections in the manifest; this command edits the shorthand configuration format");
   const monitors = ensureListSection(doc, "monitors");
   monitors.push({
     name,
@@ -659,6 +674,7 @@ function help(): string {
 
 Commands:
   init                              Create logt.yaml
+  pull <deployment-id> [-o file]     Pull a website deployment and private .env
   login [--service URL]             Approve CLI access in your browser
   whoami [--service URL]            Show the signed-in service account
   logout [--local]                  Revoke CLI access and remove credentials

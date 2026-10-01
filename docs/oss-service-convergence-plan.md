@@ -389,3 +389,47 @@ optimistic-concurrency sync, full browser/remote E2E and final coverage remain n
 A final compatibility case preserves legacy source keys and monitor labels that
 already start with `con_`/`mon_`; normalization must strip prefixes only from
 explicit entity IDs, not from legacy display/key values.
+
+
+### Implemented slice: portable graph exports and CLI pull (2026-10-01)
+
+The public core now exports a complete `logtura.deployment` schema-v1 manifest,
+resolves it through the shared config parser, and renders the same bundle inputs.
+Connection, source, monitor, sink and destination identities, source metadata,
+all seven filter kinds, sink filters, selection flags, reporting targets and
+reporting tokens round trip. Known public entity fields are explicitly projected;
+private driver payloads and metadata are JSON environment references. HMAC
+versions detect payload changes without publishing ordinary secret hashes.
+Caller-owned private version keys remain outside manifests.
+
+The owned deployment `/config` endpoint is account-authenticated and `no-store`;
+secret payloads require `includeSecrets=1`. Reporting tokens have no account
+export authority. Repeated exports of the tested static-credential graph have
+stable revisions. `logt pull` fetches via optional account transport, checks the
+revision and all required payloads, preserves unrelated `.env` entries, creates
+private secret files, refuses conflicting overwrites without `--force`, and
+restores originals after ordinary staged replacement failures. Failed rollback
+retains recoverable originals. Process-crash recovery across the two-file
+replacement still needs a durable journal. Shorthand editing commands refuse
+portable graphs; graph editing commands are a follow-up, not silently destructive.
+
+Validation: 432 private backend/package tests and 350 independent public tests
+pass. Service cookie and account bearer exports preserve ownership. Workerd
+exports render identical Vector YAML, runtime values and component manifests
+through the public backend. Canonical JSON, graph manifests and CLI pull have
+100% statements/branches/functions/lines, enforced per file. Packed ordinary-Node
+consumers of all 15 packages round trip the new format with hosted fetch denied.
+Private build/Vite, typechecking and independent public typechecking/packing pass.
+Aggregate private backend/package coverage is 65.56% statements / 56.54% branches /
+70.45% functions / 66.34% lines; public is 74.09% / 68.62% / 74.09% / 75.21%.
+Aggregate ratchets increase accordingly; these remain below the final targets.
+
+This export is the current service graph, **not** a stored desired/applied pair.
+Next: explicit graph editing, shared storage reconciliation, authenticated push
+with optimistic concurrency, applied acknowledgements/offline candidates, complete
+remote/browser lifecycle coverage and the remaining module coverage. OAuth broker
+credentials currently preserve existing broker links; ephemeral broker token
+minting must be accounted for before claiming stable OAuth desired revisions.
+Production migration 0018, npm publication and staged service/forwarder rollout
+remain pending. Previous private CI passes code checks and image build but fails
+Codecov upload with `Repository not found`; account activation remains unresolved.

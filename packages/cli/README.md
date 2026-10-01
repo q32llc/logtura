@@ -210,4 +210,37 @@ Forwarder reporting tokens cannot authorize account configuration operations.
 
 These account commands require a service deployment with CLI authorization
 support. Standalone setup, config, bundle and provider deployment commands do not
-require login. Pull/push deployment synchronization is a separate upcoming slice.
+require login. `pull` exports existing website deployments; push and desired/applied synchronization are upcoming slices.
+
+
+## Pull a website deployment
+
+```sh
+logt login
+logt pull dep_your_deployment -o forwarder/logt.yaml
+logt -c forwarder/logt.yaml validate
+logt -c forwarder/logt.yaml bundle -o forwarder/bundle
+```
+
+The service must include the deployment export endpoint. Pull creates a versioned
+`kind: logtura.deployment` graph and a mode-0600 companion `.env`. The graph keeps
+connection, source, monitor, destination and sink identities, source metadata,
+all filter steps and reporting settings. Driver credentials, destination payloads,
+metadata and runtime reporting tokens are JSON-valued environment references.
+The manifest contains opaque versions so changes to private payloads change its
+revision without putting the payloads in the manifest. Keep `.env` private.
+
+Pull requires an account CLI credential; a forwarder's reporting token cannot
+export configuration. Existing configuration and conflicting secret values require
+`--force`. Unrelated `.env` entries are preserved. Staged writes roll back ordinary
+I/O failures; a process or machine crash during the two-file replacement can leave
+backup files requiring recovery. The CLI does not print exported secrets.
+
+Pulled manifests use the same public parser and renderer as local shorthand files.
+`validate`, `bundle`, `env`, `config normalize/hash` and local deployment operate
+without contacting the website. Existing OAuth broker URLs and opted-in reporting
+still contact the configured endpoints when the forwarder runs. Shorthand
+`connect/source add/sink add/monitor add` commands refuse this graph format;
+graph editing commands and authenticated push are still being implemented.
+Pull currently describes the service's current graph, rather than a persisted
+separate desired or applied revision. It does not update the service.

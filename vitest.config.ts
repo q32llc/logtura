@@ -54,7 +54,10 @@ export default defineConfig({
       // Final scope targets are 95% lines/statements/functions and 90% branches.
       thresholds: {
         "src/cli-auth.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
-        statements: 63, branches: 53, functions: 68, lines: 64,
+        statements: 65, branches: 56, functions: 70, lines: 66,
+        "packages/core/src/manifest.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/core/src/json.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/cli/src/pull.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/service-client.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
         "packages/cli/src/account.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
         "packages/core/src/config.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },

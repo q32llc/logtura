@@ -1,3 +1,7 @@
+import { hashCliSecret } from "../../src/cli-auth";
+import { generateBundle as generatePublicBundle, parseDeploymentManifest, hashConfigDocument, type DeploymentConfigExport } from "@logtura/core";
+import { listProviders } from "../../src/providers";
+import { listDestinationDrivers } from "../../src/destinations";
 import { SELF, env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { encryptSecret, newId, signCookie } from "../../src/crypto";
@@ -261,5 +265,29 @@ describe("install archive delivery", () => {
     expect((await SELF.fetch(`http://localhost/api/install-bundle/${encodeURIComponent(expired)}/file.tgz`)).status).toBe(410);
     const bad = await signCookie("not-json",env.SESSION_SECRET);
     expect((await SELF.fetch(`http://localhost/api/install-bundle/${encodeURIComponent(bad)}/file.tgz`)).status).toBe(401);
+  });
+});
+
+
+describe("portable deployment export",()=>{
+  it("exports the full owned graph, keeps secrets opt-in and renders the identical bundle locally",async()=>{
+    const seed=await seedFullDeployment();mockFetch("https://api.cloudflare.com",()=>Response.json({success:true,result:{status:"active"}}));
+    const url=`http://localhost/api/deployments/${seed.deploymentId}/config`,headers={cookie:seed.sessionCookie};
+    const publicResponse=await SELF.fetch(url,{headers});expect(publicResponse.status).toBe(200);expect(publicResponse.headers.get("cache-control")).toBe("no-store");
+    const publicConfig=await publicResponse.json() as DeploymentConfigExport;expect(publicConfig).not.toHaveProperty("secretValues");expect(JSON.stringify(publicConfig)).not.toContain("cf_test_token");expect(JSON.stringify(publicConfig)).not.toContain("hooks.slack.com");
+    const response=await SELF.fetch(url+"?includeSecrets=1",{headers});expect(response.status).toBe(200);const exported=await response.json() as DeploymentConfigExport;
+    expect(exported.document).toEqual(publicConfig.document);expect(exported.revision).toBe(publicConfig.revision);expect(await hashConfigDocument(exported.document)).toBe(exported.revision);
+    const accountToken=`lt_cli_${"A".repeat(43)}`;
+    await env.DB.prepare("INSERT INTO cli_account_tokens (id,user_id,token_hash,device_hash,label,created_at,expires_at) VALUES (?,?,?,?,?,?,?)").bind(newId("cli"),seed.userId,await hashCliSecret(accountToken),newId("device"),"Export test",Date.now(),Date.now()+60_000).run();
+    const accountResponse=await SELF.fetch(url+"?includeSecrets=1",{headers:{authorization:`Bearer ${accountToken}`}});expect(accountResponse.status).toBe(200);expect(await accountResponse.json()).toEqual(exported);
+    const parsed=parseDeploymentManifest(exported.document,{env:exported.secretValues,providers:listProviders(),destinations:listDestinationDrivers()});expect(parsed.missingEnv).toEqual([]);
+    expect(parsed.input.connections[0]!.connection.id).toBe(seed.connectionId);expect(parsed.input.connections[0]!.selectedSources).toHaveLength(2);expect(parsed.input.connections[0]!.credentials!.apiToken).toBe("cf_test_token");
+    const rendered=generatePublicBundle(parsed.input);const bundled=await (await SELF.fetch(`http://localhost/api/deployments/${seed.deploymentId}/bundle`,{headers})).json() as {files:Array<{name:string;content:string}>;envVars:unknown[];componentManifest:unknown[]};
+    expect(rendered.vectorYaml).toBe(bundled.files.find(f=>f.name==="vector.yaml")!.content);expect(rendered.envVars.map(({name,value})=>({name,value}))).toEqual((bundled.envVars as Array<{name:string;value:string|null}>).map(({name,value})=>({name,value})));expect(rendered.componentManifest).toEqual(bundled.componentManifest);
+  });
+  it("hides cross-account and nonexistent deployments, and rejects reporting tokens as account credentials",async()=>{
+    const seed=await seedFullDeployment(),other=await seedUser();
+    for(const id of [seed.deploymentId,"dep_missing"]){const response=await SELF.fetch(`http://localhost/api/deployments/${id}/config?includeSecrets=1`,{headers:{cookie:other.sessionCookie}});expect(response.status).toBe(404);expect(await response.json()).toEqual({error:"not_found"});}
+    const response=await SELF.fetch(`http://localhost/api/deployments/${seed.deploymentId}/config?includeSecrets=1`,{headers:{authorization:"Bearer heartbeat-token"},redirect:"manual"});expect(response.status).toBe(401);
   });
 });

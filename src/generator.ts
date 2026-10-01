@@ -12,6 +12,7 @@
 import {
   generateBundle as coreGenerateBundle,
   type GeneratedBundle,
+  type GenerateInput as CoreGenerateInput,
 } from "@logtura/core";
 import type {
   ConnectionRow,
@@ -73,7 +74,11 @@ export interface GenerateInput {
 }
 
 export function generateBundle(input: GenerateInput): GeneratedBundle {
-  return coreGenerateBundle({
+  return coreGenerateBundle(toCoreInput(input));
+}
+
+export function toCoreInput(input: GenerateInput): CoreGenerateInput {
+  return {
     providers: listProviders(),
     destinations: listDestinationDrivers(),
     connections: input.connections.map((c) => ({
@@ -99,7 +104,7 @@ export function generateBundle(input: GenerateInput): GeneratedBundle {
             destinationConfig: input.metrics.destinationConfig,
           }
         : input.metrics,
-  });
+  };
 }
 
 function rowToConnection(c: ConnectionRow) {

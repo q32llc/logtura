@@ -392,6 +392,8 @@ export interface GeneratorSink {
 }
 
 export interface GenerateInput {
+  /** Explicit manual runtime values, including deployment reporting tokens. */
+  runtimeEnv?: Record<string, string>;
   /** Drivers to look up by id. Caller registers what they want
    *  available — no global registry, no implicit side-effects. */
   providers: ProviderDriver[];

@@ -20,6 +20,7 @@ import {
   type GeneratedBundle,
   type GenerateInput,
   generateBundle,
+  toCoreInput,
 } from "./generator";
 import { getProvider } from "./providers";
 
@@ -27,6 +28,7 @@ export interface AssembledBundle {
   deployment: DeploymentRow;
   bundle: GeneratedBundle;
   heartbeatToken: string;
+  input: import("@logtura/core").GenerateInput;
   credentialIsFresh: boolean;
   credentialStaleReason?: string;
   credentialExpiresAt?: number | null;
@@ -255,7 +257,7 @@ export async function assembleDeploymentBundle(
     }
   }
 
-  const bundle = generateBundle({
+  const generatorInput: GenerateInput = {
     connections: perConn.map((c) => ({
       connection: c.connection,
       selectedSources: c.selectedSources,
@@ -271,7 +273,8 @@ export async function assembleDeploymentBundle(
       appUrl: env.APP_URL,
     },
     metrics: metricsInput,
-  });
+  };
+  const bundle = generateBundle(generatorInput);
 
   const heartbeatToken = await ensureHeartbeatToken(env.DB, deployment);
   for (const v of bundle.envVars) {
@@ -291,6 +294,7 @@ export async function assembleDeploymentBundle(
   return {
     deployment,
     bundle,
+    input: {...toCoreInput({...generatorInput, connections: perConn.map(c=>({connection:c.connection,selectedSources:c.selectedSources,credentials:c.credentials}))}), runtimeEnv: {LOGTURA_HEARTBEAT_TOKEN: heartbeatToken, LOGTURA_METRICS_TOKEN: heartbeatToken}},
     heartbeatToken,
     credentialIsFresh,
     credentialStaleReason,

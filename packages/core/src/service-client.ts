@@ -1,3 +1,5 @@
+import type { DeploymentManifest } from "./manifest";
+import { normalizeDeploymentManifest } from "./manifest";
 /** Optional hosted-account transport. Callers supply fetch; standalone rendering
  * never constructs this client or contacts a service. */
 export interface ServiceClientOptions {url:string;token?:string;fetch:typeof fetch;}
@@ -14,6 +16,7 @@ export function normalizeServiceUrl(value:string):string {
   if(url.protocol!=="https:" && !(url.protocol==="http:" && ["localhost","127.0.0.1","[::1]"].includes(url.hostname)))throw new Error("Service URL requires HTTPS (loopback HTTP is allowed)");
   return url.origin;
 }
+export interface DeploymentConfigExport {document:DeploymentManifest;revision:string;deployment:{id:string;displayName:string};secretValues?:Record<string,string>;}
 export class LogturaServiceClient {
   readonly url:string;
   constructor(private readonly options:ServiceClientOptions){
@@ -55,6 +58,14 @@ export class LogturaServiceClient {
     const response=await this.request<{user:ServiceUser|null}>("/me");
     if(!response.user || typeof response.user.id!=="string" || !response.user.id || typeof response.user.githubLogin!=="string" || !response.user.githubLogin)throw new ServiceError(401,"auth_required");
     return response.user;
+  }
+  async pullDeploymentConfig(id:string,includeSecrets=false):Promise<DeploymentConfigExport> {
+    if(!id)throw new Error("Deployment identity is required");
+    const result=await this.request<DeploymentConfigExport>(`/deployments/${encodeURIComponent(id)}/config${includeSecrets?"?includeSecrets=1":""}`);
+    normalizeDeploymentManifest(result.document);
+    if(!/^sha256:[a-f0-9]{64}$/.test(result.revision) || result.deployment?.id!==id || typeof result.deployment.displayName!=="string" ||
+      (includeSecrets && (!result.secretValues || typeof result.secretValues!=="object" || Array.isArray(result.secretValues) || Object.values(result.secretValues).some(value=>typeof value!=="string"))))throw new ServiceError(200,"invalid_config_response");
+    return result;
   }
   async logout():Promise<void>{await this.request("/cli/logout",{method:"POST",body:"{}"});}
 }
