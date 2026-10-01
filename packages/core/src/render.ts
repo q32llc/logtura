@@ -989,7 +989,7 @@ export function renderDockerfile(
 # Vector-based forwarder. Tails selected log sources and routes them
 # through monitors to your configured destinations.
 
-FROM timberio/vector:latest-debian
+FROM timberio/vector:0.55.0-debian
 
 ${aptList ? `RUN apt-get update && apt-get install -y --no-install-recommends ${aptList} && rm -rf /var/lib/apt/lists/*` : ""}
 ${installSteps}

@@ -33,12 +33,17 @@ import { cloudflareWorkerTailDriver } from "../src/index";
 // `latest-alpine`, `latest-distroless-libc`). debian is the largest
 // but the most forgiving for our exec command because it includes a
 // shell for the small config heredoc wrapper.
-const VECTOR_IMAGE = "timberio/vector:latest-debian";
+const VECTOR_IMAGE = "timberio/vector:0.55.0-debian";
 
 const dockerAvailable = (() => {
   const result = spawnSync("docker", ["--version"], { encoding: "utf8" });
   return result.status === 0;
 })();
+
+if (process.env.LOGT_REQUIRE_DOCKER === "1" && !dockerAvailable) {
+  throw new Error("Docker and the pinned Vector image are required for runtime validation");
+}
+
 
 /** Smallest possible DestinationDriver — a `blackhole` sink. Vector
  *  ships it; it has no required config, no network surface. Lets us

@@ -18,6 +18,7 @@ export function writeEnvValues(
   values: Record<string, string>,
   input: { force?: boolean } = {},
 ): { changed: boolean; skipped: string[] } {
+  for (const key of Object.keys(values)) validateKey(key);
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
   const lines = existing ? existing.split(/\r?\n/) : [];
   const present = readDotEnvFile(path);
@@ -45,6 +46,7 @@ export function writeEnvValues(
 }
 
 export function appendMissingEnvKeys(path: string, keys: string[]): boolean {
+  for (const key of keys) validateKey(key);
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
   const present = readDotEnvFile(path);
   const missing = [...new Set(keys)].filter((k) => !present.has(k));
@@ -57,6 +59,9 @@ export function appendMissingEnvKeys(path: string, keys: string[]): boolean {
 
 function unquoteEnv(value: string): string {
   const trimmed = value.trim();
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    try { return JSON.parse(trimmed) as string; } catch { return trimmed.slice(1, -1); }
+  }
   if (
     (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
     (trimmed.startsWith("'") && trimmed.endsWith("'"))
@@ -73,4 +78,8 @@ function quoteEnv(value: string): string {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function validateKey(key: string): void {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) throw new Error("invalid environment key");
 }

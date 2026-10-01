@@ -21,7 +21,8 @@
     "test:drivers": "vitest run --project '@logtura/driver-*'",
     "test:destinations": "vitest run --project '@logtura/destination-*'",
     "test:coverage": "vitest run --coverage",
-    "test": "pnpm typecheck && vitest run"
+    "test": "pnpm typecheck && vitest run",
+    "test:e2e:http": "tsx scripts/e2e-http.ts"
   },
   "dependencies": {
     "@logtura/cloudflare-shared": "workspace:*",

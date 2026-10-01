@@ -46,14 +46,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: pull vector image
-        run: docker pull timberio/vector:latest-debian
+        run: docker pull timberio/vector:0.55.0-debian
 
       - name: typecheck
         run: pnpm typecheck
 
       - name: test
         run: pnpm vitest run
-
+        env:
+          LOGT_REQUIRE_DOCKER: "1"
       - name: publish to npm
         # --provenance opts into npm's OIDC trusted-publishing flow.
         # No NPM_TOKEN env needed; the GH Actions OIDC token + the

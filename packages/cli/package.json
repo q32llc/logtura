@@ -55,7 +55,7 @@
     "vitest": "^4.1.5"
   },
   "bin": {
-    "logt": "./src/main.ts",
-    "logtura": "./src/main.ts"
+    "logt": "./src/bin.js",
+    "logtura": "./src/bin.js"
   }
 }

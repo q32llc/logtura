@@ -1,2 +1,8 @@
 packages:
   - "packages/*"
+
+# Required native tooling; keep installation reproducible with pnpm 10+.
+allowBuilds:
+  esbuild: true
+  sharp: true
+  workerd: true

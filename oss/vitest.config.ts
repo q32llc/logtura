@@ -9,6 +9,7 @@ export default defineConfig({
     projects: [
       "./packages/core",
       "./packages/cli",
+      "./packages/custom-vector",
       "./packages/destination-datadog-metrics",
       "./packages/destination-prometheus-remote-write",
       "./packages/destination-slack",
@@ -17,10 +18,11 @@ export default defineConfig({
       "./packages/driver-cloudflare-worker-tail",
       "./packages/driver-fly-log-tail",
       "./packages/driver-supabase-edge-logs",
+      "./packages/driver-vercel-logs",
     ],
     coverage: {
       provider: "istanbul",
-      reporter: ["text", "html", "lcov"],
+      reporter: ["text", "html", "lcov", "json-summary"],
       include: ["packages/*/src/**/*.ts"],
       exclude: ["**/*.d.ts"],
     },

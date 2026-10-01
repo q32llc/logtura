@@ -10,7 +10,7 @@ main = "src/index.ts"
 compatibility_date = "2025-05-01"
 compatibility_flags = ["nodejs_compat"]
 
-[vars]
+[env.test.vars]
 APP_URL = "http://localhost"
 # Deterministic test secrets — never used outside the test pool.
 # CREDENTIAL_ENCRYPTION_KEY is 32 bytes of zero, base64url-encoded.
@@ -27,18 +27,18 @@ RAILWAY_CLIENT_SECRET = "test_railway_secret"
 POSTMARK_API_KEY = "test"
 FROM_EMAIL = "test@example.com"
 
-[[d1_databases]]
+[[env.test.d1_databases]]
 binding = "DB"
 database_name = "logtura"
 database_id = "00000000-0000-0000-0000-000000000000"
 preview_database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
 
-[[queues.producers]]
+[[env.test.queues.producers]]
 binding = "JOBS_QUEUE"
 queue = "logtura-jobs"
 
-[[queues.consumers]]
+[[env.test.queues.consumers]]
 queue = "logtura-jobs"
 max_batch_size = 5
 max_batch_timeout = 1

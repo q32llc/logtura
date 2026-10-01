@@ -5,9 +5,14 @@ on:
     branches: [master]
   pull_request:
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -27,9 +32,9 @@ jobs:
 
       - name: pull vector image
         # All per-package vector-validate tests reach for
-        # timberio/vector:latest-debian. Pre-pulling here lets the test
+        # timberio/vector:0.55.0-debian. Pre-pulling here lets the test
         # phase below run with no per-suite docker latency.
-        run: docker pull timberio/vector:latest-debian
+        run: docker pull timberio/vector:0.55.0-debian
 
       - name: test
         # Runs every vitest project: workerd integration tests (real
@@ -39,4 +44,23 @@ jobs:
         # bundle's YAML to `vector validate` inside the image above.
         # The legacy scripts/test-vector-config.mjs has been retired;
         # the per-package tests subsume every fixture it ran.
-        run: pnpm vitest run
+        run: pnpm vitest run --coverage
+        env:
+          LOGT_REQUIRE_DOCKER: "1"
+
+      - name: upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: error
+
+      - name: upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          files: coverage/lcov.info
+          disable_search: true
+          fail_ci_if_error: true
+          flags: workspace

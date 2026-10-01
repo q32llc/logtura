@@ -14,12 +14,17 @@ import {
 import { describe, expect, it } from "vitest";
 import { flyLogTailDriver } from "../src/index";
 
-const VECTOR_IMAGE = "timberio/vector:latest-debian";
+const VECTOR_IMAGE = "timberio/vector:0.55.0-debian";
 
 const dockerAvailable = (() => {
   const r = spawnSync("docker", ["--version"], { encoding: "utf8" });
   return r.status === 0;
 })();
+
+if (process.env.LOGT_REQUIRE_DOCKER === "1" && !dockerAvailable) {
+  throw new Error("Docker and the pinned Vector image are required for runtime validation");
+}
+
 
 const blackholeDestination: DestinationDriver<Record<string, never>> = {
   id: "blackhole",

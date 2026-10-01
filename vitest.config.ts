@@ -19,7 +19,7 @@ export default defineConfig({
       {
         plugins: [
           cloudflareTest({
-            wrangler: { configPath: "./wrangler.test.toml" },
+            wrangler: { configPath: "./wrangler.test.toml", environment: "test" },
           }),
         ],
         test: {
@@ -30,6 +30,7 @@ export default defineConfig({
       },
       "./packages/core",
       "./packages/cli",
+      "./packages/custom-vector",
       "./packages/destination-datadog-metrics",
       "./packages/destination-prometheus-remote-write",
       "./packages/destination-slack",
@@ -46,7 +47,10 @@ export default defineConfig({
     // Vite transform step and works regardless of pool.
     coverage: {
       provider: "istanbul",
-      reporter: ["text", "html", "lcov"],
+      reporter: ["text", "html", "lcov", "json-summary"],
+      // Baseline floor; raise these as the planned coverage slices land.
+      // Final scope targets are 95% lines/statements/functions and 90% branches.
+      thresholds: { statements: 52, branches: 40, functions: 58, lines: 54 },
       include: ["src/**/*.{ts,tsx}", "packages/*/src/**/*.ts"],
       exclude: [
         "src/web/**",
