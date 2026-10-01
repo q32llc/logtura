@@ -55,7 +55,7 @@ export async function prepareGraphReconciliation(env:Env,userId:string,expectedV
  */
 export async function reconcileOwnedGraph(env:Env,userId:string,expectedVersion:number,desired:GenerateInput):Promise<{version:number;plan:DeploymentChangePlan}>{
   const {plan,inventory}=await prepareGraphReconciliation(env,userId,expectedVersion,desired);
-  const db=env.DB,statements:D1PreparedStatement[]=[],timestamp=Math.floor(Date.now()/1000);
+  const db=env.DB,statements:D1PreparedStatement[]=[],timestamp=Date.now();
   const connectionIds=new Set(inventory.connections.map(c=>c.connection.id)),sourceIds=new Set(inventory.sources.map(s=>s.source.id)),destinationIds=new Set(inventory.destinations.map(d=>d.destination.id)),monitorIds=new Set(inventory.monitors.map(m=>m.id)),sinkIds=new Set(inventory.sinks.map(s=>s.sink.id));
   for(const value of plan.connections){
     const c=value.connection;

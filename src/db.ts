@@ -877,6 +877,7 @@ export interface DeploymentRow {
   created_at: number;
   updated_at: number;
   last_seen_at: number | null;
+  graph_selection_json?: string | null;
   source_selection_json: string | null;
   monitor_selection_json: string | null;
   heartbeat_target: string | null;

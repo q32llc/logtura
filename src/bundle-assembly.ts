@@ -23,6 +23,7 @@ import {
   toCoreInput,
 } from "./generator";
 import { getProvider } from "./providers";
+import { loadSelectedDeploymentGraph,parseOrderedDeploymentSelection } from "./deployment-selection";
 
 export interface AssembledBundle {
   deployment: DeploymentRow;
@@ -51,49 +52,59 @@ export async function assembleDeploymentBundle(
 
   const selection = parseDeploymentSelection(deployment);
 
-  // CONNECTIONS ARE DERIVED FROM SELECTED SOURCES. A deployment is
-  // "this set of source IDs to forward"; whatever connections own
-  // those sources are the ones we need creds for. No join table —
-  // the source → connection FK is the source of truth.
-  //
-  // sourceIds === null is treated as "all sources from the
-  // deployment's primary connection_id" for back-compat with rows
-  // created before the explicit-selection model. New rows write
-  // explicit arrays; this branch keeps existing deployments working.
-  let selectedSources: LogSourceRow[];
-  if (selection.sourceIds === null) {
-    if (!deployment.connection_id) {
-      selectedSources = [];
+  const orderedSelection=deployment.graph_selection_json?parseOrderedDeploymentSelection(JSON.parse(deployment.graph_selection_json)):null;
+  const orderedGraph=orderedSelection?await loadSelectedDeploymentGraph(env.DB,userId,orderedSelection):null;
+  const sourcesByConnId=new Map<string,LogSourceRow[]>();
+  let connections:ConnectionRow[];
+  if(orderedGraph && !orderedSelection?.legacySources){
+    connections=orderedGraph.connections.map(c=>c.connection);
+    for(const c of orderedGraph.connections)sourcesByConnId.set(c.connection.id,c.sources);
+    if(connections.length===0)throw new Error("connection not found");
+  }else{
+    // CONNECTIONS ARE DERIVED FROM SELECTED SOURCES. A deployment is
+    // "this set of source IDs to forward"; whatever connections own
+    // those sources are the ones we need creds for. No join table —
+    // the source → connection FK is the source of truth.
+    //
+    // sourceIds === null is treated as "all sources from the
+    // deployment's primary connection_id" for back-compat with rows
+    // created before the explicit-selection model. New rows write
+    // explicit arrays; this branch keeps existing deployments working.
+    let selectedSources: LogSourceRow[];
+    if (selection.sourceIds === null) {
+      if (!deployment.connection_id) {
+        selectedSources = [];
+      } else {
+        selectedSources = await listSources(env.DB, deployment.connection_id);
+      }
     } else {
-      selectedSources = await listSources(env.DB, deployment.connection_id);
+      selectedSources = await getSourcesByIdsForUser(
+        env.DB,
+        userId,
+        selection.sourceIds,
+      );
     }
-  } else {
-    selectedSources = await getSourcesByIdsForUser(
-      env.DB,
-      userId,
-      selection.sourceIds,
-    );
-  }
 
-  // Group sources by their owning connection. This implicitly
-  // computes the set of connections to load + decrypt.
-  const sourcesByConnId = new Map<string, LogSourceRow[]>();
-  for (const s of selectedSources) {
-    const list = sourcesByConnId.get(s.connection_id) ?? [];
-    list.push(s);
-    sourcesByConnId.set(s.connection_id, list);
+    // Group sources by their owning connection. This implicitly
+    // computes the set of connections to load + decrypt.
+    for (const s of selectedSources) {
+      const list = sourcesByConnId.get(s.connection_id) ?? [];
+      list.push(s);
+      sourcesByConnId.set(s.connection_id, list);
+    }
+    let connectionIds = Array.from(sourcesByConnId.keys());
+    // Empty-selection deployment (heartbeat-only) still needs at
+    // least one connection's creds for the bundle's "Connection"
+    // header. Fall back to the deployment's primary.
+    if (connectionIds.length === 0 && deployment.connection_id) {
+      connectionIds = [deployment.connection_id];
+    }
+    if (connectionIds.length === 0) {
+      throw new Error("connection not found");
+    }
+    connections = await getConnectionsByIds(env.DB, userId, connectionIds);
+
   }
-  let connectionIds = Array.from(sourcesByConnId.keys());
-  // Empty-selection deployment (heartbeat-only) still needs at
-  // least one connection's creds for the bundle's "Connection"
-  // header. Fall back to the deployment's primary.
-  if (connectionIds.length === 0 && deployment.connection_id) {
-    connectionIds = [deployment.connection_id];
-  }
-  if (connectionIds.length === 0) {
-    throw new Error("connection not found");
-  }
-  const connections = await getConnectionsByIds(env.DB, userId, connectionIds);
 
   // Same-provider collision is enforced HERE rather than at the
   // route: two CF connections would both want CLOUDFLARE_API_TOKEN
@@ -119,6 +130,7 @@ export async function assembleDeploymentBundle(
   const perConn: Array<{
     connection: ConnectionRow;
     selectedSources: LogSourceRow[];
+    selectAll?: boolean;
     credentials?: Record<string, unknown>;
     fresh: boolean;
     staleReason?: string;
@@ -177,6 +189,7 @@ export async function assembleDeploymentBundle(
     perConn.push({
       connection: c,
       selectedSources: sources,
+      selectAll: orderedGraph?.connections.find(selected=>selected.connection.id===c.id)?.selectAll,
       credentials,
       fresh,
       staleReason,
@@ -189,8 +202,9 @@ export async function assembleDeploymentBundle(
   // it only applies to events from that specific connection.
   // Filter to monitors that match SOME derived connection.
   const monitorsSeen = new Set<string>();
-  const applicableMonitors = [];
-  for (const c of connections) {
+  const orderedMonitors=orderedGraph && !orderedSelection?.legacyMonitors?orderedGraph.monitors.filter(m=>m.monitor.connection_id===null || connections.some(c=>c.id===m.monitor.connection_id)):null;
+  const applicableMonitors = orderedMonitors?orderedMonitors.map(m=>m.monitor):[];
+  if(!orderedMonitors)for (const c of connections) {
     const candidates = await listMonitorsForConnection(env.DB, userId, c.id);
     for (const m of candidates) {
       if (monitorsSeen.has(m.id)) continue;
@@ -203,7 +217,7 @@ export async function assembleDeploymentBundle(
 
   const generatorMonitors = [];
   for (const monitor of applicableMonitors) {
-    const sinks = await listSinksForMonitor(env.DB, monitor.id);
+    const sinks = orderedMonitors?orderedMonitors.find(m=>m.monitor.id===monitor.id)!.sinks:await listSinksForMonitor(env.DB, monitor.id);
     const generatorSinks = [];
     for (const sink of sinks) {
       const destination = await getDestination(env.DB, userId, sink.destination_id);
@@ -261,6 +275,7 @@ export async function assembleDeploymentBundle(
     connections: perConn.map((c) => ({
       connection: c.connection,
       selectedSources: c.selectedSources,
+      selectAll: c.selectAll,
       credentials: c.fresh ? c.credentials : undefined,
     })),
     monitors: generatorMonitors,
@@ -294,7 +309,7 @@ export async function assembleDeploymentBundle(
   return {
     deployment,
     bundle,
-    input: {...toCoreInput({...generatorInput, connections: perConn.map(c=>({connection:c.connection,selectedSources:c.selectedSources,credentials:c.credentials}))}), runtimeEnv: {LOGTURA_HEARTBEAT_TOKEN: heartbeatToken, LOGTURA_METRICS_TOKEN: heartbeatToken}},
+    input: {...toCoreInput({...generatorInput, connections: perConn.map(c=>({connection:c.connection,selectedSources:c.selectedSources,selectAll:c.selectAll,credentials:c.credentials}))}), runtimeEnv: {LOGTURA_HEARTBEAT_TOKEN: heartbeatToken, LOGTURA_METRICS_TOKEN: heartbeatToken}},
     heartbeatToken,
     credentialIsFresh,
     credentialStaleReason,

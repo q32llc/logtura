@@ -621,3 +621,67 @@ all 409 tests, the unchanged coverage gates, builds, type checks and all 15 pack
 consumers/both CLI aliases. Future public validation must include a clean install
 when dependency resolution or new cross-package fixtures change. The earlier
 public CI failure was test-fixture resolution, not verified to be Codecov failure.
+
+### Implemented slice: ordered selections across service rendering and website edits (2026-10-01)
+
+Migration 0021 adds nullable ordered deployment selections. Null retains the full
+legacy source-derived behavior, including discovery wildcard and heartbeat-only
+empty selections. Modern selections preserve explicit connection/source/monitor/
+sink order and provider select-all intent. The owned-row resolver keeps disabled
+monitors in exports while the shared renderer continues to exclude their output.
+Unknown/deleted rows are omitted on read, as with legacy selectors; wrong-parent
+references are rejected, and cross-account rows/destinations are never resolved.
+Saving validates all references, selected monitor scopes, registered providers,
+provider all-source capability and the existing one-connection-per-provider rule.
+
+Selector updates use the account version guard. Flat compatibility columns are
+written before the canonical ordered representation in the same D1 transaction.
+No-op updates preserve the epoch; material changes advance it and mark the bundle
+outdated. The compatibility triggers override source and monitor sections
+independently when existing website writers edit flat selectors. These read-only
+flags are storage metadata, not portable manifest fields. A monitor edit, including
+switching to wildcard monitors, preserves an all-source provider stream. A source
+edit preserves monitor/sink order and drops only scopes no longer applicable to
+those connections. Runtime, name and unchanged-selector updates retain both
+ordered sections. A new modern write resets the compatibility overrides.
+
+Bundle assembly and website exports consume this representation and pass select-
+all through to the packaged renderer. The deployment API returns ordered selectors
+and the correct connection set/order, including source-less all-source connections.
+The website shows native all-source mode as current and future sources rather
+than zero sources, and explains how an explicit source edit changes that mode.
+Older service responses without ordered selections remain usable by the UI.
+The inventory writer's timestamp unit was also corrected to milliseconds, with
+creation/discovery timestamp regression assertions across every entity category.
+
+Validation: all 581 backend/package tests and 12 UI tests pass; types and builds
+pass. The ordered-selection module, deployment list page and UI selection summary
+all enforce 100% statements, branches, functions and lines. Workerd exercises the
+website export/PUT round trip, both independent legacy overrides, all-source
+Supabase rendering, disabled monitors, source-less connections, no-op writes,
+concurrent writers, scoped monitors, owner isolation, deleted inventory, wrong
+parents, invalid versions and malformed selection shapes. A pinned schema-20
+upgrade fixture preserves the deployment row (apart from the new null column),
+revision/applied state, instance/report sequence, tokens, image digest, metrics,
+ciphertext and account version. Existing schema-18 and schema-19 fixtures pass.
+
+Backend aggregate coverage is 69.72% statements, 62.68% branches, 74.47% functions
+and 68.83% lines, with floors raised to 69/62/74/68. UI aggregate coverage is
+5.87/5.77/5.66/4.06, with floors raised to 5/5/5/4; most UI pages still require
+baseline coverage before the final 90/85 gate. Run backend and UI coverage
+sequentially: backend coverage cleanup removes its report directory, which is the
+parent of the UI report directory. Public clean-install CI now passes its tests
+and reaches upload; both repositories' Codecov uploads fail with `Repository not
+found`, confirmed in their latest completed runs.
+
+This slice completes lossless selector persistence/rendering and its website
+compatibility path; it does not yet wire authenticated CLI push. Next: combine
+owned inventory changes, selectors and desired revision issuance in one guarded
+transaction, resolve explicit secret transfer and stable broker versions, then
+connect the account transport, linked CLI baseline and forwarder acknowledgement.
+Legacy discovered-inventory wildcard intent remains functional in service storage,
+but portable pull/push must still preserve that future-discovery intent explicitly;
+it is distinct from a provider-native all-source stream. Full baseline coverage,
+remote/browser E2E, telemetry checkpoint hardening, dependency upgrades and the
+verified release/rollout remain required. Migrations 0018–0021 remain unapplied in
+production; this goal is active.

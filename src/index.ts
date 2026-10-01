@@ -1,3 +1,4 @@
+import { parseOrderedDeploymentSelection } from "./deployment-selection";
 import { ConfigurationConflict, readStableConfiguration } from "./config-version";
 import { exportDeploymentManifest, createSecretVersioner, hashConfigDocument } from "@logtura/core";
 import { cliAuthorizationRoutes } from "./cli-auth";
@@ -1476,7 +1477,9 @@ apiAuth.get("/deployments/:id", async (c) => {
   // its source set; connections come along automatically.
   const selection = parseDeploymentSelection(deployment);
   let derivedConnIds: string[] = [];
-  if (selection.sourceIds && selection.sourceIds.length > 0) {
+  if(deployment.graph_selection_json && !parseOrderedDeploymentSelection(JSON.parse(deployment.graph_selection_json)).legacySources){
+    derivedConnIds=parseOrderedDeploymentSelection(JSON.parse(deployment.graph_selection_json)).connections.map(c=>c.id);
+  }else if (selection.sourceIds && selection.sourceIds.length > 0) {
     const sources = await getSourcesByIdsForUser(
       c.env.DB,
       user.id,
@@ -1491,7 +1494,7 @@ apiAuth.get("/deployments/:id", async (c) => {
   return c.json({
     deployment: toApiDeployment(deployment),
     latestDeployJob,
-    connections: conns.map((cc) => ({
+    connections: derivedConnIds.flatMap(id=>conns.filter(c=>c.id===id)).map((cc) => ({
       id: cc.id,
       displayName: cc.display_name,
       provider: cc.provider,
@@ -2773,6 +2776,7 @@ function toApiDeployment(d: DeploymentRow) {
     managed: d.managed === 1,
     status: d.status,
     externalId: d.external_id,
+    graphSelection: d.graph_selection_json?parseOrderedDeploymentSelection(JSON.parse(d.graph_selection_json)):null,
     sourceIds: d.source_selection_json
       ? (JSON.parse(d.source_selection_json) as string[])
       : null,

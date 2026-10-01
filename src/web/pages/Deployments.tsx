@@ -16,6 +16,8 @@ import { Link } from "react-router-dom";
 import { ApiError, api } from "../api";
 import type { ApiConnection, ApiDeployment, ApiDeploymentStatus } from "../types";
 
+import { deploymentSourceSummary } from "../deployment-selection";
+
 const STATUS_COLOR: Record<ApiDeploymentStatus, string> = {
   pending: "yellow",
   running: "teal",
@@ -69,7 +71,7 @@ export function Deployments() {
 
       {deployments === null && (
         <Group justify="center" mt="xl">
-          <Loader />
+          <Loader aria-label="Loading deployments" />
         </Group>
       )}
 
@@ -140,9 +142,7 @@ export function Deployments() {
                     </Group>
                     <Text size="sm" c="dimmed">
                       {c?.displayName ?? d.connectionId}
-                      {d.sourceIds === null
-                        ? " · all sources"
-                        : ` · ${d.sourceIds.length} sources`}
+                      {` · ${deploymentSourceSummary(d)}`}
                       {d.monitorIds === null
                         ? " · all monitors"
                         : ` · ${d.monitorIds.length} monitors`}

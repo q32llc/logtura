@@ -45,7 +45,10 @@ it("atomically persists an entire new graph, encrypts secrets, and then performs
   desired.monitors.push({monitor:{id:"mon_global",connectionId:null,displayName:"Global",enabled:false,filterSteps:[]},sinks:[]});
   desired.monitors[0]!.sinks.push({sink:{id:"snk_second",filterSteps:[{kind:"errors"}]},destination:structuredClone(desired.monitors[0]!.sinks[0]!.destination),destinationConfig:structuredClone(desired.monitors[0]!.sinks[0]!.destinationConfig)});
   const before=await readConfigurationVersion(env.DB,owner.userId),result=await reconcileOwnedGraph(env,owner.userId,before,desired);
-  expect(result.version).toBeGreaterThan(before);const snapshot=await loadOwnedGraphInventory(env,owner.userId);expect(input(snapshot).connections).toEqual(desired.connections);expect(input(snapshot).monitors).toEqual(expect.arrayContaining(desired.monitors));
+  expect(result.version).toBeGreaterThan(before);
+  for(const table of ["connections","destinations","monitors","sinks"]){const timestamp=await env.DB.prepare(`SELECT created_at FROM ${table} WHERE id=?`).bind(table==="connections"?"con_new":table==="destinations"?"dst_new":table==="monitors"?"mon_new":"snk_new").first<number>("created_at");expect(timestamp).toBeGreaterThan(Date.now()-60_000);}
+  expect(await env.DB.prepare("SELECT discovered_at FROM log_sources WHERE id='src_new'").first<number>("discovered_at")).toBeGreaterThan(Date.now()-60_000);
+  const snapshot=await loadOwnedGraphInventory(env,owner.userId);expect(input(snapshot).connections).toEqual(desired.connections);expect(input(snapshot).monitors).toEqual(expect.arrayContaining(desired.monitors));
   const rows=await env.DB.prepare("SELECT credentials_encrypted FROM connections WHERE user_id=?").bind(owner.userId).all();expect(JSON.stringify(rows)).not.toContain("owned-private-token");
   const repeat=await reconcileOwnedGraph(env,owner.userId,result.version,desired);expect(repeat.version).toBe(result.version);expect(repeat.plan.connections).toEqual([]);
 });

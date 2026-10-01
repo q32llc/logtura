@@ -7,7 +7,7 @@ export default defineConfig({
       include:["src/web/**/*.{ts,tsx}"],exclude:["**/*.test.*","**/*.d.ts"],
       // First UI baseline: report the entire UI, including currently untested
       // pages. Final aggregate targets remain 90/90/90/85 in the rollout plan.
-      thresholds:{statements:3,branches:2,functions:3,lines:2,"src/web/pages/CliAccess.tsx":{statements:90,lines:90,functions:90,branches:85}},
+      thresholds:{statements:5,branches:5,functions:5,lines:4,"src/web/deployment-selection.ts":{statements:100,branches:100,functions:100,lines:100},"src/web/pages/Deployments.tsx":{statements:100,branches:100,functions:100,lines:100},"src/web/pages/CliAccess.tsx":{statements:90,lines:90,functions:90,branches:85}},
     },
   },
 });

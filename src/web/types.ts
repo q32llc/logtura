@@ -1,3 +1,4 @@
+import type { OrderedDeploymentSelection } from "../deployment-selection";
 // API response shapes — mirrors what src/index.ts emits. Kept as plain
 // types so both the worker and the React app can import them.
 
@@ -285,6 +286,8 @@ export interface ApiMetricsSnapshot {
 }
 
 export interface ApiDeployment {
+  /** Absent on older service versions. */
+  graphSelection?: OrderedDeploymentSelection | null;
   id: string;
   connectionId: string;
   displayName: string;
