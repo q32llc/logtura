@@ -81,7 +81,7 @@ export async function exportDeploymentManifest(input: GenerateInput, versioner: 
         runtimeEnv: input.runtimeEnv === undefined ? null : secret("RUNTIME", "ENV", input.runtimeEnv),
     };
     await Promise.all(tasks);
-    normalizeDeploymentManifest(document);
+    parseDeploymentManifest(document, { env: secretValues });
     return { document: JSON.parse(canonicalConfigJson(document)), secretValues };
 }
 function pick<T extends object, K extends keyof T>(value: T, keys: K[]): Pick<T, K> { return Object.fromEntries(keys.map(key => [key, value[key]])) as Pick<T, K>; }
@@ -133,13 +133,16 @@ export function parseDeploymentManifest(value: unknown, options: ConfigParseOpti
     if (doc.kind !== "logtura.deployment" || doc.schema_version !== 1)
         throw new Error("Unsupported deployment manifest schema");
     only(doc, ["kind", "schema_version", "connections", "monitors", "heartbeat", "metrics", "runtimeEnv"], "manifest");
-    const missing = new Set<string>(), required = new Set<string>();
+    const missing = new Set<string>(), required = new Set<string>(), versions = new Map<string, string>();
     const secret = (value: unknown, path: string, fallback: unknown): unknown => {
         const ref = row(value, path);
         if (Object.keys(ref).some(key => !["env", "version"].includes(key)) || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(String(ref.env)))
             throw new Error(`${path}: expected secret reference`);
         const name = text(ref.env, path);
-        text(ref.version, path);
+        const version = text(ref.version, path);
+        const prior = versions.get(name);
+        if (prior !== undefined && prior !== version) throw new Error("Conflicting secret reference versions");
+        versions.set(name, version);
         required.add(name);
         const encoded = options.env && Object.hasOwn(options.env, name) ? options.env[name] : undefined;
         if (encoded === undefined || encoded === "") {
@@ -189,7 +192,7 @@ export function parseDeploymentManifest(value: unknown, options: ConfigParseOpti
         for (const [name, value] of Object.entries(runtimeEnv))
             if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || typeof value !== "string")
                 throw new Error("Invalid runtime environment value");
-    const unique = (ids: string[], name: string) => { if (new Set(ids).size !== ids.length)
+    const unique = (ids: string[], name: string) => { if (new Set(ids.map(id => id.replace(/[^a-zA-Z0-9_]/g, "_"))).size !== ids.length)
         throw new Error(`Duplicate ${name} identity`); };
     unique(connections.map(c => c.connection.id), "connection");
     unique(connections.flatMap(c => c.selectedSources.map(s => s.id)), "source");

@@ -218,3 +218,14 @@ The normal `parseConfigDocument`, `normalizeConfigDocument` and
 filter kinds and broken identities fail rather than being silently dropped.
 `LogturaServiceClient.pullDeploymentConfig(id, true)` is the optional account
 transport; the standalone parser and renderer perform no hosted requests.
+
+
+`editDeploymentManifest(document, secretValues, edits, versioner)` applies ordered
+portable graph changes without I/O or input mutation. It preserves unchanged
+opaque payload versions, validates the final graph, and returns a new manifest
+and private secret map. `diffDeploymentManifests(before, after)` reports stable
+entity IDs, operations and changed field names, with revision hashes. It does not
+return changed values, even for labels, filter patterns or credential payloads.
+Source and routing order changes are represented explicitly. These shared pure
+operations can be used by terminal, browser and storage adapters; they do not
+perform service persistence or optimistic-concurrency writes.

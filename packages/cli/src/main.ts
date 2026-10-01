@@ -1,3 +1,4 @@
+import { applyGraphEditFile, diffGraphFiles, diffRemoteGraph, editGraphFile, exportGraphFile, selectGraphSource } from "./graph";
 import {
   chmodSync,
   existsSync,
@@ -48,10 +49,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     if (command === "init") return cmdInit(global, args);
     if (command === "login" || command === "whoami" || command === "logout") return await cmdAccount(command, global, args);
+    if (command === "diff") return await cmdDiff(global,args);
     if (command === "pull") return await cmdPull(global,args);
     if (command === "config") return await cmdConfig(global, args);
     if (command === "connect") return await cmdConnect(global, args);
-    if (command === "source") return cmdSource(global, args);
+    if (command === "source") return await cmdSource(global, args);
     if (command === "sink") return cmdSink(global, args);
     if (command === "monitor") return cmdMonitor(global, args);
     if (command === "env") return cmdEnv(global, args);
@@ -64,6 +66,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     console.error(err instanceof Error ? err.message : String(err));
     return 1;
   }
+}
+
+async function cmdDiff(global:GlobalArgs,args:string[]):Promise<number>{
+  const id=args[0];if(!id || id.startsWith("-"))throw new Error("diff requires a deployment identity");const flags=parseFlags(args.slice(1));
+  for(const flag of Object.keys(flags))if(flag!=="service")throw new Error(`Unsupported diff option: ${flag}`);
+  const result=await diffRemoteGraph(findConfigPath(global.config).path,id,stringFlag(flags,"service"));
+  console.log(global.json?JSON.stringify(result):result.changes.length?result.changes.map(c=>`${c.operation} ${c.entity} ${c.id}: ${c.fields.join(", ")}`).join("\n"):"No configuration changes");return 0;
 }
 
 async function cmdPull(global:GlobalArgs,args:string[]):Promise<number>{
@@ -88,6 +97,16 @@ async function cmdAccount(command: string, global: GlobalArgs, args: string[]): 
 
 async function cmdConfig(global: GlobalArgs, args: string[]): Promise<number> {
   const ref = findConfigPath(global.config);
+  if(args[0]==="edit" || args[0]==="diff"){
+    if(args.length!==2)throw new Error(`config ${args[0]} requires one file`);
+    const result=args[0]==="edit"?{revision:await applyGraphEditFile(ref.path,args[1]!)}:await diffGraphFiles(ref.path,args[1]!);
+    console.log(JSON.stringify(result));return 0;
+  }
+  if(args[0]==="export"){
+    const flags=parseFlags(args.slice(1));for(const flag of Object.keys(flags))if(!["output","force"].includes(flag))throw new Error(`Unsupported export option: ${flag}`);
+    const output=stringFlag(flags,"output")??"portable.yaml";const revision=await exportGraphFile(ref.path,output,booleanFlag(flags,"force"));
+    console.log(global.json?JSON.stringify({path:output,revision}):`Exported ${output} (${revision})`);return 0;
+  }
   if (args[0] === "hash") {
     rejectExtra(args.slice(1));
     const hash = await hashConfigFile(ref.path);
@@ -102,7 +121,7 @@ async function cmdConfig(global: GlobalArgs, args: string[]): Promise<number> {
     console.log(global.json ? JSON.stringify({schemaVersion: 1, path: output}) : `normalized ${output}`);
     return 0;
   }
-  throw new Error("config supports: normalize [-o file], hash");
+  throw new Error("config supports: normalize [-o file], hash, export [-o file], edit <operations.json>, diff <baseline.yaml>");
 }
 
 function cmdInit(global: GlobalArgs, args: string[]): number {
@@ -170,7 +189,13 @@ async function cmdConnect(global: GlobalArgs, args: string[]): Promise<number> {
   return 0;
 }
 
-function cmdSource(global: GlobalArgs, args: string[]): number {
+async function cmdSource(global: GlobalArgs, args: string[]): Promise<number> {
+  if(args[0]==="select"){
+    if(!args[1] || !args[2] || args[1].startsWith("-") || args[2].startsWith("-"))throw new Error("source select requires connection and external source identities");
+    const flags=parseFlags(args.slice(3));for(const flag of Object.keys(flags))if(!["kind","name","metadataFile","id"].includes(flag))throw new Error(`Unsupported source select option: ${flag}`);
+    const revision=await selectGraphSource(findConfigPath(global.config).path,args[1],args[2],{kind:stringFlag(flags,"kind"),name:stringFlag(flags,"name"),metadataFile:stringFlag(flags,"metadataFile"),id:stringFlag(flags,"id")});console.log(global.json?JSON.stringify({revision}):`Updated source selections (${revision})`);return 0;
+  }
+  if(args[0]==="remove"){if(args.length!==2)throw new Error("source remove requires one source identity");const revision=await editGraphFile(findConfigPath(global.config).path,[{kind:"source.remove",id:args[1]!}]);console.log(global.json?JSON.stringify({revision}):`Removed source (${revision})`);return 0;}
   const sub = args[0];
   if (sub !== "add") throw new Error("source supports: add");
   const source = args[1];
@@ -464,6 +489,9 @@ function parseFlags(argv: string[]): Record<string, string | boolean> {
     else if (a === "--webhook") flags.webhook = needValue(argv, ++i, a);
     else if (a.startsWith("--webhook=")) flags.webhook = a.slice("--webhook=".length);
     else if (a === "-o" || a === "--output") flags.output = needValue(argv, ++i, a);
+    else if (a === "--kind") flags.kind = needValue(argv, ++i, a);
+    else if (a === "--id") flags.id = needValue(argv, ++i, a);
+    else if (a === "--metadata-file") flags.metadataFile = needValue(argv, ++i, a);
     else if (a === "--service") flags.service = needValue(argv, ++i, a);
     else if (a === "--no-browser") flags.noBrowser = true;
     else if (a === "--local") flags.local = true;
@@ -678,6 +706,12 @@ Commands:
   login [--service URL]             Approve CLI access in your browser
   whoami [--service URL]            Show the signed-in service account
   logout [--local]                  Revoke CLI access and remove credentials
+  config export [-o file]            Export a shorthand config as a portable graph
+  config edit <operations.json>     Apply graph changes, including private payloads
+  config diff <baseline.yaml>       Compare graph identities and changed fields
+  diff <deployment-id>              Compare local graph with the website
+  source select <connection> <site> Add a site to a portable graph
+  source remove <source-id>         Remove a site from a portable graph
   config normalize [-o file]        Add stable IDs and inline custom fragments
   config hash                       Print the portable configuration revision
   connect <provider>                Add a provider connection (cloudflare, fly, railway, ...)

@@ -49,12 +49,17 @@ export function writeConfigDoc(path: string, doc: UnknownRecord): void {
 
 export function parseConfig(text: string, filename = "logt.yaml"): ParsedConfig {
   const baseDir = dirname(resolve(filename));
-  const values = Object.fromEntries(readDotEnvFile(resolve(baseDir, ".env")));
-  for (const [key, value] of Object.entries(process.env)) if (value !== undefined) values[key] = value;
+  const values = readConfigEnvironment(filename);
   return parseConfigDocument(parseYaml(text), {
     filename, env: values, providers: listProviders(), destinations: listDestinations(),
     readInclude: (include) => parseYaml(readFileSync(resolve(baseDir, include), "utf8")),
   });
+}
+
+export function readConfigEnvironment(path:string):Record<string,string>{
+  const values=Object.fromEntries(readDotEnvFile(resolve(dirname(resolve(path)),".env")));
+  for(const [key,value] of Object.entries(process.env))if(value!==undefined)values[key]=value;
+  return values;
 }
 
 export function normalizeConfigFile(path: string): UnknownRecord {

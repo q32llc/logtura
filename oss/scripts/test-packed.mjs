@@ -60,7 +60,8 @@ monitors: []
   assert.ok(!yaml.includes("/api/heartbeat/"), "standalone bundle must not require hosted heartbeat");
   assert.ok(!yaml.includes("/api/metrics/"), "standalone bundle must not require hosted metrics");
   const script = `import assert from 'node:assert/strict';
-    import {generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument} from '@logtura/core';
+    import {generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests} from '@logtura/core';
+    import {writeFileSync} from 'node:fs';
     import {cloudflareWorkerTailDriver} from '@logtura/driver-cloudflare-worker-tail';
     const input={providers:[cloudflareWorkerTailDriver],destinations:[],monitors:[],
       connections:[{connection:{id:'fixture',provider:cloudflareWorkerTailDriver.id,displayName:'Fixture',externalAccountId:'fixture-account'},
@@ -70,6 +71,12 @@ monitors: []
     assert.ok(!JSON.stringify(exported.document).includes('fixture-token'));
     const parsed=parseDeploymentManifest(exported.document,{env:exported.secretValues,providers:input.providers,destinations:input.destinations});
     assert.deepEqual(generateBundle(parsed.input),bundle);
+    const edited=await editDeploymentManifest(exported.document,exported.secretValues,[{kind:'source.add',connectionId:'fixture',source:{id:'src_second',externalId:'fixture-second',displayName:'Second',sourceKind:'worker',metadata:null}}],await createSecretVersioner('local-private-key'));
+    assert.deepEqual(edited.document.connections[0].credentials,exported.document.connections[0].credentials);
+    assert.equal((await diffDeploymentManifests(exported.document,edited.document)).changes[0].operation,'add');
+    writeFileSync('graph.yaml',JSON.stringify(exported.document));
+    writeFileSync('graph-baseline.yaml',JSON.stringify(exported.document));
+    writeFileSync('.env',Object.entries(exported.secretValues).map(([key,value])=>key+'='+JSON.stringify(value)).join('\\n')+'\\n',{mode:0o600});
     assert.match(await hashConfigDocument(exported.document),/^sha256:[a-f0-9]{64}$/);
     assert.ok(bundle.vectorYaml.includes('internal_metrics'));
     const files=installBundleFiles(bundle);
@@ -80,6 +87,15 @@ monitors: []
     console.log('all public packages import in ordinary Node');`;
   writeFileSync(join(consumer, "consumer.mjs"), script);
   run(process.execPath, ["consumer.mjs"], consumer, offline);
+  const initialGraphRevision = bin("logt", ["-c", "graph.yaml", "config", "hash"]).trim();
+  bin("logtura", ["-c", "graph.yaml", "source", "select", "fixture", "fixture-second", "--id", "src_second"]);
+  const diff = JSON.parse(bin("logt", ["-c", "graph.yaml", "config", "diff", "graph-baseline.yaml"]));
+  assert.equal(diff.changes[0].entity, "source"); assert.equal(diff.changes[0].id, "src_second");
+  bin("logt", ["-c", "graph.yaml", "validate"]);
+  bin("logt", ["-c", "graph.yaml", "bundle", "-o", "graph bundle"]);
+  assert.ok(readFileSync(join(consumer, "graph bundle", "vector.yaml"), "utf8").includes("fixture-second"));
+  bin("logt", ["-c", "graph.yaml", "source", "remove", "src_second"]);
+  assert.equal(bin("logt", ["-c", "graph.yaml", "config", "hash"]).trim(), initialGraphRevision);
   console.log(`Packed consumer checks passed for ${packages.length} packages and both CLI aliases`);
 } finally {
   rmSync(temporary, { recursive: true, force: true });

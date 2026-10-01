@@ -63,3 +63,5 @@ export type { ServiceClientOptions, DeviceAuthorization, AccountCredential, Devi
 
 export { exportDeploymentManifest, parseDeploymentManifest, normalizeDeploymentManifest, createSecretVersioner } from "./manifest";
 export type { DeploymentManifest, SecretReference, SecretVersioner } from "./manifest";
+export { editDeploymentManifest, diffDeploymentManifests } from "./graph";
+export type { ManifestEdit, GraphChange, GraphDiff } from "./graph";

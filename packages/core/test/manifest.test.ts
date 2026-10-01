@@ -2,11 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createSecretVersioner, exportDeploymentManifest, parseDeploymentManifest, normalizeDeploymentManifest } from "../src/manifest";
 import { hashConfigDocument, parseConfigDocument, normalizeConfigDocument } from "../src/config";
 import { generateBundle } from "../src/render";
-import { cloudflareWorkerTailDriver as cloudflare } from "@logtura/driver-cloudflare-worker-tail";
-import { webhookDriver as webhook } from "@logtura/destination-webhook";
-import type { GenerateInput } from "../src/types";
-const steps: GenerateInput["monitors"][number]["monitor"]["filterSteps"] = [{ kind: "errors" }, { kind: "level", level: "error", mode: "exclude" }, { kind: "match", pattern: "critical", mode: "include", field: "message" }, { kind: "rate_limit", per_minute: 30 }, { kind: "dedup", window_secs: 5, fields: ["message"] }, { kind: "sample", rate: 2 }, { kind: "rollup", window_secs: 30, group_by: ["script"], max_samples: 3 }];
-export const fixture = (): GenerateInput => ({ providers: [cloudflare], destinations: [webhook], connections: [{ connection: { id: "con_original", provider: cloudflare.id, displayName: "Account", externalAccountId: "account" }, selectedSources: [{ id: "src_original", externalId: "site", displayName: "Site", sourceKind: "cf_worker", metadata: { privateField: "metadata-secret" } }], credentials: { apiToken: "credential-secret", refreshToken: "refresh-secret" } }], monitors: [{ monitor: { id: "mon_original", connectionId: "con_original", displayName: "Errors", enabled: true, filterSteps: steps }, sinks: [{ sink: { id: "snk_original", filterSteps: [{ kind: "match", pattern: "drop", mode: "exclude" }] }, destination: { id: "dst_original", kind: webhook.id, displayName: "Alerts" }, destinationConfig: { url: "https://secret.example/hook", headers: { authorization: "destination-secret" } } }] }], heartbeat: { kind: "logtura", deploymentId: "dep_original", appUrl: "https://logtura.test" }, metrics: { kind: "logtura", deploymentId: "dep_original", appUrl: "https://logtura.test" }, runtimeEnv: { LOGTURA_HEARTBEAT_TOKEN: "report-secret", LOGTURA_METRICS_TOKEN: "report-secret" } });
+import { fixture } from "./graph-fixture";
 async function exported(input = fixture()) { return exportDeploymentManifest(input, await createSecretVersioner("private-key")); }
 describe("portable deployment graphs", () => {
     it("round trips the complete graph and exact generated artifacts through the standard config parser", async () => {
@@ -110,4 +106,13 @@ describe("portable deployment graphs", () => {
         result.secretValues[result.document.runtimeEnv!.env] = '{"VALID":12}';
         expect(() => parseDeploymentManifest(result.document, { env: result.secretValues })).toThrow("runtime");
     });
+    it.each(["connection","source","monitor","sink"])("rejects %s IDs that collide after Vector key normalization",async(entity)=>{
+      const {document}=await exported();
+      if(entity==="connection"){document.connections[0]!.connection.id="con-original";document.monitors[0]!.monitor.connectionId="con-original";document.connections.push({...document.connections[0]!,connection:{...document.connections[0]!.connection,id:"con_original"},selectedSources:[]});}
+      if(entity==="source"){document.connections[0]!.selectedSources[0]!.id="src-original";document.connections[0]!.selectedSources.push({...document.connections[0]!.selectedSources[0]!,id:"src_original"});}
+      if(entity==="monitor"){document.monitors[0]!.monitor.id="mon-original";document.monitors.push({...document.monitors[0]!,monitor:{...document.monitors[0]!.monitor,id:"mon_original"},sinks:[]});}
+      if(entity==="sink"){document.monitors[0]!.sinks[0]!.sink.id="snk-original";document.monitors[0]!.sinks.push({...document.monitors[0]!.sinks[0]!,sink:{...document.monitors[0]!.sinks[0]!.sink,id:"snk_original"}});}
+      expect(()=>normalizeDeploymentManifest(document)).toThrow(`Duplicate ${entity} identity`);
+    });
+
 });

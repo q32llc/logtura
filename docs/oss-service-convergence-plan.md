@@ -433,3 +433,42 @@ minting must be accounted for before claiming stable OAuth desired revisions.
 Production migration 0018, npm publication and staged service/forwarder rollout
 remain pending. Previous private CI passes code checks and image build but fails
 Codecov upload with `Repository not found`; account activation remains unresolved.
+
+
+### Implemented slice: graph editing and redacted diffs (2026-10-01)
+
+The public backend now applies ordered graph edit transactions for connections,
+source/site selections, monitors, sinks, destinations and reporting targets. IDs
+are immutable on update. Unchanged private payloads retain their existing opaque
+versions; changed payloads get new versions and remain in the private secret map.
+Transactions validate the final graph, including actual credential/metadata/runtime
+payload types, broken references, duplicate selections and IDs that collide after
+Vector key normalization. Shared references cannot have conflicting versions.
+Caller manifests, secret maps and newly supplied operation objects are not mutated.
+Destination updates reach every sink and metrics target referencing that ID.
+
+CLI `config export` converts existing standalone shorthand files to portable graphs.
+`config edit <operations.json>` applies complete graph operations; `source select`
+and `source remove` provide direct site editing with stable identities, kind/label
+options and private metadata files. Failed validation leaves both files unchanged,
+and existing staged-write recovery applies to edits. Source commands preserve
+all-source mode. Local `config diff` and account `diff` use the same public operation
+and report IDs and changed field names, including order, without exposing values.
+
+Validation: 477 private backend/package tests and 395 independent public tests
+pass. Both new graph modules enforce 100% statements/branches/functions/lines.
+An installed packed CLI, with hosted fetch denied, selects a second site, diffs it,
+renders a valid bundle, removes the site and restores the original revision.
+Library transactions, missing/invalid input, secret redaction, immutable identities,
+shared destination changes and real CLI execution are covered. Private and public
+build/type/packed-consumer checks pass. Aggregate backend/package coverage is
+67.19% statements / 58.71% branches / 71.84% functions / 67.20% lines privately,
+and 76.47% / 71.48% / 76.24% / 76.54% publicly; floors rise to measured whole values.
+
+These commands edit local graphs and compare service exports. Authenticated push,
+stored base/desired/applied revisions, storage reconciliation, conflict resolution
+and forwarder acknowledgements are still pending. Manual `.env` changes do not
+refresh public payload versions; sync needs private baseline fingerprints or
+explicit secret comparison. Unlinked graph deployment still uses the existing
+local deploy adapter. This slice does not imply that the production service or
+npm release has these capabilities yet.

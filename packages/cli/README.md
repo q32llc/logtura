@@ -244,3 +244,53 @@ still contact the configured endpoints when the forwarder runs. Shorthand
 graph editing commands and authenticated push are still being implemented.
 Pull currently describes the service's current graph, rather than a persisted
 separate desired or applied revision. It does not update the service.
+
+
+## Edit a portable graph locally
+
+```sh
+# Start with a pulled graph, or convert an existing standalone shorthand config.
+logt -c logt.yaml config export -o portable.yaml
+logt -c portable.yaml source select con_workers new-website --kind cf_worker
+logt -c portable.yaml source remove src_old_website
+logt -c portable.yaml config diff baseline.yaml
+logt -c portable.yaml diff dep_your_deployment
+```
+
+`source select` preserves an existing selection's ID. A new selection gets an ID
+once; `--id` supplies a caller-owned ID, and `--name` changes its label. Supply
+`--kind` for an empty or mixed source inventory. `--metadata-file metadata.json`
+loads provider-specific metadata from a private JSON file. The command keeps the
+connection's all-source selection setting. Removing a site edits this local
+manifest; it does not delete a provider resource or mutate the website.
+
+`config edit operations.json` applies an ordered JSON array of graph operations.
+The public library implements the same transaction. Available operations are
+`connection.add/update/remove`, `source.add/update/remove`,
+`monitor.add/update/remove`, `sink.add/update/remove`, `destination.update` and
+`reporting.update`. Add operations supply complete entities with stable IDs;
+updates use `id` plus `patch`. Connection updates may include `credentials`, and
+destination updates may include `destinationConfig`. IDs cannot be patched.
+
+```json
+[
+  {"kind":"source.update","id":"src_site","patch":{"displayName":"New label"}},
+  {"kind":"monitor.update","id":"mon_errors","patch":{"enabled":false}},
+  {"kind":"sink.update","id":"snk_alerts","patch":{"filterSteps":[{"kind":"errors"}]}}
+]
+```
+
+A destination update affects every sink and metrics target using that ID. Removing
+a monitor removes its graph-owned sinks. Removing a connection requires adjusting
+or removing monitors scoped to it in the same transaction. Duplicate identities,
+duplicate selections, broken references and unsupported fields fail before any
+file replacement. Private JSON input errors do not print the input payload.
+
+Graph edits keep unchanged payload versions and give changed payloads new opaque
+versions. Credential and metadata changes belong in explicit operations; editing
+`.env` by hand does not currently refresh public version references. This must be
+accounted for by the synchronization layer before authenticated push is shipped.
+Local `config diff` and account `diff` report identities and changed field names,
+including ordering, without printing values. These commands compare manifests;
+they do not push, deploy, resolve conflicts or persist desired/applied revisions.
+Existing `bundle`, `validate`, `env` and local deployment consume the edited graph.
