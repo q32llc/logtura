@@ -185,6 +185,8 @@ export interface GeneratedRuntimeAsset extends RuntimeAsset {
 }
 
 export interface RenderDockerfileOptions {
+  /** Caller supplies runtimeImageFiles() under runtime/ in the build context. */
+  runtimeSupervisor?: boolean;
   mountVectorYamlAtRuntime?: boolean;
   includeRuntimeAssets?: boolean;
 }

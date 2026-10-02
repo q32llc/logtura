@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdtempSync, writeFileSync, readFileSync, statSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync, readFileSync, statSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,12 +9,13 @@ import { spawnSync,execFile } from "node:child_process";
 const root = process.cwd();
 const load = (name) => import(pathToFileURL(join(root, "packages", name, "dist/index.js")));
 const { compileForwarderRuntime, exportDeploymentManifest, createSecretVersioner, hashConfigDocument,
-  verifyLoadedForwarder, DeploymentReportingClient, GENERATOR_VERSION, VECTOR_VERSION } = await load("core");
+  verifyLoadedForwarder, runtimeImageFiles, renderDockerfile, FORWARDER_NODE_IMAGE, DeploymentReportingClient, GENERATOR_VERSION, VECTOR_VERSION } = await load("core");
 const { runForwarderReporting } = await import(pathToFileURL(join(root, "packages/cli/dist/main.js")));
 const { customVectorProvider } = await load("custom-vector");
 const { webhookDriver } = await load("destination-webhook");
 const temporary = mkdtempSync(join(tmpdir(), "logt-vector-flow-"));
 const name = `logt-e2e-${crypto.randomUUID()}`, supervisedName = `${name}-owned`;
+const legacyImage=`${name}-legacy`, runtimeImage=`${name}-runtime`;
 const deliveries = [];
 let attempts = 0, appliedCounter = 0, expectedInstance;
 const appliedReports = [];
@@ -49,7 +50,7 @@ const server = createServer(async (request, response) => {
 await new Promise((resolve) => server.listen(0, "0.0.0.0", resolve));
 const receiverPort = server.address().port;
 function docker(args, acceptFailure = false) {
-  const result = spawnSync("docker", args, { encoding: "utf8", timeout: 30_000 });
+  const result = spawnSync("docker", args, { encoding: "utf8", timeout: args[0]==="build"?180_000:30_000 });
   if (!acceptFailure && result.status !== 0) throw new Error(`Docker failed: ${result.stderr}`);
   return result.stdout.trim();
 }
@@ -87,8 +88,51 @@ try {
   assert.ok(!bundle.vectorYaml.includes("/api/heartbeat/"));
   assert.ok(!bundle.vectorYaml.includes("/api/metrics/"));
   writeFileSync(join(temporary, "vector.yaml"), bundle.vectorYaml);
+  const legacyContext=join(temporary,"legacy-image"),runtimeContext=join(temporary,"runtime-image");
+  mkdirSync(legacyContext);mkdirSync(runtimeContext);
+  writeFileSync(join(legacyContext,"Dockerfile"),bundle.dockerfile);writeFileSync(join(legacyContext,"vector.yaml"),bundle.vectorYaml);
+  writeFileSync(join(runtimeContext,"Dockerfile"),renderDockerfile([],{runtimeSupervisor:true,mountVectorYamlAtRuntime:true}));
+  for(const file of runtimeImageFiles(readFileSync(join(root,"packages/cli/dist/runtime-bin.js")))){const path=join(runtimeContext,file.name);mkdirSync(join(path,".."),{recursive:true});writeFileSync(path,file.content,{mode:file.mode});}
+  docker(["build","--quiet","--tag",legacyImage,legacyContext]);
+  docker(["build","--quiet","--tag",runtimeImage,runtimeContext]);
+  assert.match(docker(["run","--rm",runtimeImage,"--version"]),/^vector 0\.55\.0/);
+  assert.equal(docker(["run","--rm","--entrypoint","node",runtimeImage,"--version"]),`v${FORWARDER_NODE_IMAGE.match(/^node:(\d+\.\d+\.\d+)/)[1]}`);
+  // Artifact presence must never downgrade to direct Vector execution. Exercise
+  // the built shell entrypoint, Node executable and artifact validator together.
+  const invalidContext = join(temporary, "invalid-artifact");
+  mkdirSync(invalidContext);
+  const invalidArtifact = join(invalidContext, "logtura-runtime.json");
+  const runInvalid = (args = []) => spawnSync("docker", ["run", "--rm",
+    "--volume", `${invalidContext}:/etc/vector:ro`, runtimeImage, ...args],
+    {encoding: "utf8", timeout: 30_000});
+  writeFileSync(invalidArtifact, "fixture-private-invalid-json");
+  for (const args of [[], ["--config", "/etc/vector/vector.yaml"]]) {
+    const result = runInvalid(args);
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stderr, /Forwarder runtime failed/);
+    assert.ok(!result.stderr.includes("fixture-private-invalid-json"));
+    assert.ok(!result.stdout.includes("fixture-private-invalid-json"));
+  }
+  const conflicting = runInvalid(["--config", "/unrelated.yaml"]);
+  assert.equal(conflicting.status, 64, conflicting.stdout + conflicting.stderr);
+  assert.match(conflicting.stderr, /requires its bound configuration/);
+  rmSync(invalidArtifact);
+  symlinkSync("/missing-private-artifact.json", invalidArtifact);
+  const dangling = runInvalid();
+  assert.equal(dangling.status, 1, dangling.stdout + dangling.stderr);
+  assert.match(dangling.stderr, /Forwarder runtime failed/);
+  rmSync(invalidArtifact);
+  mkdirSync(invalidArtifact);
+  const directoryArtifact = runInvalid();
+  assert.equal(directoryArtifact.status, 1, directoryArtifact.stdout + directoryArtifact.stderr);
+  rmSync(invalidArtifact, {recursive: true});
+  docker(["run", "--rm", "--volume", `${invalidContext}:/etc/vector`,
+    "--entrypoint", "mkfifo", runtimeImage, "/etc/vector/logtura-runtime.json"]);
+  const pipeArtifact = runInvalid();
+  assert.equal(pipeArtifact.status, 1, pipeArtifact.stdout + pipeArtifact.stderr);
+  assert.match(pipeArtifact.stderr, /Forwarder runtime failed/);
   const env = bundle.envVars.flatMap((variable) => variable.value === null ? [] : ["--env", `${variable.name}=${variable.value}`]);
-  docker(["run", "--detach", "--rm", "--name", name, "--add-host=host.docker.internal:host-gateway", "--publish", "127.0.0.1::9000", "--publish", "127.0.0.1::8686", "--volume", `${temporary}:/etc/vector:ro`, ...env, `timberio/vector:${VECTOR_VERSION}-debian`, "--config", "/etc/vector/vector.yaml"]);
+  docker(["run", "--detach", "--rm", "--name", name, "--add-host=host.docker.internal:host-gateway", "--publish", "127.0.0.1::9000", "--publish", "127.0.0.1::8686", "--volume", `${temporary}:/etc/vector:ro`, ...env, legacyImage]);
   const mapping = docker(["port", name, "9000/tcp"]);
   const ingress = `http://${mapping}`;
   await waitFor(async () => { try { await fetch(ingress, { signal: AbortSignal.timeout(500) }); return true; } catch { return false; } }, "Vector readiness");
@@ -145,8 +189,8 @@ try {
     assert.equal(event.error, true);
   }
   // Run the actual installed supervisor as PID 1 with its own Vector child.
-  // Node is mounted from the Linux CI/runtime installation; runtime-bin bundles
-  // its package dependencies so this fixture needs no network package install.
+  // Its image supplies the pinned Node binary and bundled package dependencies;
+  // no host executable or node_modules mount supplies the runtime.
   const portProbe=createServer();await new Promise(resolve=>portProbe.listen(0,"127.0.0.1",resolve));
   const ownedPort=portProbe.address().port;await new Promise(resolve=>portProbe.close(resolve));
   const supervisedInput={...input,connections:structuredClone(input.connections)};
@@ -159,23 +203,18 @@ try {
   writeFileSync(join(temporary,"vector.yaml"),supervised.bundle.vectorYaml);
   expectedInstance = supervised.artifact.instance;appliedCounter = 0;appliedReports.length = 0;
   writeFileSync(join(temporary,"logtura-runtime.json"),JSON.stringify(supervised.artifact),{mode:0o600});
-  // Keep the optional SDK's HTTP fixture on loopback inside this container.
-  // Docker's daemon host can differ from the caller's host (e.g. Docker Desktop).
-  writeFileSync(join(temporary,"proxy-run.mjs"),`import {createServer,request} from 'node:http';
+  // Fixture-only loopback proxy. The packaged entrypoint remains PID 1; no host
+  // Node binary or package installation supplies runtime dependencies.
+  writeFileSync(join(temporary,"proxy-import.mjs"),`import {createServer,request} from 'node:http';
     const proxy=createServer((req,res)=>{const upstream=request('http://host.docker.internal:${receiverPort}'+req.url,{method:req.method,headers:req.headers},reply=>{res.writeHead(reply.statusCode,reply.headers);reply.pipe(res);});upstream.on('error',()=>res.destroy());req.pipe(upstream);});
-    await new Promise(resolve=>proxy.listen(${receiverPort},'127.0.0.1',resolve));
-    await import('/opt/logtura/runtime-bin.mjs');
-    proxy.closeAllConnections();await new Promise(resolve=>proxy.close(resolve));`,{mode:0o600});
+    proxy.keepAliveTimeout=100;proxy.unref();await new Promise(resolve=>proxy.listen(${receiverPort},'127.0.0.1',resolve));proxy.unref();`,{mode:0o600});
   docker(["run","--detach","--name",supervisedName,"--add-host=host.docker.internal:host-gateway",
-    "--entrypoint","/usr/local/bin/node","--publish",`127.0.0.1::${ownedPort}`,
-    "--volume",`${process.execPath}:/usr/local/bin/node:ro`,
-    "--volume",`${join(root,"packages/cli/dist/runtime-bin.js")}:/opt/logtura/runtime-bin.mjs:ro`,
+    "--publish",`127.0.0.1::${ownedPort}`,
     "--volume",`${temporary}:/etc/vector:ro`,"--tmpfs","/var/lib/logtura:rw,mode=0700",
     ...env,"--env","LOGTURA_HEARTBEAT_TOKEN=fixture-report-token","--env","VECTOR_CONFIG_DIR=/unrelated",
-    `timberio/vector:${VECTOR_VERSION}-debian`,"/etc/vector/proxy-run.mjs",
-    "--artifact","/etc/vector/logtura-runtime.json","--interval-ms","20","--retry-ms","20"]);
+    "--env","NODE_OPTIONS=--import=/etc/vector/proxy-import.mjs",runtimeImage]);
   const supervisedIngress = `http://${docker(["port",supervisedName,`${ownedPort}/tcp`])}`;
-  const supervisedDeadline = Date.now()+30_000;
+  const supervisedDeadline = Date.now()+90_000;
   while(appliedCounter<2 && Date.now()<supervisedDeadline){
     const state = JSON.parse(docker(["inspect",supervisedName]))[0].State;
     if(!state.Running)throw new Error(`Owned supervisor stopped: ${docker(["logs",supervisedName],true)}`);
@@ -194,10 +233,11 @@ try {
   const supervisedLogs=docker(["logs",supervisedName],true);
   assert.ok(supervisedLogs.includes('"event":"applied_report"'));
   assert.ok(!supervisedLogs.includes(supervised.artifact.privateKey));
-  console.log("Real Vector flow passed: normalization, error filtering, routing, context, retry delivery, issued runtime integrity, and durable HTTP report recovery, and owned PID-1 process supervision without Logtura service");
+  console.log("Real Vector flow passed: normalization, error filtering, routing, context, retry delivery, issued runtime integrity, and durable HTTP report recovery, owned PID-1 process supervision, and packaged image startup without Logtura service");
 } finally {
   docker(["rm", "--force", supervisedName], true);
   docker(["rm", "--force", name], true);
+  docker(["image","rm","--force",runtimeImage,legacyImage],true);
   await new Promise((resolve) => server.close(resolve));
   rmSync(temporary, { recursive: true, force: true });
 }

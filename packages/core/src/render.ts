@@ -1,4 +1,4 @@
-import { VECTOR_VERSION } from "./versions";
+import { VECTOR_VERSION, FORWARDER_NODE_IMAGE } from "./versions";
 import type {
   BundleEnvVar,
   ComponentManifestEntry,
@@ -969,6 +969,7 @@ export function renderDockerfile(
   opts: RenderDockerfileOptions = {},
 ): string {
   const aptPackages = new Set<string>();
+  if (opts.runtimeSupervisor) aptPackages.add("libstdc++6");
   for (const d of deps) {
     for (const p of d.aptPackages ?? []) aptPackages.add(p);
   }
@@ -993,11 +994,12 @@ export function renderDockerfile(
 # Vector-based forwarder. Tails selected log sources and routes them
 # through monitors to your configured destinations.
 
-FROM timberio/vector:${VECTOR_VERSION}-debian
+${opts.runtimeSupervisor ? `FROM ${FORWARDER_NODE_IMAGE} AS logtura-node\n` : ""}FROM timberio/vector:${VECTOR_VERSION}-debian
 
 ${aptList ? `RUN apt-get update && apt-get install -y --no-install-recommends ${aptList} && rm -rf /var/lib/apt/lists/*` : ""}
 ${installSteps}
 
+${opts.runtimeSupervisor ? `COPY --from=logtura-node /usr/local/bin/node /usr/local/bin/node\nCOPY runtime/ /opt/logtura/runtime/\nRUN chmod 755 /opt/logtura/runtime/entrypoint.sh\nENTRYPOINT ["/opt/logtura/runtime/entrypoint.sh"]\nSTOPSIGNAL SIGTERM\n` : ""}
 ${copyAssetsLine}
 ${copyVectorLine}
 # Heartbeat (Prometheus exporter) — scrape from your monitoring stack.
@@ -1005,7 +1007,7 @@ EXPOSE 9598
 # Vector API (vector top, debugging).
 EXPOSE 8686
 
-CMD ["vector", "--config", "/etc/vector/vector.yaml"]
+CMD ["--config", "/etc/vector/vector.yaml"]
 `;
 }
 

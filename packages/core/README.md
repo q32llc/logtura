@@ -383,3 +383,25 @@ backoff, file locks or process startup are implicit in this pure helper.
 `GENERATOR_VERSION` records the built core package version (`development` when
 running source directly). `VECTOR_VERSION` is the renderer's shared runtime pin.
 These helpers are optional; standalone rendering needs no service or reporting.
+
+
+### Packaged supervisor images
+
+`renderDockerfile(deps, {runtimeSupervisor: true})` adds a digest-pinned Node 22
+binary and a compatible entrypoint. Put the files returned by
+`runtimeImageFiles(packagedExecutableBytes)` in the Docker build context; supply
+bytes from the CLI package's built `dist/runtime-bin.js`. This helper accepts
+trusted executable bytes, not a private runtime descriptor. Install generated
+assets in the image as usual. `FORWARDER_NODE_IMAGE` exports the exact Node pin.
+
+Mount an issued descriptor at `/etc/vector/logtura-runtime.json` with its matching
+`vector.yaml`, provide generated environment values and the reporting token, and
+mount persistent private storage at `/var/lib/logtura`. The entrypoint starts the
+supervisor when the descriptor exists and starts Vector directly when it is absent.
+Malformed files, symlinks and conflicting config arguments fail closed. Private
+artifacts and credentials must remain outside the Docker build context. Allow at
+least 35 seconds for shutdown. This builds the runtime; activation and deployment
+orchestration are separate steps.
+
+Default standalone Dockerfiles remain Node-free. Their `CMD` now contains only
+`--config /etc/vector/vector.yaml`, matching the inherited Vector `ENTRYPOINT`.

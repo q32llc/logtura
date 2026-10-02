@@ -83,6 +83,7 @@ export default defineConfig({
         "packages/cli/src/runtime-report.ts": { statements: 97, branches: 95, functions: 100, lines: 100 },
         "packages/cli/src/private-lock.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/push-lock.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/core/src/runtime-image.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/runtime.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/deployment-state.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/deployment-reporting.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },

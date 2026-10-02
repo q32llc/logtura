@@ -18,3 +18,5 @@ containers/forwarder/assets/
 
 .logtura-push.json*
 .logtura-push.lock/
+
+containers/forwarder/runtime/

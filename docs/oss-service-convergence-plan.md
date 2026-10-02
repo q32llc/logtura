@@ -1388,8 +1388,8 @@ HTTP fixture is proxied through container loopback so it works when the Docker d
 host differs from the caller's host. Async Docker stop keeps that fixture's HTTP
 server responsive while the runtime drains. There is no hosted-service dependency
 in this standalone fixture. Existing delivery/filter/context/503 retry checks still
-pass. The fixture mounts a Linux Node binary; production Node image packaging is
-not implied by this check.
+pass. At this milestone the fixture mounted a Linux Node binary. The packaged-image
+validation below replaces that mount with an image-supplied binary.
 
 Validation passes 787 private tests in 77 files and 536 public tests in 45 files.
 Private coverage is 77.06/73.33/80.28/74.25 and public coverage is
@@ -1421,3 +1421,51 @@ is integrated. Complete hosted local/workerd, remote and browser journeys/cleanu
 final backend/public 95/90 and UI 90/85 coverage, provider/telemetry hardening,
 dependency upgrades, npm publication, migrations 0018–0025 and staged production
 rollout remain outstanding. The complete shipping goal remains active.
+
+
+### Compatible packaged runtime images (implemented)
+
+The shared core Dockerfile renderer now optionally adds the dependency-bundled CLI
+runtime, a digest-pinned Node 22 binary and its required C++ runtime library. The
+trusted build adapter supplies `runtimeImageFiles`; deployment-specific descriptors,
+keys and credentials stay outside image layers. The private kitchen-sink generator
+stages those files from the built CLI package, so image CI uses the same executable
+and renderer as standalone library consumers.
+
+The image entrypoint detects `/etc/vector/logtura-runtime.json`. Absence preserves
+direct Vector startup, including existing managed Fly config arguments. Presence
+runs the supervisor and requires the fixed bound config; malformed files and dangling
+symlinks never downgrade to direct Vector. Persistent `/var/lib/logtura` checkpoint
+storage and a shutdown grace period of at least 35 seconds remain deployment
+requirements. Artifact installation, activation and service/CLI apply orchestration
+are still outstanding, so existing deployments are not newly reported as applied.
+
+Building and launching the default standalone image uncovered an existing duplicated
+executable: its inherited Vector ENTRYPOINT plus `CMD ["vector", ...]` invoked
+`vector vector ...`. Default CMD now supplies arguments only. Standalone default
+images remain Node-free; the real Docker fixture builds and launches that default
+image without overriding its command, and checks normalization, filters, context,
+503 retry and event delivery. The supervised fixture now builds its own packaged
+image, checks Node/Vector versions, starts the image's default entrypoint as PID 1,
+recovers accepted acknowledgement loss with counters 1, 1, 2, delivers a real event
+and exits 0 on graceful stop. Neither a host Node mount nor a hosted Logtura service
+supplies its runtime. Additional actual-container cases verify malformed descriptors,
+dangling links, directories, named pipes and conflicting arguments fail without
+private contents in diagnostics. Artifact opens are nonblocking before the regular-file
+check, preventing named pipes from hanging validation.
+
+Private validation passes 789 tests in 78 files with coverage
+77.09/73.44/80.31/74.28 (statements/branches/functions/lines). Public validation passes 538 tests in 46 files with coverage
+83.85/81.08/82.93/81.85. The new core image helpers have an enforced 100% coverage
+gate; existing global floors are preserved. Private
+builds, types, package-consumer checks and the image generator are also exercised.
+The previous supervision heads 6d7712d (private run 36961489153) and 2929df1 (public
+run 36961485345) passed every build, packed, type, delivery and test step in clean CI;
+both failed only the Codecov upload. Private image publication run 36961489181 passed.
+The earlier clean-public missing-tsx crash-test defect is therefore verified fixed.
+Codecov activation/access remains unresolved and its gate remains enforced.
+
+Durable activation/apply, persistent-volume installation, managed orchestration,
+complete local/workerd/remote/browser journeys, high final coverage floors,
+provider/telemetry hardening, dependency updates, npm publication, migrations 0018–0025
+and staged production rollout remain required. The full shipping goal remains active.

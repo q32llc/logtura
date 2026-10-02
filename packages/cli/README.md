@@ -496,3 +496,12 @@ cleanup before the fixed Vector API port can bind again. Existing standalone bun
 and deployment commands retain their current entrypoint until runtime artifact/apply
 wiring is added. This executable does not activate a service instance or create/update
 a deployment itself.
+
+
+The core image helpers can package this executable with a digest-pinned Node binary;
+see `runtimeImageFiles` and `renderDockerfile(deps, {runtimeSupervisor: true})` in the core
+README. The service's generated kitchen-sink image now includes that runtime.
+Its default entrypoint detects `/etc/vector/logtura-runtime.json`: absent descriptors
+preserve direct Vector startup; present descriptors require validation and the bound
+config before supervision. Descriptor files, credentials and checkpoints are runtime
+mounts, not image layers. CLI activation/apply wiring remains separate.

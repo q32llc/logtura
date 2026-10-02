@@ -22,14 +22,15 @@
  * credentials + an "all" or single-placeholder selection.
  *
  * Output: containers/forwarder/Dockerfile.generated plus runtime
- * assets under containers/forwarder/assets/. The build-forwarder
+ * assets under containers/forwarder/assets/ and the packaged supervisor under
+ * containers/forwarder/runtime/. The build-forwarder
  * workflow consumes these generated files.
  */
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { renderDockerfile } from "@logtura/core";
+import { renderDockerfile, runtimeImageFiles } from "@logtura/core";
 import { listProviders } from "../src/providers/index.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -129,9 +130,18 @@ console.log(`\n${allDeps.length} deps → ${deduped.length} after dedup`);
 // vector.yaml is mounted at runtime by the Fly machine config, not
 // COPYed into the image.
 const dockerfile = renderDockerfile(deduped, {
+  runtimeSupervisor: true,
   mountVectorYamlAtRuntime: true,
   includeRuntimeAssets: hasRuntimeAssets,
 });
+const runtimeDirectory = resolve(dirname(OUTPUT), "runtime");
+rmSync(runtimeDirectory, { recursive: true, force: true });
+const executable = readFileSync(resolve(__dirname, "..", "packages", "cli", "dist", "runtime-bin.js"));
+for (const file of runtimeImageFiles(executable)) {
+  const path = resolve(dirname(OUTPUT), file.name);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, file.content, { mode: file.mode });
+}
 mkdirSync(dirname(OUTPUT), { recursive: true });
 writeFileSync(OUTPUT, dockerfile);
 console.log(`\nwrote ${OUTPUT} (${dockerfile.length} bytes)`);

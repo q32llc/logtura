@@ -78,3 +78,4 @@ export { DeploymentReportingClient } from "./deployment-reporting";
 
 export { GENERATOR_VERSION, VECTOR_VERSION, validateForwarderRuntimeArtifact, compileForwarderRuntime, verifyLoadedForwarder, reportLoadedForwarder } from "./runtime";
 export type { ForwarderRuntimeArtifact, LoadedForwarderObservation, ForwarderReportCheckpoint, ForwarderReportStore } from "./runtime";
+export { FORWARDER_NODE_IMAGE, runtimeImageFiles, runtimeImageEntrypoint } from "./runtime-image";
