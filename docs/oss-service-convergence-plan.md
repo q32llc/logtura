@@ -3501,3 +3501,31 @@ remote cleanup, legacy managed replacement/rollback, coordinated npm publication
 and staged production rollout remain open. This milestone does not establish
 server-side website session expiry. No public package, production resource,
 migration or published npm version changed.
+
+
+### Native Slack OAuth destination baseline
+
+Twelve additional native assertions exercise the actual Slack start/callback
+routes, real D1 storage and encrypted destination configuration. They cover
+secure state cookies, signed-out callbacks, missing credentials, deleted state
+owners, malformed/mismatched state, webhook and workspace/channel variants,
+HTTP/transport failures, invalid JSON and invalid consumed fields. Stored
+configuration advances the user graph version; public destination listings
+contain neither the webhook URL nor the unused provider access token.
+
+The host callback now shares the existing Slack destination form parser,
+requires an active session to initiate authorization and checks that the signed
+state owner still exists before exchange. The exchange helper rejects HTTP
+failures and malformed successful payloads. Callback failures log a static
+message, eliminating the previous full provider-payload disclosure. The helper
+and state parser have 100% coverage gates in all dimensions.
+
+Validation passed all 1,291 assertions across 114 native/package test files,
+plus the service/package build and application/E2E types. Aggregate coverage is
+91.20% statements, 88.55% branches, 92.79% functions and 90.49% lines. Separate
+backend coverage is 85.27%, 81.47%, 85.91% and 83.68%, respectively. Aggregate
+and separate backend floors rise with this baseline. The local runtime journey
+was already verified on the preceding auth slice; this slice's changed Slack
+requests execute directly in native workerd tests. Final backend coverage and
+the remaining convergence/release/rollout gates are still required. No public
+package, production resource, migration or published npm version changed.

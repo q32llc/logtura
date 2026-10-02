@@ -1,3 +1,4 @@
+import { exchangeSlackWebhook, readSlackOAuthState } from "./destinations/slack-oauth";
 import { readProviderOAuthState } from "./providers/oauth-state";
 import { createDeploymentIngest } from "./deployment-ingest";
 import { deploymentStateRoutes,deploymentAppliedRoutes } from "./deployment-state-routes";
@@ -40,6 +41,7 @@ import {
   deleteSink,
   ensureDefaultErrorsMonitor,
   getConnection,
+  getUserById,
   getDestination,
   getMonitor,
   listConnections,
@@ -79,7 +81,6 @@ import {
   getDestinationDriver,
   listDestinationDrivers,
 } from "./destinations";
-import { DEFAULT_SLACK_MAX_MESSAGE_CHARS } from "@logtura/destination-slack";
 import {
   getDeployTargetDriver,
   listDeployTargetDrivers,
@@ -2196,13 +2197,10 @@ api.get("/destinations/slack/start", async (c) => {
   // (which arrives without our session intentionally — Slack redirects
   // independently of the user's browser session) can reattach to the
   // right user.
-  const userCookie = getCookie(c, "logtura_session");
-  const userId = userCookie
-    ? await verifyCookie(userCookie, c.env.SESSION_SECRET)
-    : null;
+  const userId = c.get("authKind") === "session" ? c.get("user")?.id : null;
   if (!userId) return c.redirect("/?error=auth_required", 303);
 
-  if (!c.env.SLACK_CLIENT_ID) {
+  if (!c.env.SLACK_CLIENT_ID || !c.env.SLACK_CLIENT_SECRET) {
     return c.redirect(
       "/app/destinations?error=slack_not_configured",
       303,
@@ -2241,63 +2239,29 @@ api.get("/destinations/slack/callback", async (c) => {
   if (!code || !state || !stateJson) {
     return c.redirect("/app/destinations?error=oauth_state", 303);
   }
-  const parsed = (() => {
-    try {
-      return JSON.parse(stateJson) as { state?: string; userId?: string };
-    } catch {
-      return null;
-    }
-  })();
-  if (!parsed || parsed.state !== state || !parsed.userId) {
-    return c.redirect("/app/destinations?error=oauth_state", 303);
-  }
+  const parsed = readSlackOAuthState(stateJson, state);
+  if (!parsed) return c.redirect("/app/destinations?error=oauth_state", 303);
+  if (!await getUserById(c.env.DB, parsed.userId)) return c.redirect("/?error=auth_required", 303);
   if (!c.env.SLACK_CLIENT_ID || !c.env.SLACK_CLIENT_SECRET) {
     return c.redirect(
       "/app/destinations?error=slack_not_configured",
       303,
     );
   }
-  // Exchange code for incoming webhook URL.
-  const tokenRes = await fetch("https://slack.com/api/oauth.v2.access", {
-    method: "POST",
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-      accept: "application/json",
-    },
-    body: new URLSearchParams({
-      client_id: c.env.SLACK_CLIENT_ID,
-      client_secret: c.env.SLACK_CLIENT_SECRET,
-      code,
-      redirect_uri: `${c.env.APP_URL}/api/destinations/slack/callback`,
-    }).toString(),
-  });
-  const payload = (await tokenRes.json()) as {
-    ok?: boolean;
-    error?: string;
-    incoming_webhook?: { url?: string; channel?: string };
-    team?: { name?: string };
-  };
-  if (!payload.ok || !payload.incoming_webhook?.url) {
-    console.error("slack oauth exchange failed", payload);
+  let webhook;
+  try {
+    webhook = await exchangeSlackWebhook({ clientId: c.env.SLACK_CLIENT_ID,
+      clientSecret: c.env.SLACK_CLIENT_SECRET, code,
+      redirectUri: `${c.env.APP_URL}/api/destinations/slack/callback` });
+  } catch {
+    console.error("slack oauth exchange failed");
     return c.redirect("/app/destinations?error=slack_exchange", 303);
   }
-  const teamName = payload.team?.name ?? null;
-  const channel = payload.incoming_webhook.channel ?? null;
-  const displayName = teamName
-    ? channel
-      ? `${teamName} #${channel.replace(/^#/, "")}`
-      : teamName
-    : "Slack";
   await createDestination(c.env.DB, c.env, {
     userId: parsed.userId,
     kind: "slack",
-    displayName,
-    config: {
-      webhookUrl: payload.incoming_webhook.url,
-      teamName,
-      channel,
-      maxMessageChars: DEFAULT_SLACK_MAX_MESSAGE_CHARS,
-    },
+    displayName: webhook.displayName,
+    config: webhook.config,
   });
   return c.redirect("/app/destinations?notice=slack_connected", 303);
 });
