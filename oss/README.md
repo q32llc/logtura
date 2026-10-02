@@ -196,5 +196,5 @@ CI enforces aggregate and module coverage thresholds plus a 95% changed-line
 gate. Each Actions run includes a coverage summary and a downloadable `coverage`
 artifact with HTML, LCOV, and JSON reports, retained for 14 days. No external
 coverage service is required. To check a local baseline, run
-`pnpm vitest run --coverage`, then
+`pnpm test:coverage`, then
 `node scripts/coverage-report.mjs --report coverage --base <commit>`.

@@ -20,9 +20,8 @@ export default defineConfig({
         plugins: [
           cloudflareTest({
             wrangler: { configPath: "./wrangler.test.toml", environment: "test" },
-            // Tests invoke inbound batches explicitly. Keep the native producer
-            // binding, without background deliveries racing per-test HTTP mocks.
-            miniflare: { queueConsumers: {} },
+            // The test-only Wrangler file has a native producer and no consumer.
+            // An empty override would merge with (and retain) a configured consumer.
           }),
         ],
         test: {

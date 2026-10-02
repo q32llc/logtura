@@ -2,9 +2,10 @@
 #   - [assets] (requires a built ./dist; not used in API tests)
 #   - [triggers] cron (we don't want scheduled handlers firing during
 #     a test run; we exercise routes directly)
-# Keeps D1 + Queues bindings so workerd-pool tests still get real
-# storage and a working queue runtime — matches the user's "no DB
-# mocks, only mock external HTTP" rule.
+# Keeps D1 and the native Queue producer binding. Tests deliver native incoming
+# batches explicitly; no automatic consumer may race their per-test HTTP mocks
+# or execute imports after the test environment has closed. An empty Miniflare
+# queueConsumers override does not remove consumers merged from this file.
 name = "logtura"
 main = "src/index.ts"
 compatibility_date = "2025-05-01"
@@ -37,9 +38,3 @@ migrations_dir = "migrations"
 [[env.test.queues.producers]]
 binding = "JOBS_QUEUE"
 queue = "logtura-jobs"
-
-[[env.test.queues.consumers]]
-queue = "logtura-jobs"
-max_batch_size = 5
-max_batch_timeout = 1
-max_retries = 3

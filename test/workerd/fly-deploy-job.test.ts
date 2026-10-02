@@ -2,7 +2,7 @@ import { env, createMessageBatch, createExecutionContext, getQueueResult } from 
 import { expect, it } from "vitest";
 import { createConnection, createDeployment, upsertSources } from "../../src/db";
 import { JobDriver } from "../../src/jobs/driver";
-import { processQueueBatch } from "../../src/jobs/queue";
+import worker from "../../src/index";
 import { flyAppNameFor } from "../../src/jobs/handlers/fly-deploy";
 import { readConfigurationVersion } from "../../src/config-version";
 import type { JobKind, JobRecord } from "../../src/jobs/types";
@@ -27,7 +27,7 @@ async function fixture() {
 async function consume(f: Awaited<ReturnType<typeof fixture>>, job: JobRecord) {
   await env.DB.prepare("UPDATE jobs SET available_at=NULL WHERE id=?").bind(job.id).run();
   const batch = createMessageBatch("logtura-jobs", [{ id: job.id, timestamp: new Date(), attempts: 1, body: { jobId: job.id } }]);
-  await processQueueBatch(batch, env);
+  await worker.queue(batch, env);
   const result = await getQueueResult(batch, createExecutionContext());
   expect(result.explicitAcks).toEqual([job.id]); expect(result.retryMessages).toEqual([]);
   return (await f.driver.getById(job.id))!;

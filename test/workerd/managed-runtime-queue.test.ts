@@ -2,7 +2,7 @@ import {env,createMessageBatch,createExecutionContext,getQueueResult} from "clou
 import {expect,it} from "vitest";
 import type {FlyMachineConfig} from "@logtura/core";
 import {JobDriver} from "../../src/jobs/driver";
-import {processQueueBatch} from "../../src/jobs/queue";
+import worker from "../../src/index";
 import type {JobRecord} from "../../src/jobs/types";
 import {readManagedInstall} from "../../src/managed-installations";
 import {activateDeploymentInstance,acknowledgeDeploymentConfiguration} from "../../src/deployment-configuration";
@@ -24,7 +24,7 @@ async function fixture(){
  });
  const parentPayload={deploymentId:f.deployment.id,deployTargetId:f.target.id,orgSlug:"personal",region:"ord"};
  const root=(await driver.enqueue({userId:f.userId,kind:"fly_deploy.create_or_update_machine",payload:{parentPayload,appName:"app",orgSlug:"personal",region:"ord"}})).job;
- async function consume(job:JobRecord){await env.DB.prepare("UPDATE jobs SET available_at=NULL WHERE id=?").bind(job.id).run();const batch=createMessageBatch("logtura-jobs",[{id:job.id,timestamp:new Date(),attempts:1,body:{jobId:job.id}}]);await processQueueBatch(batch,env);const result=await getQueueResult(batch,createExecutionContext());expect(result.explicitAcks).toEqual([job.id]);expect(result.retryMessages).toEqual([]);return (await driver.getById(job.id))!;}
+ async function consume(job:JobRecord){await env.DB.prepare("UPDATE jobs SET available_at=NULL WHERE id=?").bind(job.id).run();const batch=createMessageBatch("logtura-jobs",[{id:job.id,timestamp:new Date(),attempts:1,body:{jobId:job.id}}]);await worker.queue(batch,env);const result=await getQueueResult(batch,createExecutionContext());expect(result.explicitAcks).toEqual([job.id]);expect(result.retryMessages).toEqual([]);return (await driver.getById(job.id))!;}
  async function next(){return (await driver.listChildren(root.id)).find(job=>job.kind==="fly_deploy.wait_running" && job.status==="queued")!;}
  async function read(){return env.DB.prepare("SELECT status,bundle_outdated FROM deployments WHERE id=?").bind(f.deployment.id).first();}
  async function report(){

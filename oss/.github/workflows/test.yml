@@ -38,7 +38,7 @@ jobs:
         run: pnpm typecheck
 
       - name: coverage report and failure-gate tests
-        run: node --test scripts/coverage-report.test.mjs
+        run: node --test scripts/coverage-report.test.mjs scripts/test-coverage.test.mjs
 
       - name: pull vector image
         # Each driver/destination package's vector-validate.test.ts
@@ -55,7 +55,7 @@ jobs:
         # renderer + each driver/destination's parser & yaml, plus
         # the docker-backed vector-validate tests that pipe each
         # bundle's emitted YAML through the real Vector binary.
-        run: pnpm vitest run --coverage
+        run: pnpm test:coverage
         env:
           LOGT_REQUIRE_DOCKER: "1"
 

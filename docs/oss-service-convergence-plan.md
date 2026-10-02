@@ -211,6 +211,9 @@ Rollback covers Worker version, additive migration compatibility, package versio
 
 ## Separate dependency and runtime upgrade plan
 
+Concrete candidates, decisions, rejection evidence, and validation gates are in
+[the dependency upgrade plan](dependency-upgrade-plan.md).
+
 Inventory resolved lockfile versions, security advisories, runtime images, provider API assumptions, and supported Node versions. Update compatible dependencies first where needed for this work. Decide separately on coordinated Wrangler/Workers test-pool changes, frontend majors, TypeScript/Vitest majors, and Vector upgrades.
 
 Pin Vector in generated Dockerfiles and CI before relying on reproducible validation. Vector 0.57 disables environment interpolation by default; generated `${VAR}` configurations need a deliberate compatibility decision before upgrading from the current 0.55 runtime. See the [Vector release notes](https://vector.dev/releases/). Validate each candidate runtime against all generated driver/destination topologies and actual delivery tests, including Bun-based assets and credential renewal.
@@ -3149,3 +3152,36 @@ journey and live Fly canary remain required. Existing managed machines without a
 checkpoint require a safe replacement/rollback path and are currently refused by
 new chains; active legacy intent recovery and old queued chains remain supported.
 No production migration, machine, volume, or npm release was changed by this slice.
+
+The exact managed creation commit `cd8c4ef` completed
+[private CI](https://github.com/q32llc/logtura/actions/runs/37032208922) successfully,
+including actual local runtime journeys, native/package/UI coverage, report
+artifact upload, and the owned changed-line gate.
+
+### Native queue isolation and reliable coverage failure reporting (implemented)
+
+The test pool merges queue consumers: an empty `queueConsumers` override did not
+disable the consumer configured in the test Wrangler file. Background deliveries
+were racing explicit native batches and test teardown. Remove that test-only
+consumer, retain the real producer, and reject incompatible effective options in
+global setup. Managed queue tests explicitly invoke the actual Worker queue
+entrypoint and verify native ack/retry results. No production queue configuration
+is changed. Actual parser/merge regression tests guard this behavior.
+
+An owned coverage runner preserves all output and fails on uncaught runtime/RPC
+diagnostics even if the pool returns success. Real process tests cover chunk-split
+diagnostics, both streams, signal/exit failures, and expected application errors.
+CI in both repositories uses it. Vitest and Istanbul are aligned at 4.1.11 in both
+layouts and all package dev dependencies; the pool remains exactly pinned at
+0.16.3. The newer pool was evaluated and rejected because it still emitted the
+same teardown error and requires a broader coordinated runtime/types upgrade.
+The [separate dependency plan](dependency-upgrade-plan.md) records that decision.
+
+Two complete pinned-pool runs, including the new guarded run, passed all 1,125
+assertions and existing coverage floors without the teardown error or background
+claim activity. All 280 UI assertions, 17 guard tests, service/public build and
+types, 723 public package assertions with unchanged coverage floors, 15 installed
+tarball consumers, and the actual browser/CLI/workerd/Docker Vector compatibility
+journey passed. The verified queue race is fixed; future uncaught diagnostics will
+now fail CI. Final backend coverage, managed runtime E2E/replacement, provider
+delivery matrix, dependency/release/rollout gates remain open.

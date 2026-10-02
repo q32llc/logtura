@@ -38,7 +38,7 @@ jobs:
         run: pnpm typecheck
 
       - name: coverage report and failure-gate tests
-        run: node --test oss/scripts/coverage-report.test.mjs
+        run: node --test oss/scripts/coverage-report.test.mjs oss/scripts/test-coverage.test.mjs test/harness/*.test.mjs
 
       - name: pull vector image
         # All per-package vector-validate tests reach for
@@ -69,7 +69,7 @@ jobs:
         # bundle's YAML to `vector validate` inside the image above.
         # The legacy scripts/test-vector-config.mjs has been retired;
         # the per-package tests subsume every fixture it ran.
-        run: pnpm vitest run --coverage
+        run: pnpm test:coverage
         env:
           LOGT_REQUIRE_DOCKER: "1"
 

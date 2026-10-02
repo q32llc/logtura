@@ -88,8 +88,8 @@ importers:
         version: 3.25.76
     devDependencies:
       '@cloudflare/vitest-pool-workers':
-        specifier: ^0.16.3
-        version: 0.16.3(@cloudflare/workers-types@4.20260509.1)(@vitest/runner@4.1.5)(@vitest/snapshot@4.1.5)(vitest@4.1.5)
+        specifier: 0.16.3
+        version: 0.16.3(@cloudflare/workers-types@4.20260509.1)(@vitest/runner@4.1.11)(@vitest/snapshot@4.1.11)(vitest@4.1.11)
       '@cloudflare/workers-types':
         specifier: ^4.20250109.0
         version: 4.20260509.1
@@ -118,8 +118,8 @@ importers:
         specifier: ^4.3.4
         version: 4.7.0(supports-color@10.2.2)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
       '@vitest/coverage-istanbul':
-        specifier: 4.1.5
-        version: 4.1.5(supports-color@10.2.2)(vitest@4.1.5)
+        specifier: 4.1.11
+        version: 4.1.11(supports-color@10.2.2)(vitest@4.1.11)
       concurrently:
         specifier: ^9.1.0
         version: 9.2.1
@@ -154,8 +154,8 @@ importers:
         specifier: ^6.0.7
         version: 6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0)
       vitest:
-        specifier: ^4.1.5
-        version: 4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
       wrangler:
         specifier: ^3.99.0
         version: 3.114.17(@cloudflare/workers-types@4.20260509.1)
@@ -215,8 +215,8 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
       vitest:
-        specifier: 4.1.5
-        version: 4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
 
   packages/cloudflare-shared:
     devDependencies:
@@ -227,8 +227,8 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
       vitest:
-        specifier: 4.1.5
-        version: 4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
 
   packages/core:
     devDependencies:
@@ -236,8 +236,8 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
       vitest:
-        specifier: 4.1.5
-        version: 4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
 
   packages/custom-vector:
     dependencies:
@@ -252,8 +252,8 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
       vitest:
-        specifier: 4.1.5
-        version: 4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
 
   packages/destination-datadog-metrics:
     devDependencies:
@@ -264,8 +264,8 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
       vitest:
-        specifier: 4.1.5
-        version: 4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
 
   packages/destination-prometheus-remote-write:
     devDependencies:
@@ -276,8 +276,8 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
       vitest:
-        specifier: 4.1.5
-        version: 4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
 
   packages/destination-slack:
     devDependencies:
@@ -288,8 +288,8 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
       vitest:
-        specifier: 4.1.5
-        version: 4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
 
   packages/destination-webhook:
     devDependencies:
@@ -300,8 +300,8 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
       vitest:
-        specifier: 4.1.5
-        version: 4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
 
   packages/driver-cloudflare-ai-gateway:
     dependencies:
@@ -316,8 +316,8 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
       vitest:
-        specifier: 4.1.5
-        version: 4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
 
   packages/driver-cloudflare-worker-tail:
     dependencies:
@@ -332,8 +332,8 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
       vitest:
-        specifier: 4.1.5
-        version: 4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
 
   packages/driver-fly-log-tail:
     devDependencies:
@@ -344,8 +344,8 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
       vitest:
-        specifier: 4.1.5
-        version: 4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
 
   packages/driver-railway-logs:
     devDependencies:
@@ -356,8 +356,8 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
       vitest:
-        specifier: 4.1.5
-        version: 4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
 
   packages/driver-supabase-edge-logs:
     dependencies:
@@ -372,8 +372,8 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
       vitest:
-        specifier: 4.1.5
-        version: 4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
 
   packages/driver-vercel-logs:
     devDependencies:
@@ -384,8 +384,8 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
       vitest:
-        specifier: 4.1.5
-        version: 4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
 
   packages/supabase-shared:
     devDependencies:
@@ -396,8 +396,8 @@ importers:
         specifier: ^5.6.3
         version: 5.9.3
       vitest:
-        specifier: 4.1.5
-        version: 4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+        specifier: 4.1.11
+        version: 4.1.11(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
 
 packages:
 
@@ -1901,16 +1901,16 @@ packages:
     peerDependencies:
       vite: ^4.2.0 || ^5.0.0 || ^6.0.0 || ^7.0.0
 
-  '@vitest/coverage-istanbul@4.1.5':
-    resolution: {integrity: sha512-X4kQMDEWh9mA0IiLuigtdYv4kXe+W8KLTbucoz15lbyZRPAxT5l+hu0JizI7Am050+G9vQnB7QJNgYi2LnwV4w==}
+  '@vitest/coverage-istanbul@4.1.11':
+    resolution: {integrity: sha512-pK9LJtOS534bmUwdwLpGD9qL52DeqVWSInrXFMNqrvWLbbAhuIPAlRup3UbsjFOMqCC/p3MmmX7uXV7ZTkcFfQ==}
     peerDependencies:
-      vitest: 4.1.5
+      vitest: 4.1.11
 
-  '@vitest/expect@4.1.5':
-    resolution: {integrity: sha512-PWBaRY5JoKuRnHlUHfpV/KohFylaDZTupcXN1H9vYryNLOnitSw60Mw9IAE2r67NbwwzBw/Cc/8q9BK3kIX8Kw==}
+  '@vitest/expect@4.1.11':
+    resolution: {integrity: sha512-VX2x5vNJXET47KAFzwERI+KRMtTTCSWTfSMKsW7JsUsXV4psq++e3DvZpuTDOpHcxytiDs6p2nhVb2tVDiiUYw==}
 
-  '@vitest/mocker@4.1.5':
-    resolution: {integrity: sha512-/x2EmFC4mT4NNzqvC3fmesuV97w5FC903KPmey4gsnJiMQ3Be1IlDKVaDaG8iqaLFHqJ2FVEkxZk5VmeLjIItw==}
+  '@vitest/mocker@4.1.11':
+    resolution: {integrity: sha512-2XJVD55d1o5AZous5CCGKS74g/riOj9odEt2bQpCVZeblHyHdnMeFl4jl0XjU21stf4mbjUkew2eXQZt65g5CQ==}
     peerDependencies:
       msw: ^2.4.9
       vite: ^6.0.0 || ^7.0.0 || ^8.0.0
@@ -1920,20 +1920,20 @@ packages:
       vite:
         optional: true
 
-  '@vitest/pretty-format@4.1.5':
-    resolution: {integrity: sha512-7I3q6l5qr03dVfMX2wCo9FxwSJbPdwKjy2uu/YPpU3wfHvIL4QHwVRp57OfGrDFeUJ8/8QdfBKIV12FTtLn00g==}
+  '@vitest/pretty-format@4.1.11':
+    resolution: {integrity: sha512-yiZzPbGTS9Sr/JpFl8zHrcIkAofNbFV6k21vIgQN/cY/oxZeXhJv5sc/MBJ5jFKWmWs+oJHw0UXLZjmf931+Vw==}
 
-  '@vitest/runner@4.1.5':
-    resolution: {integrity: sha512-2D+o7Pr82IEO46YPpoA/YU0neeyr6FTerQb5Ro7BUnBuv6NQtT/kmVnczngiMEBhzgqz2UZYl5gArejsyERDSQ==}
+  '@vitest/runner@4.1.11':
+    resolution: {integrity: sha512-LztvUgdwMNJMIkj3hQnnxiC2Xy1zNxq928W/xhjCLaNCzqTZOudjwbQf6v9IntZGPw132i2Lq2rgTRZHD3JHNw==}
 
-  '@vitest/snapshot@4.1.5':
-    resolution: {integrity: sha512-zypXEt4KH/XgKGPUz4eC2AvErYx0My5hfL8oDb1HzGFpEk1P62bxSohdyOmvz+d9UJwanI68MKwr2EquOaOgMQ==}
+  '@vitest/snapshot@4.1.11':
+    resolution: {integrity: sha512-pN7ikn1ON7h8ee4gIAp4AzyK+zBtJPzVbqOgu5LCEh4VaJVbPQcgYQYJIMGQPXVeJJq1fnfazis7a5pFNPahog==}
 
-  '@vitest/spy@4.1.5':
-    resolution: {integrity: sha512-2lNOsh6+R2Idnf1TCZqSwYlKN2E/iDlD8sgU59kYVl+OMDmvldO1VDk39smRfpUNwYpNRVn3w4YfuC7KfbBnkQ==}
+  '@vitest/spy@4.1.11':
+    resolution: {integrity: sha512-apNa/prQy2qCeywhnixOHPRCgGNhvg7T4Dapfl1GahLp/R+uhBm5cPyFoNVyqsNd2h1nJxL6BqqdIjiABL60YA==}
 
-  '@vitest/utils@4.1.5':
-    resolution: {integrity: sha512-76wdkrmfXfqGjueGgnb45ITPyUi1ycZ4IHgC2bhPDUfWHklY/q3MdLOAB+TF1e6xfl8NxNY0ZYaPCFNWSsw3Ug==}
+  '@vitest/utils@4.1.11':
+    resolution: {integrity: sha512-zTCVGpyFsGWBhllOyKlTw/vnr6D9qxsfSDyfbyZmTyjHw5N/VuvzHpHoQjm2ZJzn4RJgx5w4r7V0er69CmLgPQ==}
 
   acorn-jsx@5.3.2:
     resolution: {integrity: sha512-rq9s+JNhf0IChjtDXxllJ7g41oZk5SlXtp0LHwyA5cejwn7vKmKp4pPri6YEePv2PU65sAsegbXtIinmDFDXgQ==}
@@ -2024,8 +2024,8 @@ packages:
   character-reference-invalid@2.0.1:
     resolution: {integrity: sha512-iBZ4F4wRbyORVsu0jPV7gXkOsGYjGHPmAyv+HiHG8gi5PtC9KI2j1+v8/tlibRvjoWX027ypmG/n0HtO5t7unw==}
 
-  cjs-module-lexer@1.4.3:
-    resolution: {integrity: sha512-9z8TZaGM1pfswYeXrUpzPrkx8UnWYdhJclsiYMm6x/w5+nN+8Tf/LnAgfLGQCm59qAOxU8WwHEq2vNwF6i4j+Q==}
+  cjs-module-lexer@1.2.3:
+    resolution: {integrity: sha512-0TNiGstbQmCFwt4akjjBg5pLRTSyj/PkWQ1ZoO2zntmg9yLqSRxwEa4iCfQLGjqhiqBfOJa7W/E8wfGrTDmlZQ==}
 
   cliui@8.0.1:
     resolution: {integrity: sha512-BSeNnyus75C4//NQ9gQt1/csTXyo/8Sb+afLAkzAptFuMsod9HFokGNudZpi/oQV73hnVK+sR+5PVRMd+Dr7YQ==}
@@ -3122,20 +3122,20 @@ packages:
       yaml:
         optional: true
 
-  vitest@4.1.5:
-    resolution: {integrity: sha512-9Xx1v3/ih3m9hN+SbfkUyy0JAs72ap3r7joc87XL6jwF0jGg6mFBvQ1SrwaX+h8BlkX6Hz9shdd1uo6AF+ZGpg==}
+  vitest@4.1.11:
+    resolution: {integrity: sha512-fhACrNXUidIbGSBr5FlbuBkO7VWC1ZyLl0DO4CU2DrQoAPxX84Ysxs+HeGQpii5lZWV1Q4gBZTTu49mF+A6Edw==}
     engines: {node: ^20.0.0 || ^22.0.0 || >=24.0.0}
     hasBin: true
     peerDependencies:
       '@edge-runtime/vm': '*'
       '@opentelemetry/api': ^1.9.0
       '@types/node': ^20.0.0 || ^22.0.0 || >=24.0.0
-      '@vitest/browser-playwright': 4.1.5
-      '@vitest/browser-preview': 4.1.5
-      '@vitest/browser-webdriverio': 4.1.5
-      '@vitest/coverage-istanbul': 4.1.5
-      '@vitest/coverage-v8': 4.1.5
-      '@vitest/ui': 4.1.5
+      '@vitest/browser-playwright': 4.1.11
+      '@vitest/browser-preview': 4.1.11
+      '@vitest/browser-webdriverio': 4.1.11
+      '@vitest/coverage-istanbul': 4.1.11
+      '@vitest/coverage-v8': 4.1.11
+      '@vitest/ui': 4.1.11
       happy-dom: '*'
       jsdom: '*'
       vite: ^6.0.0 || ^7.0.0 || ^8.0.0
@@ -3432,14 +3432,14 @@ snapshots:
     optionalDependencies:
       workerd: 1.20260507.1
 
-  '@cloudflare/vitest-pool-workers@0.16.3(@cloudflare/workers-types@4.20260509.1)(@vitest/runner@4.1.5)(@vitest/snapshot@4.1.5)(vitest@4.1.5)':
+  '@cloudflare/vitest-pool-workers@0.16.3(@cloudflare/workers-types@4.20260509.1)(@vitest/runner@4.1.11)(@vitest/snapshot@4.1.11)(vitest@4.1.11)':
     dependencies:
-      '@vitest/runner': 4.1.5
-      '@vitest/snapshot': 4.1.5
-      cjs-module-lexer: 1.4.3
+      '@vitest/runner': 4.1.11
+      '@vitest/snapshot': 4.1.11
+      cjs-module-lexer: 1.2.3
       esbuild: 0.27.3
       miniflare: 4.20260507.1
-      vitest: 4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+      vitest: 4.1.11(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
       wrangler: 4.90.0(@cloudflare/workers-types@4.20260509.1)
       zod: 3.25.76
     transitivePeerDependencies:
@@ -4355,7 +4355,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@vitest/coverage-istanbul@4.1.5(supports-color@10.2.2)(vitest@4.1.5)':
+  '@vitest/coverage-istanbul@4.1.11(supports-color@10.2.2)(vitest@4.1.11)':
     dependencies:
       '@babel/core': 7.29.0(supports-color@10.2.2)
       '@istanbuljs/schema': 0.1.6
@@ -4367,48 +4367,48 @@ snapshots:
       magicast: 0.5.2
       obug: 2.1.1
       tinyrainbow: 3.1.0
-      vitest: 4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+      vitest: 4.1.11(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
     transitivePeerDependencies:
       - supports-color
 
-  '@vitest/expect@4.1.5':
+  '@vitest/expect@4.1.11':
     dependencies:
       '@standard-schema/spec': 1.1.0
       '@types/chai': 5.2.3
-      '@vitest/spy': 4.1.5
-      '@vitest/utils': 4.1.5
+      '@vitest/spy': 4.1.11
+      '@vitest/utils': 4.1.11
       chai: 6.2.2
       tinyrainbow: 3.1.0
 
-  '@vitest/mocker@4.1.5(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))':
+  '@vitest/mocker@4.1.11(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))':
     dependencies:
-      '@vitest/spy': 4.1.5
+      '@vitest/spy': 4.1.11
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
       vite: 6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0)
 
-  '@vitest/pretty-format@4.1.5':
+  '@vitest/pretty-format@4.1.11':
     dependencies:
       tinyrainbow: 3.1.0
 
-  '@vitest/runner@4.1.5':
+  '@vitest/runner@4.1.11':
     dependencies:
-      '@vitest/utils': 4.1.5
+      '@vitest/utils': 4.1.11
       pathe: 2.0.3
 
-  '@vitest/snapshot@4.1.5':
+  '@vitest/snapshot@4.1.11':
     dependencies:
-      '@vitest/pretty-format': 4.1.5
-      '@vitest/utils': 4.1.5
+      '@vitest/pretty-format': 4.1.11
+      '@vitest/utils': 4.1.11
       magic-string: 0.30.21
       pathe: 2.0.3
 
-  '@vitest/spy@4.1.5': {}
+  '@vitest/spy@4.1.11': {}
 
-  '@vitest/utils@4.1.5':
+  '@vitest/utils@4.1.11':
     dependencies:
-      '@vitest/pretty-format': 4.1.5
+      '@vitest/pretty-format': 4.1.11
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.0
 
@@ -4479,7 +4479,7 @@ snapshots:
 
   character-reference-invalid@2.0.1: {}
 
-  cjs-module-lexer@1.4.3: {}
+  cjs-module-lexer@1.2.3: {}
 
   cliui@8.0.1:
     dependencies:
@@ -6032,15 +6032,15 @@ snapshots:
       tsx: 4.21.0
       yaml: 2.9.0
 
-  vitest@4.1.5(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.5)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0)):
+  vitest@4.1.11(@types/node@22.19.19)(@vitest/coverage-istanbul@4.1.11)(jsdom@30.1.1)(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0)):
     dependencies:
-      '@vitest/expect': 4.1.5
-      '@vitest/mocker': 4.1.5(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
-      '@vitest/pretty-format': 4.1.5
-      '@vitest/runner': 4.1.5
-      '@vitest/snapshot': 4.1.5
-      '@vitest/spy': 4.1.5
-      '@vitest/utils': 4.1.5
+      '@vitest/expect': 4.1.11
+      '@vitest/mocker': 4.1.11(vite@6.4.2(@types/node@22.19.19)(sugarss@5.0.1(postcss@8.5.14))(tsx@4.21.0)(yaml@2.9.0))
+      '@vitest/pretty-format': 4.1.11
+      '@vitest/runner': 4.1.11
+      '@vitest/snapshot': 4.1.11
+      '@vitest/spy': 4.1.11
+      '@vitest/utils': 4.1.11
       es-module-lexer: 2.1.0
       expect-type: 1.3.0
       magic-string: 0.30.21
@@ -6056,7 +6056,7 @@ snapshots:
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 22.19.19
-      '@vitest/coverage-istanbul': 4.1.5(supports-color@10.2.2)(vitest@4.1.5)
+      '@vitest/coverage-istanbul': 4.1.11(supports-color@10.2.2)(vitest@4.1.11)
       jsdom: 30.1.1
     transitivePeerDependencies:
       - msw

@@ -68,6 +68,8 @@ containing HTML, LCOV, and JSON reports, retained for 14 days. Reports inherit
 repository access; no external coverage service or credential is needed.
 To check a local baseline after generating backend and UI coverage, run
 `node scripts/coverage-report.mjs --report coverage --report coverage/ui --base <commit>`.
+`pnpm test:coverage` also rejects uncaught Workers runtime diagnostics when the
+test pool fails to propagate them through its exit code.
 
 ## Deploy SaaS
 
