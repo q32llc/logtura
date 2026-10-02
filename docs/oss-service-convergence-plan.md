@@ -3768,3 +3768,42 @@ A live Railway sandbox and complete provider-to-Vector-to-destination matrix
 remain required, along with per-package floors, durable remote cleanup, legacy
 managed replacement/rollback, coordinated npm publication and staged production
 rollout. No production resource, migration or published npm version changed.
+
+### Actual Railway generated-forwarder delivery and failure cleanup
+
+Credential baseline head `92bea96` completed its exact
+[private CI run](https://github.com/q32llc/logtura/actions/runs/37065726571).
+The first Bun runtime baseline completed its exact
+[public CI run](https://github.com/logtura/logtura/actions/runs/37066571554)
+and [private image run](https://github.com/q32llc/logtura/actions/runs/37066585200).
+
+The required Railway runtime gate now also calls the public renderer and
+self-deploy file composer, builds their complete generated Docker context and
+runs its actual Vector binary, Bun dependency and emitted exec-source helper.
+A controlled WebSocket provider feeds a real HTTP webhook destination. Only the
+provider socket URL is redirected through a fixture PATH wrapper; generated
+helper bytes, exec command, YAML, filters and destination are exercised together.
+No external network access is enabled inside either runtime fixture container.
+
+Delivered events prove error normalization, selected-service and environment
+isolation, monitor error filtering, attributes, exceptions and shared connection/
+provider context. Warning, unselected-service and wrong-environment rows never
+arrive at the receiver. Replay rows after actual socket close/reconnect arrive
+once, while a new row still flows. The receiver fails its first request with 503;
+Vector retries and delivers exactly the two expected errors. Vector then exits
+successfully after SIGTERM.
+
+The gate repeats delivery with an injected failure after the real receiver has
+accepted events, requires the specific rejection and verifies owned container,
+image and temporary-directory cleanup. This found and fixed fixture directory
+ownership: a container-created directory prevented host cleanup, so the host
+now creates that directory before launch. The normal and injected-failure gates
+passed independently in both private and public layouts. Production source and
+coverage floors are unchanged; this expands the CI runtime proof beyond the
+previous helper-only socket and synthetic Vector routing tests.
+
+Live Railway sandbox validation and the rest of the provider/destination matrix
+remain required. Per-package floors, durable remote cleanup/SIGKILL recovery,
+legacy managed replacement/rollback, coordinated npm publication and staged
+production rollout remain open. No production resource, migration or published
+npm version changed.
