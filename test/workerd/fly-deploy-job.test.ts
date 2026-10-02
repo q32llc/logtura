@@ -7,7 +7,8 @@ import { flyAppNameFor } from "../../src/jobs/handlers/fly-deploy";
 import { readConfigurationVersion } from "../../src/config-version";
 import type { JobKind, JobRecord } from "../../src/jobs/types";
 import { mockFetch, seedDeployTarget, seedUser } from "./_setup";
-const digest = `sha256:${"a".repeat(64)}`;
+const imageManifest = JSON.stringify({ schemaVersion: 2, mediaType: "application/vnd.oci.image.manifest.v1+json", config: { digest: `sha256:${"b".repeat(64)}` }, layers: [] });
+const digest = `sha256:${[...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(imageManifest)))].map(byte => byte.toString(16).padStart(2,"0")).join("")}`;
 async function fixture() {
   const { userId } = await seedUser();
   const target = await seedDeployTarget({ userId, kind: "fly", displayName: "Fly", externalAccountId: "personal", credentials: { apiToken: "fo1_fixture" } });
@@ -28,9 +29,17 @@ async function consume(f: Awaited<ReturnType<typeof fixture>>, job: JobRecord) {
   expect(result.explicitAcks).toEqual([job.id]); expect(result.retryMessages).toEqual([]);
   return (await f.driver.getById(job.id))!;
 }
-function registry() {
+const imageIndex = JSON.stringify({schemaVersion:2,mediaType:"application/vnd.oci.image.index.v1+json",manifests:[{digest,size:new TextEncoder().encode(imageManifest).byteLength,mediaType:"application/vnd.oci.image.manifest.v1+json",platform:{os:"linux",architecture:"amd64"}}]});
+const indexDigest = `sha256:${[...new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(imageIndex)))].map(byte=>byte.toString(16).padStart(2,"0")).join("")}`;
+function registry(index = false) {
   mockFetch("https://ghcr.io/token", () => Response.json({ token: "registry_fixture" }));
-  mockFetch("https://ghcr.io/v2/q32llc/logtura-forwarder/manifests/latest", req => { expect(req.method).toBe("HEAD"); expect(req.headers.get("authorization")).toBe("Bearer registry_fixture"); return new Response(null, { status: 200, headers: { "docker-content-digest": digest } }); });
+  mockFetch("https://ghcr.io/v2/q32llc/logtura-forwarder/manifests/", req => {
+    expect(req.headers.get("authorization")).toBe("Bearer registry_fixture");
+    if (req.method === "HEAD") return new Response(null, { status: 200, headers: { "docker-content-digest": index ? indexDigest : digest } });
+    if (index && new URL(req.url).pathname.endsWith(indexDigest)) return new Response(imageIndex, { headers: { "docker-content-digest": indexDigest } });
+    expect(new URL(req.url).pathname.endsWith(digest)).toBe(true);
+    return new Response(imageManifest, { headers: { "docker-content-digest": digest } });
+  });
 }
 function machine(state = "started", checks: unknown[] = [{ name: "vector_api", status: "passing" }], events: unknown[] = []) { return { id: "machine1", name: "forwarder", state, region: "ord", config: { image: `ghcr.io/q32llc/logtura-forwarder@${digest}` }, checks, events }; }
 it("runs the real persisted parent/three-step queue chain with generated Railway assets and a fenced healthy completion", async () => {
@@ -105,4 +114,8 @@ it.each([{}, {apiToken:""}])("rejects missing or empty generated runtime credent
 });
 it("accepts healthy checks after an old exit and preserves default organization/region results", async () => {
   const f = await fixture(); mockFetch("https://api.machines.dev", () => Response.json([machine("started",[{name:"vector_api",status:"passing"}],[{type:"exit",timestamp:Date.now()-31_000}])])); const job = await f.enqueue("fly_deploy.wait_running", {parentPayload:{deploymentId:f.deployment.id,deployTargetId:f.target.id},appName:f.appName,machineId:"machine1",pollDeadline:Date.now()+1000,configurationVersion:await readConfigurationVersion(env.DB,f.userId)}); const result = await consume(f,job); expect(result.result).toMatchObject({orgSlug:"personal",region:"iad",checksPassing:true});
+});
+
+it("pins the managed provider request to the verified platform child of an OCI index",async()=>{
+ const f=await fixture();registry(true);mockFetch("https://api.machines.dev",async req=>{if(req.method==="GET")return Response.json([]);const body=await req.json() as {config:{image:string}};expect(body.config.image).toBe(`ghcr.io/q32llc/logtura-forwarder@${digest}`);expect(body.config.image).not.toContain(indexDigest);return Response.json(machine());});const job=await f.enqueue("fly_deploy.create_or_update_machine",{parentPayload:f.parentPayload,appName:f.appName,orgSlug:"personal",region:"ord"});expect((await consume(f,job)).status).toBe("succeeded");expect(await f.read()).toMatchObject({image_digest:digest});
 });

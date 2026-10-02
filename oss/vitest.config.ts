@@ -28,6 +28,7 @@ export default defineConfig({
       reporter: ["text", "html", "lcov", "json-summary"],
       // Final aggregate package target met; all production package source stays included.
       thresholds: {
+        "packages/core/src/oci-image.ts": { statements: 100, branches: 98, functions: 100, lines: 100 },
         statements: 95, branches: 92, functions: 96.5, lines: 95.5,
         "packages/core/src/reconcile.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/graph.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },

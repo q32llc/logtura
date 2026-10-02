@@ -27,7 +27,7 @@ try {
   // Typecheck the installed tarballs with their declarations, without skipLibCheck.
   const typesFile = join(consumer, "consumer.mts");
   writeFileSync(typesFile, packages.map((name, index) => `import * as package${index} from '@logtura/${name}';`).join("\n") + `
-    import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient, flyBundleFiles} from '@logtura/core';
+    import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient, flyBundleFiles, resolveFlyImage} from '@logtura/core';
     import {type PendingActivation, type PendingFlyApply, activateLinkedDeployment} from '@logtura/cli';
     const typedActivation: (client:LogturaServiceClient,config:string,options?:{resume?:boolean})=>Promise<DeploymentInstanceReceipt> = activateLinkedDeployment;
     // @ts-expect-error Config fields remain required; these exports must not become any.
@@ -38,6 +38,8 @@ try {
     const invalidApply:PendingFlyApply = {schemaVersion:1};
     // @ts-expect-error Generated bundle fields remain required.
     flyBundleFiles({});
+    // @ts-expect-error Registry tokens retain their string type.
+    resolveFlyImage('registry.test/image@sha256:'+'a'.repeat(64),{token:1});
     void invalidApply;void typedActivation;void invalidInput;void invalidPending;
   `);
   for (const [module, resolution] of [["NodeNext", "NodeNext"], ["Node16", "Node16"], ["ESNext", "Bundler"]]) {
@@ -87,7 +89,7 @@ monitors: []
   assert.equal(bin("logtura",["stats","metrics file.ndjson"]),stats);
   assert.match(stats,/packed_sink\tsink\thttp\t-\t7\t-/);
   const script = `import assert from 'node:assert/strict';
-    import {parseMetricsBody,applyMetricsToSnapshot,rateFor,flyBundleFiles,GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,FlyMachinesClient,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit} from '@logtura/core';
+    import {parseMetricsBody,applyMetricsToSnapshot,rateFor,flyBundleFiles,resolveFlyImage,GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,FlyMachinesClient,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit} from '@logtura/core';
     import {writeFileSync,readFileSync,statSync} from 'node:fs';
     import {main,applyLinkedFlyDeployment,readPendingFlyApply,activateLinkedDeployment,readPendingActivation,finishLinkedActivation,reportLoadedForwarderFile,runForwarderReporting} from '@logtura/cli';
     import {cloudflareWorkerTailDriver} from '@logtura/driver-cloudflare-worker-tail';
@@ -230,6 +232,10 @@ monitors: []
     assert.equal(GENERATOR_VERSION,JSON.parse(readFileSync('node_modules/@logtura/core/package.json','utf8')).version);
     const compiled=await compileForwarderRuntime({service:'https://service.test',deploymentId:'fixture',document:exported.document,instance:instanceReceipt,env:exported.secretValues,providers:input.providers,destinations:input.destinations});
     assert.deepEqual(compiled.bundle,bundle);
+    const imageManifest=JSON.stringify({schemaVersion:2,mediaType:'application/vnd.oci.image.manifest.v1+json',config:{digest:'sha256:'+'b'.repeat(64)},layers:[]});
+    const imageDigest='sha256:'+Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(imageManifest))).toString('hex');
+    const pinnedImage='registry.test/forwarder@'+imageDigest;
+    assert.equal((await resolveFlyImage(pinnedImage,{fetch:async(url,init)=>{assert.equal(url,'https://registry.test/v2/forwarder/manifests/'+imageDigest);assert.equal(init.redirect,'manual');return new Response(imageManifest);}})).image,pinnedImage);
     const providerFiles=flyBundleFiles({...bundle,runtimeAssets:[{driverId:'fixture',path:'helper.bin',content:new Uint8Array([0,255,1]),mode:0o755},{driverId:'fixture',path:'unicode.txt',content:'héllo'}]});
     assert.deepEqual(providerFiles.slice(1),[{guest_path:'/opt/logtura/assets/fixture/helper.bin',raw_value:'AP8B',mode:0o755},{guest_path:'/opt/logtura/assets/fixture/unicode.txt',raw_value:Buffer.from('héllo').toString('base64'),mode:0o644}]);
     assert.equal(providerFiles[0].mode,0o400);

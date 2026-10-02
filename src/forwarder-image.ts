@@ -15,6 +15,7 @@
  *   3) Read Docker-Content-Digest header
  */
 
+import { resolveFlyImage } from "@logtura/core";
 const REPO = "q32llc/logtura-forwarder";
 const FORWARDER_REGISTRY = "ghcr.io";
 
@@ -32,15 +33,18 @@ interface TokenResponse {
 
 async function fetchAnonymousToken(): Promise<string> {
   const url = `https://${FORWARDER_REGISTRY}/token?service=${FORWARDER_REGISTRY}&scope=repository:${REPO}:pull`;
-  const res = await fetch(url);
+  const res = await fetch(url, { redirect: "manual", credentials: "omit", signal: AbortSignal.timeout(20_000) });
   if (!res.ok) {
+    await res.body?.cancel();
     throw new Error(
-      `forwarder token request failed: HTTP ${res.status} ${await res.text().catch(() => "")}`,
+      `forwarder token request failed: HTTP ${res.status}`,
     );
   }
-  const body = (await res.json()) as TokenResponse;
+  let body: TokenResponse;
+  try { body = (await res.json()) as TokenResponse; } catch { throw new Error("Invalid forwarder token response"); }
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error("Invalid forwarder token response");
   const tok = body.token ?? body.access_token;
-  if (!tok) throw new Error("forwarder token response missing `token` field");
+  if (typeof tok !== "string" || !tok) throw new Error("forwarder token response missing `token` field");
   return tok;
 }
 
@@ -53,6 +57,9 @@ export async function resolveForwarderDigest(tag = "latest"): Promise<string> {
     `https://${FORWARDER_REGISTRY}/v2/${REPO}/manifests/${encodeURIComponent(tag)}`,
     {
       method: "HEAD",
+      redirect: "manual",
+      credentials: "omit",
+      signal: AbortSignal.timeout(20_000),
       headers: {
         authorization: `Bearer ${token}`,
         accept: ACCEPT_HEADER,
@@ -60,17 +67,18 @@ export async function resolveForwarderDigest(tag = "latest"): Promise<string> {
     },
   );
   if (!res.ok) {
+    await res.body?.cancel();
     throw new Error(
       `forwarder manifest HEAD failed: HTTP ${res.status}`,
     );
   }
   const digest = res.headers.get("docker-content-digest");
-  if (!digest || !digest.startsWith("sha256:")) {
+  if (!digest || !/^sha256:[a-f0-9]{64}$/.test(digest)) {
     throw new Error(
       `forwarder manifest missing docker-content-digest header (got ${digest})`,
     );
   }
-  return digest;
+  return (await resolveFlyImage(forwarderImageRef(digest), { token })).platformDigest;
 }
 
 /** Full image reference for the Fly Machines API:

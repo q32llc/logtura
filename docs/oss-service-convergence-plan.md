@@ -2577,3 +2577,85 @@ new schema migration or production provider/database changes are made by this
 slice. Managed issued runtime/apply recovery, volume provisioning, live Fly image
 identity proof, remaining live provider matrices, remote cleanup ledgers and
 coordinated package publication/migrations/rollout/rollback remain required.
+
+### Verified OCI platform identity and managed image pinning
+
+Read-only production inspection found the existing self-managed forwarder in
+Fly's `started` state. Its configured GHCR reference is pinned to OCI index
+`sha256:43cb5540794ed195dee5f06e3d30fcf80accd28330642207842d2d14c9ad5a76`,
+while Fly reports image digest
+`sha256:341fc2a0f55320fd810fd2f98f30dba658128e83326576059be7f4dd68c0294e`.
+Fetching and hashing the actual immutable public registry responses proves that
+the reported digest is the index's Linux/amd64 image manifest. The other index
+entry is an attestation with unknown platform. The platform manifest's config
+blob has a third, different digest; it is not the running image identity.
+No production machine/configuration/database writes were performed. This is
+identity evidence for the existing image, not a live new-runtime rollout or log
+delivery proof.
+
+Public `resolveFlyImage` now verifies registry response bytes against a caller's
+immutable sha256 root and any declared digest header. Direct OCI/Docker manifests
+stay pinned to themselves; an index must contain exactly one Linux/amd64 image
+(with no variant or v1), whose descriptor has an allowed manifest media type,
+valid digest and bounded size. The child bytes must match both hash and declared
+size. Attestations, config digests, missing/ambiguous platforms, nested indexes,
+invalid JSON/schema and tampered responses cannot become runtime identities.
+The new packaged resolver was also run against the existing production image;
+its verified platform digest exactly matches the read-only Fly report.
+
+Registry requests omit cookies, refuse redirects, share a bounded 20-second
+request budget and cap manifest/index responses at 1 MiB and token grants at
+64 KiB. Explicit pull tokens are sent only to the requested registry. Anonymous
+bearer challenges may use a same-origin HTTPS token realm, plus Docker Hub's
+known auth.docker.io realm; credentials, fragments, HTTP and other cross-origin
+realms are rejected. Requested scope is forced to that repository's pull scope.
+Provider response bodies and token values do not enter status/validation errors.
+This adapter supports anonymous or explicitly supplied registry bearer credentials;
+private registry credential acquisition and additional platform support are not
+claimed.
+
+The managed service tag resolver now resolves its immutable HEAD result through
+this public library and sends Fly the verified platform image. Native workerd
+queue tests check that an OCI index becomes its platform child in the actual
+provider request and persisted image digest. Service token/HEAD requests are
+bounded, use manual redirects, validate full sha256 headers and keep provider
+failure bodies out of errors. Existing default-tag/token alias and malformed
+response/error contracts have native coverage. Public installed tarball checks
+exercise the resolver's compiled export and strict token option type under all
+three supported TypeScript resolution modes.
+
+Fourteen new public OCI cases cover direct/index manifests, independent byte and
+size integrity, scoped auth/challenges, invalid platforms/schema/descriptors,
+HTTP/token failures, timeout/input validation, redirects/realms, bounded and
+cancelled streams, UTF-8 and JSON failures. Five native service image cases and
+one additional managed queue index case establish adapter integration. The OCI
+module measures 100% in all four measures, enforcing
+100/98/100/100 in both layouts. The service image adapter reaches and enforces
+100% in all four measures. All 1,039 private cases across 97 files pass with raised
+87/84.5/90.3/85.3 aggregate floors; the final gated measurement is
+87.17/84.61/90.40/85.47. All 713 public cases across 61 files pass at
+95.18/92.79/96.87/95.76 with the existing final aggregate gates retained.
+
+Both layouts pass installed checks for all 15 tarballs, CLI aliases and the
+forwarder binary. Package/service builds and types pass. The rebuilt complete
+browser/installed CLI/native workerd/Docker journey passes configuration sync,
+issued reporting, metrics presentation, restart, graceful stop and resource
+cleanup. Its provider adapter is still a local fixture; its Docker config ID is
+not registry evidence. The production-read and independently hash-verified public
+registry chain above supply the stronger existing-Fly identity evidence.
+The public standalone real Vector/runtime flow also passes. All 280 website/native
+API cases pass at their existing 93/90/95/94 gates. An earlier local API run saw a
+closed loopback socket in the missing-bootstrap case; its unchanged terminal
+rerun passes, with no automatic retry added to a mutating API request. This does
+not establish a root cause or claim that the local transport failure is fixed.
+
+Preceding private/public heads 343d5a2 and 0a87ef0 complete every code/runtime and
+coverage step in terminal runs 37008995714 and 37009014568; only enforced Codecov
+upload fails. Private image run 37008995709 succeeds. Scoped app permission
+approval remains pending. No npm version, schema migration or production rollout
+is changed in this slice. Linked CLI apply must still resolve index references
+before issuance/install (its current strict equality would time out for an index),
+and its fixture must stop representing a Docker config ID as an OCI manifest.
+Managed issued descriptors/storage/durable recovery, final private coverage and
+coordinated release/migrations/live rollout/rollback remain required; the full
+shipping goal stays active.
