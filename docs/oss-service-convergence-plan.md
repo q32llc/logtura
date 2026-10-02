@@ -1794,3 +1794,36 @@ source/site-update journeys, complete browser/provider matrices, remote cleanup
 ledgers, managed apply, registry/platform digest checks, high final coverage,
 Codecov access, coordinated npm release and staged production rollout remain
 required. No production resources, schema or forwarder were changed by this slice.
+
+### Website configuration editor baseline and typing fixes
+
+Private head d8947d6's real browser/installed CLI/workerd/runtime journey and both
+cleanup injections pass clean CI run 36984898906. Its sole failing step is the
+Codecov upload. Authenticated GitHub organization installation inventories show
+no Codecov app in either organization. Repository-scoped installation pages are
+prepared for q32llc/logtura and logtura/logtura; granting private-code access awaits
+explicit browser-policy approval. Upload failures remain enforced, not bypassed.
+
+The next editor slice adds 17 UI interaction tests, bringing the UI suite to 44.
+The source/monitor selector exercises wildcard-to-explicit changes, stable IDs,
+persisted customization state, initial expansion and empty-state navigation.
+Every filter kind is added with its documented defaults, reopened, edited or
+cancelled. Tests cover ordering boundaries, removal, legacy omitted options,
+regex modes/fields, numeric settings and comma-separated dedup/rollup fields.
+They exposed two product bugs: normalizing field arrays consumed trailing commas
+while typing, and replacing empty numeric input with a default changed a typed
+sample fraction (0.25 became 0.251). Controls now retain editing text while keeping
+parsed filter values for commit; saved values and discarded drafts remain isolated.
+Filter chips and removal controls are separate keyboard-accessible buttons, and
+individual selection switches have site/monitor labels.
+
+UI coverage is now statements/branches/functions/lines 25.45/23.91/23.92/24.15.
+The aggregate CI floors rise to 25/23.5/23.5/24 without excluding untested pages.
+SelectionEditor is enforced at 100% in all measures; FilterStepsEditor is enforced
+at 98/95/100/100 (measured 98.83/96.90/100/100). These are incremental ratchets;
+final UI 90/90/90/85 remains required. The existing full-goal release/provider/
+managed-apply/production outstanding work remains unchanged.
+Service typechecking, the Vite build, all 44 UI tests with the raised coverage gates,
+and the full installed CLI/browser/workerd/Docker convergence journey pass locally
+with these editor changes. The E2E journey also verifies graceful runtime shutdown
+and disposable-resource cleanup. Clean pushed-head CI remains a separate gate.

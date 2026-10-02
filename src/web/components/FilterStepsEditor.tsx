@@ -143,24 +143,25 @@ export function FilterStepsEditor({
               <IconChevronLeft size={12} />
             </ActionIcon>
             <Badge
+              component="button"
+              type="button"
+              aria-label={`Edit ${chipLabel(step)}`}
               size={size === "xs" ? "sm" : "md"}
               variant="light"
               radius="sm"
-              rightSection={
-                <IconX
-                  size={10}
-                  style={{ cursor: "pointer" }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    remove(idx);
-                  }}
-                />
-              }
               style={{ cursor: "pointer", textTransform: "none" }}
               onClick={() => setEditing({ index: idx, step, isNew: false })}
             >
               {chipLabel(step)}
             </Badge>
+            <ActionIcon
+              size="xs"
+              variant="subtle"
+              aria-label={`Remove ${chipLabel(step)}`}
+              onClick={() => remove(idx)}
+            >
+              <IconX size={10} />
+            </ActionIcon>
             <ActionIcon
               size="xs"
               variant="subtle"
@@ -258,6 +259,28 @@ function StepFields({
   step: FilterStep;
   onChange: (next: FilterStep) => void;
 }) {
+  // Keep the text being typed separate from the parsed arrays. Rendering the
+  // normalized array after every keystroke consumes a trailing comma before
+  // the user can type the next field. Numeric controls likewise need to keep
+  // empty and fractional input while the user replaces an existing value.
+  const [fieldsText, setFieldsText] = useState(
+    step.kind === "dedup" ? (step.fields ?? ["message"]).join(", ") : "",
+  );
+  const [groupByText, setGroupByText] = useState(
+    step.kind === "rollup" ? (step.group_by ?? []).join(", ") : "",
+  );
+  const [windowValue, setWindowValue] = useState<number | string>(
+    step.kind === "dedup" || step.kind === "rollup" ? step.window_secs : "",
+  );
+  const [samplesValue, setSamplesValue] = useState<number | string>(
+    step.kind === "rollup" ? step.max_samples ?? 5 : "",
+  );
+  const [limitValue, setLimitValue] = useState<number | string>(
+    step.kind === "rate_limit" ? step.per_minute : "",
+  );
+  const [rateValue, setRateValue] = useState<number | string>(
+    step.kind === "sample" ? step.rate : "",
+  );
   switch (step.kind) {
     case "errors":
       return (
@@ -335,28 +358,27 @@ function StepFields({
         <Stack gap="sm">
           <NumberInput
             label="Window (seconds)"
-            value={step.window_secs}
+            value={windowValue}
             min={1}
-            onChange={(v) =>
-              onChange({
-                ...step,
-                window_secs: typeof v === "number" ? v : 300,
-              })
-            }
+            onChange={(v) => {
+              setWindowValue(v);
+              onChange({ ...step, window_secs: typeof v === "number" ? v : 300 });
+            }}
           />
           <TextInput
             label="Fields (comma-separated)"
             placeholder="message"
-            value={(step.fields ?? ["message"]).join(", ")}
-            onChange={(e) =>
+            value={fieldsText}
+            onChange={(e) => {
+              setFieldsText(e.currentTarget.value);
               onChange({
                 ...step,
                 fields: e.currentTarget.value
                   .split(",")
                   .map((s) => s.trim())
                   .filter(Boolean),
-              })
-            }
+              });
+            }}
           />
         </Stack>
       );
@@ -371,40 +393,37 @@ function StepFields({
           </Text>
           <NumberInput
             label="Window (seconds)"
-            value={step.window_secs}
+            value={windowValue}
             min={5}
-            onChange={(v) =>
-              onChange({
-                ...step,
-                window_secs: typeof v === "number" ? v : 30,
-              })
-            }
+            onChange={(v) => {
+              setWindowValue(v);
+              onChange({ ...step, window_secs: typeof v === "number" ? v : 30 });
+            }}
           />
           <TextInput
             label="Group by (comma-separated; empty = global)"
             placeholder="script, logtura_connection_id"
-            value={(step.group_by ?? []).join(", ")}
-            onChange={(e) =>
+            value={groupByText}
+            onChange={(e) => {
+              setGroupByText(e.currentTarget.value);
               onChange({
                 ...step,
                 group_by: e.currentTarget.value
                   .split(",")
                   .map((s) => s.trim())
                   .filter(Boolean),
-              })
-            }
+              });
+            }}
           />
           <NumberInput
             label="Max samples in summary"
-            value={step.max_samples ?? 5}
+            value={samplesValue}
             min={1}
             max={50}
-            onChange={(v) =>
-              onChange({
-                ...step,
-                max_samples: typeof v === "number" ? v : 5,
-              })
-            }
+            onChange={(v) => {
+              setSamplesValue(v);
+              onChange({ ...step, max_samples: typeof v === "number" ? v : 5 });
+            }}
           />
         </Stack>
       );
@@ -412,27 +431,26 @@ function StepFields({
       return (
         <NumberInput
           label="Max events per minute"
-          value={step.per_minute}
+          value={limitValue}
           min={1}
-          onChange={(v) =>
-            onChange({
-              ...step,
-              per_minute: typeof v === "number" ? v : 60,
-            })
-          }
+          onChange={(v) => {
+            setLimitValue(v);
+            onChange({ ...step, per_minute: typeof v === "number" ? v : 60 });
+          }}
         />
       );
     case "sample":
       return (
         <NumberInput
           label="Keep fraction (0–1)"
-          value={step.rate}
+          value={rateValue}
           min={0.001}
           max={1}
           step={0.05}
-          onChange={(v) =>
-            onChange({ ...step, rate: typeof v === "number" ? v : 0.1 })
-          }
+          onChange={(v) => {
+            setRateValue(v);
+            onChange({ ...step, rate: typeof v === "number" ? v : 0.1 });
+          }}
         />
       );
   }

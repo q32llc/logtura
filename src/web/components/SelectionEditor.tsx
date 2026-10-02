@@ -87,6 +87,7 @@ export function SelectionEditor({
                   )}
                 </Stack>
                 <Switch
+                  aria-label={it.label}
                   checked={all || picked.has(it.id)}
                   onChange={(e) => toggle(it.id, e.currentTarget.checked)}
                   size="sm"
