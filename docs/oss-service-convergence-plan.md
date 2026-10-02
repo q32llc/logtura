@@ -1660,3 +1660,31 @@ public run 36973613647. Both failed only the enforced Codecov upload with
 repository access remains unresolved. New-head CI must independently verify this
 metrics slice. No npm release, production migration or deployment is claimed here;
 the full implementation, E2E, coverage and staged shipping goal remains active.
+
+
+### Reliable standalone secret entry (implemented)
+
+The terminal adapter now decodes UTF-8 across chunks and processes individual code
+points. A pasted token plus Enter in one chunk submits correctly; backspace removes
+one code point instead of an entire chunk. Navigation and bracketed-paste control
+sequences are ignored, including split sequences. Input is never echoed. Ctrl-C,
+Ctrl-D, closed input and stream errors reject with generic errors while restoring
+raw mode and removing listeners. Initially idle stdin is paused after completion so
+it cannot hold the process open; an already flowing/raw terminal retains its state.
+Setup and restoration failures reject without disclosing device or input details.
+
+Twelve stream tests exercise these behaviors, including every byte of multi-byte
+input arriving separately. They validate the actual Node terminal adapter using
+streams, not a native PTY or provider login journey. Non-terminal readline prompts,
+full connector journeys and installed interactive PTY coverage remain outstanding.
+Both layouts pass all 15 isolated packed consumers, builds and private types.
+The full private suite passes 863 tests in 86 files (coverage
+80.12/77.67/82.15/77.12); the public suite passes 611 tests in 54 files
+(87.68/85.59/85.83/86.16). Existing raised floors remain enforced.
+
+Metrics heads 112e643 (private run 36976846421) and 9ff7d37 (public run
+36976851066) passed all code/package/type/runtime-flow/coverage artifact checks.
+Both failed only Codecov upload with `Repository not found`; image publication
+36976846236 succeeded. No coverage gate has been disabled. New-head checks must
+verify the terminal slice independently. Production and npm remain unchanged, and
+all remaining outcome and release gates still apply.
