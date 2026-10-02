@@ -2881,3 +2881,73 @@ steps successfully; both failed at Codecov upload while its app installation is
 pending. Private image publication succeeded. Keep the Codecov gate enforced and
 complete the separately pending repository-access approval before treating CI as
 fully green.
+
+### Durable managed checkpoint reservations (implemented in source)
+
+Migration 28 adds private `managed_checkpoints` operational state. Each reservation
+captures its owning deployment/user, immutable Fly app/org/region, graph base,
+unpredictable provider volume name, one-GiB size and the service's shared-2-CPU /
+4096-MiB compute envelope. Preparation is graph-fenced and ownership-checked.
+The partial unique index permits one active reservation per deployment; concurrent
+preparations recover that same reservation rather than create competing intent.
+No credentials, generated files or runtime secret values enter this table.
+
+`executeManagedCheckpoint` uses the packaged `FlyMachinesClient` app, volume
+inventory and creation operations. It takes a bounded database lease, verifies
+organization identity and ownership, and atomically records dispatch before the
+single provider POST. A lost response is recovered only from one exact matching
+name/region/size/encryption/state/unattached observation. Duplicate names are
+ambiguous; missing dispatched outcomes remain unknown. Neither case creates
+another volume. A pre-dispatch name collision is also refused. Provider HTTP
+failure is uncertain and retained, rather than permission to retry creation.
+
+The stable provider volume ID is recorded in a graph-fenced lease-token CAS.
+SQL prevents identity changes, clearing/replacing an adopted ID, skipping dispatch
+or regressing phases. Expired/concurrent claimants cannot complete another claim
+or clear its lease. Ready reservations are reusable across source/configuration
+edits; inventory is revalidated by stable volume ID, allowing subsequent size
+growth and attachment. Returning a ready reference does not assert that it can
+be mounted on a particular machine: the shared machine planner must still check
+attachment, mount and region compatibility. Missing/changed storage is refused,
+not automatically replaced. Obsolete reservations retain their identities for
+recovery; there is no automatic obsolescence or unknown-outcome abandonment flow.
+
+This is an internal service storage operation, not yet a queued managed runtime
+rollout. The managed deployment chain still launches the journaled legacy Vector
+configuration. Its next integration must call the reservation operation before
+new-machine creation, atomically bind encrypted issued-runtime intent to active
+instance issuance, implement safe legacy-machine replacement, and require accepted
+runtime reports before convergence. Existing checkpoint mounts must be reused
+through their actual stable IDs and machine ownership. Do not create unattached
+storage for the legacy launcher or infer convergence from provider health.
+
+Migration 28 is additive and unapplied in production (still through migration 17).
+The migration baseline compares every pre-existing application table, including
+an existing self-managed forwarder, managed deployment and prepared encrypted
+machine journal. Rollback retains the table and recorded provider IDs. Deleting
+ownership currently cascades local reservations; provider-resource cleanup and
+an enduring remote ownership ledger remain part of the pending deletion/recovery
+work. No live volume is created and no deployed forwarder is changed in this slice.
+
+Validation: all 1,095 private backend/package tests pass across 101 files with
+existing aggregate floors retained (87.38 statements / 85.17 branches / 90.41
+functions / 85.69 lines). The new reservation module reaches 100% for all four
+metrics, now enforced in CI. Twenty-three native reservation/migration cases
+exercise response loss, absent/ambiguous observations, stable identity reuse,
+phase/identity immutability, concurrent preparations/claims, expiry before and
+after provider writes, graph changes, cancellation, corruption and ownership
+removal. Private types/service build and the full fresh-schema-28 local browser /
+installed CLI / workerd / Docker journey pass. The public package source is
+unchanged from the preceding public commit; provider creation is still fixture
+proof rather than live Fly provisioning.
+
+One full run passed its assertions/coverage but emitted console-RPC teardown errors
+from the test runner, including `EnvironmentTeardownError` and a workerd cross-DO
+`SpanParent` error. An unchanged full rerun completed without those errors; do not
+claim a root-cause fix. The [upstream console teardown report](https://github.com/vitest-dev/vitest/issues/11153)
+describes a similar intermittent Vitest failure, but that similarity does not
+prove the cause here. Track this in the test-harness/dependency work and retain
+all checks. Final private 95/90/95/95 coverage, managed issued-runtime integration,
+live provisioning/deletion recovery and coordinated release/rollout remain open.
+The preceding private/public CI test steps passed and both Codecov uploads failed
+while app installation remains pending; private image publication succeeded.
