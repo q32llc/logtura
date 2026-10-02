@@ -100,3 +100,20 @@ it("holds the shared-directory lock during preparation and cleans up failed prep
  })).toThrow("preparation failed");
  expect(prepared).toBe(true);expect(readFileSync(f.config,"utf8")).toBe("old-1");expect(readFileSync(f.files[0]!.target,"utf8")).toBe("old-0");expect(readdirSync(f.root)).toEqual([".env","logt.yaml"]);
 });
+it.each([1,2,3,4,5,6,7])("recovers a linked three-file transaction killed after rename %i",(stop)=>{
+ const f=fixture(),target=`${f.config}.logtura-link.json`,tag=randomUUID();
+ const link={target,stage:`${target}.${tag}.tmp`,backup:`${target}.${tag}.bak`,existed:true};f.files.push(link);writeFileSync(target,"old-2",{mode:0o600});writeFileSync(link.stage,"new-2",{mode:0o600});
+ const module=new URL("../src/file-transaction.ts",import.meta.url).href;
+ const script=`import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';let count=0;const rename=fs.renameSync;fs.renameSync=(...args)=>{rename(...args);if(++count===${stop})process.kill(process.pid,'SIGKILL')};syncBuiltinESMExports();const {commitFileTransaction}=await import(${JSON.stringify(module)});commitFileTransaction(${JSON.stringify(f.config)},${JSON.stringify(f.files)});`;
+ const result=spawnSync(process.execPath,["--experimental-strip-types","--input-type=module","-e",script],{encoding:"utf8"});expect(result.signal,result.stderr).toBe("SIGKILL");expect(recoverFileTransaction(f.config)).toBe(true);
+ for(const [i,file] of f.files.entries())expect(readFileSync(file.target,"utf8")).toBe(`${stop===7?"new":"old"}-${i}`);expect(statSync(target).mode&0o777).toBe(0o600);expect(readdirSync(f.root)).toEqual([".env","logt.yaml","logt.yaml.logtura-link.json"]);
+});
+it("rejects configuration paths reserved for shared private transaction state",()=>{
+ const f=fixture();for(const name of [".env",".logtura-transaction.json",".logtura-transaction.json.commit"])expect(()=>commitFileTransaction(join(f.root,name),f.files)).toThrow("reserved");expect(readFileSync(f.config,"utf8")).toBe("old-1");
+});
+
+it("refuses recovery when the config destination aliases the journal or companion environment",()=>{
+ const f=fixture();journal(f);
+ for(const name of [".env",".logtura-transaction.json",".logtura-transaction.json.commit"])expect(()=>recoverFileTransaction(join(f.root,name))).toThrow("reserved");
+ expect(readFileSync(f.config,"utf8")).toBe("old-1");expect(existsSync(transactionPath(f.config))).toBe(true);
+});

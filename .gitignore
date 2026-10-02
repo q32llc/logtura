@@ -11,3 +11,7 @@ coverage/
 .vite/
 containers/forwarder/Dockerfile.generated
 containers/forwarder/assets/
+
+# Private deployment baselines and interrupted-write artifacts
+*.logtura-link.json*
+.logtura-transaction.json*

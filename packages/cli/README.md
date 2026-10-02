@@ -222,7 +222,8 @@ logt -c forwarder/logt.yaml validate
 logt -c forwarder/logt.yaml bundle -o forwarder/bundle
 ```
 
-The service must include the deployment export endpoint. Pull creates a versioned
+The service must include deployment export and account identity endpoints,
+with account configuration-version and deployment desired-sequence baselines. Pull creates a versioned
 `kind: logtura.deployment` graph and a mode-0600 companion `.env`. The graph keeps
 connection, source, monitor, destination and sink identities, source metadata,
 all filter steps and reporting settings. Driver credentials, destination payloads,
@@ -326,3 +327,37 @@ Use an edit file to change the policy explicitly:
 Apply it with `logt config edit edits.json`. Removing a selected source
 freezes discovery for that connection; removing a monitor or sink freezes monitor
 discovery. This keeps a later catalog refresh from restoring a removed selection.
+
+
+## Linked deployment baseline and offline status
+
+Hosted pull also creates `<config>.logtura-link.json` with mode 0600. It records
+the service origin, account/deployment identity, both revision fences, and the public
+baseline manifest. Private payloads are represented by keyed fingerprints; their
+random private key stays in this file. It contains no account/reporting credentials
+or resolved payloads. Keep the file private and exclude it and its recovery
+artifacts from version control:
+
+```gitignore
+*.logtura-link.json*
+.logtura-transaction.json*
+.env
+.env.*
+```
+
+```sh
+logt -c forwarder/logt.yaml config status
+```
+
+Status runs offline and returns JSON with public graph changes and value-free
+private change entries. A changed private payload with an unchanged reference
+version has `requiresVersionUpdate:true`; JSON whitespace/key order alone is not
+a change. Missing values, additions and removals are reported separately. Only
+referenced environment values are inspected. Local edits preserve the hosted
+baseline; exporting to a new config path does not copy the source's deployment
+identity. An explicit forced pull can replace an existing link.
+
+YAML, companion `.env` and the link are committed and recovered together on hosted
+pull. Earlier two-file journals remain supported. A service without revision fences
+cannot establish a link; pull fails before changing local files. CLI push and remote
+commit recovery are still upcoming capabilities.

@@ -61,7 +61,8 @@ monitors: []
   assert.ok(!yaml.includes("/api/metrics/"), "standalone bundle must not require hosted metrics");
   const script = `import assert from 'node:assert/strict';
     import {generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,LogturaServiceClient,manifestSecretName} from '@logtura/core';
-    import {writeFileSync} from 'node:fs';
+    import {writeFileSync,readFileSync,statSync} from 'node:fs';
+    import {main} from '@logtura/cli';
     import {cloudflareWorkerTailDriver} from '@logtura/driver-cloudflare-worker-tail';
     const input={providers:[cloudflareWorkerTailDriver],destinations:[],monitors:[],
       connections:[{connection:{id:'fixture',provider:cloudflareWorkerTailDriver.id,displayName:'Fixture',externalAccountId:'fixture-account'},
@@ -79,6 +80,21 @@ monitors: []
     assert.ok(generateBundle(discovery).vectorYaml.includes('future-worker'));
     const exported=await exportDeploymentManifest(input,await createSecretVersioner('private-fixture-key'));
     assert.ok(!JSON.stringify(exported.document).includes('fixture-token'));
+    const savedFetch=globalThis.fetch,savedToken=process.env.LOGT_SERVICE_TOKEN;
+    process.env.LOGT_SERVICE_TOKEN='lt_cli_'+'T'.repeat(43);
+    globalThis.fetch=async(url,init)=>{
+      assert.equal(new Headers(init.headers).get('authorization'),'Bearer lt_cli_'+'T'.repeat(43));
+      if(url==='https://fixture.test/api/me')return Response.json({user:{id:'usr_fixture',githubLogin:'fixture'}});
+      assert.equal(url,'https://fixture.test/api/deployments/dep_fixture/config?includeSecrets=1');
+      return Response.json({...exported,configurationVersion:3,desiredSequence:0,revision:await hashConfigDocument(exported.document),deployment:{id:'dep_fixture',displayName:'Existing'}});
+    };
+    try{assert.equal(await main(['pull','dep_fixture','--service','https://fixture.test','-o','linked/logt.yaml']),0);}
+    finally{globalThis.fetch=savedFetch;process.env.LOGT_SERVICE_TOKEN=savedToken;}
+    const linked=JSON.parse(readFileSync('linked/logt.yaml.logtura-link.json','utf8'));
+    assert.equal(linked.accountId,'usr_fixture');assert.equal(linked.configurationVersion,3);assert.equal(linked.desiredSequence,0);
+    assert.equal(statSync('linked/logt.yaml.logtura-link.json').mode&0o777,0o600);
+    assert.ok(!JSON.stringify(linked).includes('fixture-token'));
+
     assert.equal(manifestSecretName('CREDENTIALS','fixture'),exported.document.connections[0].credentials.env);
     const service=new LogturaServiceClient({url:'https://service.test',token:'lt_cli_'+'T'.repeat(43),fetch:async(url,init)=>{
       assert.equal(url,'https://service.test/api/deployments/fixture/config');
@@ -106,6 +122,13 @@ monitors: []
     console.log('all public packages import in ordinary Node');`;
   writeFileSync(join(consumer, "consumer.mjs"), script);
   run(process.execPath, ["consumer.mjs"], consumer, offline);
+  const linkedPath=join(consumer,"linked","logt.yaml"),linkedState=readFileSync(`${linkedPath}.logtura-link.json`,"utf8");
+  assert.equal(JSON.parse(bin("logt",["-c",linkedPath,"config","status"])).linked,true);
+  bin("logtura",["-c",linkedPath,"source","select","fixture","linked-new-site","--id","src_linked_new"]);
+  assert.equal(readFileSync(`${linkedPath}.logtura-link.json`,"utf8"),linkedState);
+  const linkedStatus=JSON.parse(bin("logt",["-c",linkedPath,"config","status","--json"]));
+  assert.equal(linkedStatus.configurationVersion,3);assert.equal(linkedStatus.desiredSequence,0);
+  assert.ok(linkedStatus.changes.some(change=>change.id==="src_linked_new"));assert.deepEqual(linkedStatus.privateChanges,[]);
   const initialGraphRevision = bin("logt", ["-c", "graph.yaml", "config", "hash"]).trim();
   bin("logtura", ["-c", "graph.yaml", "source", "select", "fixture", "fixture-second", "--id", "src_second"]);
   const diff = JSON.parse(bin("logt", ["-c", "graph.yaml", "config", "diff", "graph-baseline.yaml"]));

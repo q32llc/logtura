@@ -4,8 +4,13 @@ import { dirname, resolve } from "node:path";
 interface Entry {target:string;stage:string;backup:string;existed:boolean;}
 interface Journal {schemaVersion:1;pid:number;committed:boolean;files:Entry[];}
 export function transactionPath(config:string):string {return resolve(dirname(resolve(config)),".logtura-transaction.json");}
+export function deploymentLinkPath(config:string):string {return `${resolve(config)}.logtura-link.json`;}
 export function assertTransactionClear(config:string):void {
   if(existsSync(transactionPath(config)))throw new Error("Configuration transaction pending; run logt config recover before reading or writing");
+}
+function assertConfigDestination(config:string):void {
+  const journal=transactionPath(config);
+  if([resolve(dirname(config),".env"),journal,`${journal}.commit`].includes(resolve(config)))throw new Error("Configuration destination is reserved for private transaction state");
 }
 function syncFile(path:string):void {const fd=openSync(path,"r");try{fsyncSync(fd);}finally{closeSync(fd);}}
 function syncDirectory(path:string):void {
@@ -14,10 +19,10 @@ function syncDirectory(path:string):void {
 }
 function regular(path:string):void {if(existsSync(path) && !lstatSync(path).isFile())throw new Error("Configuration recovery requires regular files");}
 function readJournal(path:string,config:string):Journal {
-  regular(path);
+  assertConfigDestination(config);regular(path);
   let value:any;try{value=JSON.parse(readFileSync(path,"utf8"));}catch{throw new Error("Invalid configuration transaction journal; retain it for recovery");}
-  const targets=[resolve(dirname(config),".env"),resolve(config)];
-  if(value?.schemaVersion!==1 || !Number.isSafeInteger(value.pid) || value.pid<=0 || typeof value.committed!=="boolean" || !Array.isArray(value.files) || value.files.length!==2 || value.files.some((file:any,i:number)=>!file || file.target!==targets[i] || typeof file.existed!=="boolean" || typeof file.stage!=="string" || !/^\.[a-f0-9-]{36}\.tmp$/.test(file.stage.slice(file.target.length)) || file.stage!==file.target+file.stage.slice(file.target.length) || file.backup!==file.stage.slice(0,-4)+".bak"))throw new Error("Invalid configuration transaction journal; retain it for recovery");
+  const targets=[resolve(dirname(config),".env"),resolve(config),deploymentLinkPath(config)];
+  if(value?.schemaVersion!==1 || !Number.isSafeInteger(value.pid) || value.pid<=0 || typeof value.committed!=="boolean" || !Array.isArray(value.files) || (value.files.length!==2 && value.files.length!==3) || value.files.some((file:any,i:number)=>!file || file.target!==targets[i] || typeof file.existed!=="boolean" || typeof file.stage!=="string" || !/^\.[a-f0-9-]{36}\.tmp$/.test(file.stage.slice(file.target.length)) || file.stage!==file.target+file.stage.slice(file.target.length) || file.backup!==file.stage.slice(0,-4)+".bak"))throw new Error("Invalid configuration transaction journal; retain it for recovery");
   if(value.committed && value.files.some((file:Entry)=>!existsSync(file.target)))throw new Error("Committed configuration is missing a destination; retain files for recovery");
   for(const file of value.files)for(const name of [file.target,file.stage,file.backup])regular(name);
   return value as Journal;
@@ -49,8 +54,13 @@ export function recoverFileTransaction(config:string):boolean {
  * The journal precedes original moves; the commit marker precedes discarding them. */
 export function commitFileTransaction(config:string,files:Array<{target:string;stage:string;backup:string}>,prepare?:()=>void):void {
   const path=transactionPath(config);
-  const journal:Journal={schemaVersion:1,pid:process.pid,committed:false,files:files.map(file=>({...file,existed:existsSync(file.target)}))};
-  writeFileSync(path,JSON.stringify(journal)+"\n",{flag:"wx",mode:0o600});
+  assertConfigDestination(config);
+  // Capture originals only after acquiring the lock. A writer that completed
+  // between the caller's preflight and this acquisition must not lose its files.
+  const descriptor=openSync(path,"wx",0o600);
+  let journal:Journal;
+  try{journal={schemaVersion:1,pid:process.pid,committed:false,files:files.map(file=>({...file,existed:existsSync(file.target)}))};
+    writeFileSync(descriptor,JSON.stringify(journal)+"\n");}finally{closeSync(descriptor);}
   // From this point onward every failure leaves either the old pair or a journal.
   try {
     syncFile(path);syncDirectory(path);

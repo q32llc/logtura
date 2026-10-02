@@ -7,6 +7,7 @@ import { exportDeploymentManifest, createSecretVersioner, hashConfigDocument, Lo
 import { writePulledConfig, pullDeploymentConfig } from "../src/pull";
 import { main } from "../src/main";
 import { readDotEnvFile } from "../src/local-env";
+import { readDeploymentLink } from "../src/deployment-link";
 import { loadConfigFile } from "../src/config";
 vi.mock("node:fs", { spy: true });
 const dirs: string[] = [];
@@ -72,11 +73,12 @@ describe("account deployment pull", () => {
         expect(readdirSync(root)).toEqual([".env", "logt.yaml"]);
     });
     it("uses explicit account auth and opts into secret delivery", async () => {
-        const exported = await result(), fetch = vi.fn(async (url, init) => { expect(String(url)).toBe("https://service.test/api/deployments/dep_site/config?includeSecrets=1"); expect(new Headers(init!.headers).get("authorization")).toBe(`Bearer lt_cli_${"A".repeat(43)}`); return Response.json(exported); }) as unknown as typeof globalThis.fetch;
+        const exported = {...await result(),configurationVersion:3,desiredSequence:0}, fetch = vi.fn(async (url, init) => { expect(new Headers(init!.headers).get("authorization")).toBe(`Bearer lt_cli_${"A".repeat(43)}`); if(String(url)==="https://service.test/api/me")return Response.json({user:{id:"usr_site",githubLogin:"site"}});expect(String(url)).toBe("https://service.test/api/deployments/dep_site/config?includeSecrets=1"); return Response.json(exported); }) as unknown as typeof globalThis.fetch;
         const client = new LogturaServiceClient({ url: "https://service.test", token: `lt_cli_${"A".repeat(43)}`, fetch });
         const path = join(dir(), "nested", "logt.yaml");
         expect(await pullDeploymentConfig(client, "dep_site", path)).toBe(exported.revision);
         expect(readFileSync(path, "utf8")).toContain("logtura.deployment");
+        expect(await readDeploymentLink(path)).toMatchObject({service:client.url,accountId:"usr_site",configurationVersion:3,desiredSequence:0});
     });
     it("keeps recoverable originals when rollback itself fails", async () => {
         const root = dir(), path = join(root, "logt.yaml"), env = join(root, ".env");
@@ -91,11 +93,11 @@ describe("account deployment pull", () => {
         expect(readFileSync(env, "utf8")).toBe("ORIGINAL=keep\n");
     });
     it("executes pull through the CLI and refuses shorthand mutations of exported graphs", async () => {
-        const root = dir(), path = join(root, "logt.yaml"), exported = await result();
+        const root = dir(), path = join(root, "logt.yaml"), exported = {...await result(),configurationVersion:3,desiredSequence:0};
         vi.stubEnv("LOGT_AUTH_FILE", join(root, "account.json"));
         vi.stubEnv("LOGT_SERVICE_TOKEN", `lt_cli_${"A".repeat(43)}`);
         vi.stubEnv("LOGT_SERVICE_URL", "https://service.test");
-        vi.stubGlobal("fetch", vi.fn(async () => Response.json(exported)));
+        vi.stubGlobal("fetch", vi.fn(async (url) => Response.json(String(url).endsWith("/me")?{user:{id:"usr_site",githubLogin:"site"}}:exported)));
         vi.spyOn(console, "log").mockImplementation(() => { });
         vi.spyOn(console, "error").mockImplementation(() => { });
         try {

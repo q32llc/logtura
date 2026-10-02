@@ -953,3 +953,57 @@ remote-commit recovery remain required next. This local transaction currently co
 the YAML/environment pair; extending it for linked state must preserve the same
 journal and recovery guarantees. All other remaining publication, rollout, final
 coverage, full E2E and service/forwarder capabilities remain in scope.
+
+### Hosted deployment links and offline change status (implemented)
+
+Hosted `pull` verifies the active account identity and requires account configuration
+and deployment desired-sequence fences. It creates a mode-0600
+`<config>.logtura-link.json` containing service origin, account/deployment identity,
+public baseline manifest/revision, both counters and keyed fingerprints of referenced
+private JSON payloads. A fresh random private fingerprint key remains only in that
+file. Neither resolved payloads nor account/reporting credentials are stored there;
+private link, journal and environment artifacts are excluded from repository tracking
+and documented for consumer projects. JSON formatting/key order does not change a
+fingerprint. Unrelated environment values are never included.
+
+Hosted pull commits YAML, `.env` and the link through one recoverable transaction.
+Legacy two-file journals remain supported. Local graph edits retain the hosted
+baseline; an export to a new path does not copy the source deployment identity.
+Existing target baselines remain attached to that target when explicitly overwritten.
+Link schema, service origin, identities, counters, document revision and complete
+fingerprint map are validated before use; symlink/unsafe paths are refused. Pull
+checks that the link matches its exact exported deployment/revision/counters before
+writing, and explicit force is required for replacing existing configuration/link state.
+
+`logt -c <config> config status` works offline, returning the linked public identity,
+fences and value-free graph/private change entries. Private entries distinguish
+missing, added, removed and changed payloads; manually changed payloads retaining
+the same public reference version are marked `requiresVersionUpdate:true`. Neither
+fingerprints nor private keys/payloads are printed. Standalone/unlinked configs report
+`linked:false` without contacting a service.
+
+Transaction acquisition captures original existence only after obtaining the exclusive
+journal file descriptor. Destination/overwrite checks run again under that lock,
+preserving a concurrent writer's newly created file and preventing rollback from
+mistaking it for a newly installed destination. Reserved environment/journal config
+paths are rejected for writing and recovery. Recovery tests kill real child processes
+at all seven rename boundaries for linked three-file replacement and verify that
+all three retain the previous revision before commit or the new revision afterward.
+Ordinary link installation failures restore existing YAML, environment and baseline.
+
+Validation: 695 backend/package tests across 63 files pass, with coverage
+73.20/68.18/77.28/71.43 and floors raised to 73/68/77/71. Link, pull and transaction
+modules enforce 100% statements/branches/functions/lines in both layouts. Packed
+consumers perform an authenticated hosted pull using an injected fixture transport,
+then edit and inspect the linked config offline through installed executables; all
+15 packages and both CLI aliases pass. The independent public layout passes 464
+tests across 36 files, with coverage 78.97/74.93/78.78/77.91 and floors raised to
+78/74/78/77. Package builds and type checks pass in both layouts.
+
+CLI push still requires private-reference restamping/explicit uploads, service/account
+identity enforcement and durable uncertain remote-commit recovery. The baseline is
+now present for that work; push is not claimed by this slice. Existing-target metadata,
+forwarder apply/acknowledgement and website desired/applied state, full remote/browser
+E2E, final coverage, provider/telemetry hardening, dependencies, publication and
+staged production rollout remain required. No npm release or production migration
+or deployment is claimed. The complete shipping goal remains active.

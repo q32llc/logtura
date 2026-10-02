@@ -5,3 +5,8 @@ coverage
 *.log
 .env
 .env.local
+
+# Private deployment baselines and interrupted-write artifacts
+*.logtura-link.json*
+.logtura-transaction.json*
+.env.*
