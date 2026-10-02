@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync, chmodSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync, rmSync, chmodSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -51,6 +51,7 @@ let deployed = false, imageBuilt = false, installationAttempted = false, volumeC
 let failure: unknown;
 let ownedRequest: ((path: string, body?: unknown, method?: string) => Promise<any>) | undefined;
 let monitorIds: string[] = [];
+let destinationIds: string[] = [];
 try {
   const packageNames = readdirSync(join(root, "packages")).filter(name => {
     try { return JSON.parse(readFileSync(join(root, "packages", name, "package.json"), "utf8")).name.startsWith("@logtura/"); } catch { return false; }
@@ -114,15 +115,28 @@ try {
   await assert.rejects(denied.result, /access_denied/);
   assert.ok(readFileSync(account, "utf8") === savedAccount, "denied login must preserve the saved account");
   const websiteMonitorId = await website.createMonitor(id => { monitorIds.push(id); });
+  const websiteWebhookUrl = `https://webhook.example.invalid/private-e2e-${runId}`;
+  const websiteDestinationId = await website.createDestination(websiteWebhookUrl, id => { destinationIds.push(id); });
+  const websiteSinkId = await website.addSink(websiteMonitorId);
   await website.enableMetrics(deploymentId);
   const previousSequence = desired.desired.sequence;
   await run(bin, ["pull", deploymentId, "--output", config, "--force"]);
   await run(bin, ["--config", config, "push"]);
   desired = (await request(`/api/deployments/${deploymentId}/config/state`)).state;
   assert.ok(desired.desired.sequence > previousSequence);
-  const websiteMonitor = desired.desired.document.monitors.find((item: any) => item.monitor.id === websiteMonitorId)?.monitor;
+  const websiteMonitorEntry = desired.desired.document.monitors.find((item: any) => item.monitor.id === websiteMonitorId);
+  const websiteMonitor = websiteMonitorEntry?.monitor;
   assert.equal(websiteMonitor?.connectionId, connectionId);
   assert.deepEqual(websiteMonitor?.filterSteps, [{ kind: "errors" }, { kind: "dedup", window_secs: 120, fields: ["script", "message"] }]);
+  assert.equal(websiteMonitorEntry.sinks.length, 1);
+  assert.equal(websiteMonitorEntry.sinks[0].sink.id, websiteSinkId);
+  assert.equal(websiteMonitorEntry.sinks[0].destination.id, websiteDestinationId);
+  assert.equal(websiteMonitorEntry.sinks[0].destination.kind, "webhook");
+  assert.deepEqual(websiteMonitorEntry.sinks[0].sink.filterSteps, [{ kind: "dedup", window_secs: 300, fields: ["message"] }]);
+  assert.ok(!JSON.stringify(desired).includes(websiteWebhookUrl), "public configuration state must not expose destination payloads");
+  assert.ok(!readFileSync(config, "utf8").includes(websiteWebhookUrl), "portable YAML must use secret references");
+  assert.ok(readFileSync(join(dirname(config), ".env"), "utf8").includes(websiteWebhookUrl), "installed CLI must retain the private destination payload");
+  assert.equal(statSync(join(dirname(config), ".env")).mode & 0o777, 0o600);
   await website.deployment(deploymentId, "Waiting for forwarder");
   console.log("Real browser: approval/denial, signed-out return, CLI-visible website edit and reload continuity passed");
   injectFailure("after-push");
@@ -212,6 +226,8 @@ try {
   await request(`/api/deployments/${deploymentId}`, undefined, "DELETE"); deploymentId = undefined;
   for (const id of monitorIds) await request(`/api/monitors/${id}`, undefined, "DELETE");
   monitorIds = [];
+  for (const id of destinationIds) await request(`/api/destinations/${id}`, undefined, "DELETE");
+  destinationIds = [];
   await request(`/api/connections/${connectionId}`, undefined, "DELETE"); connectionId = undefined;
   console.log("Actual packaged Docker supervisor: loaded issued bytes, reported to real workerd/D1, converged website state and stopped gracefully");
 } catch (error) { failure = error; }
@@ -224,8 +240,9 @@ finally {
   if (ownedRequest) {
     if (deploymentId) await ownedRequest(`/api/deployments/${deploymentId}`, undefined, "DELETE").catch(() => cleanupFailures.push("owned deployment"));
     for (const id of monitorIds) await ownedRequest(`/api/monitors/${id}`, undefined, "DELETE").catch(() => cleanupFailures.push("owned monitor"));
+    for (const id of destinationIds) await ownedRequest(`/api/destinations/${id}`, undefined, "DELETE").catch(() => cleanupFailures.push("owned destination"));
     if (connectionId) await ownedRequest(`/api/connections/${connectionId}`, undefined, "DELETE").catch(() => cleanupFailures.push("owned connection"));
-    for (const kind of ["deployments", "connections", "monitors"]) {
+    for (const kind of ["deployments", "connections", "monitors", "destinations"]) {
       await ownedRequest(`/api/${kind}`).then(body => {
         if (body[kind].length !== 0) cleanupFailures.push(`remaining ${kind}`);
       }).catch(() => cleanupFailures.push(`verify ${kind} cleanup`));

@@ -127,9 +127,12 @@ export function Destinations() {
           {drivers.map((d) => (
             <Card
               key={d.id}
+              component="button"
+              type="button"
+              aria-label={`Add ${d.displayName} destination`}
               withBorder
               p="md"
-              style={{ cursor: "pointer" }}
+              style={{ cursor: "pointer", textAlign: "left" }}
               onClick={() => setAdding(d)}
             >
               <Group gap="sm" mb="xs">
@@ -159,7 +162,7 @@ export function Destinations() {
       {destinations && destinations.length > 0 && (
         <Stack gap="sm">
           {destinations.map((d) => (
-            <Card key={d.id} withBorder p="md">
+            <Card key={d.id} component="section" aria-label={`Destination ${d.displayName}`} withBorder p="md">
               <Group justify="space-between">
                 <Group gap="sm">
                   {KIND_ICONS[d.kind] ?? null}

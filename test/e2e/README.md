@@ -71,7 +71,12 @@ a fresh authenticated context and reload. A second CLI login is denied without
 replacing the saved account. The website creates a connection-scoped monitor with errors and dedup filters,
 types a comma-separated field list normally, and reopens the saved filter after
 reload. CLI pull/push must capture the exact monitor ID, connection scope and
-filter parameters. The website also enables metrics through Configure/Save;
+filter parameters. The browser also creates an HTTPS webhook destination and
+attaches a sink to the monitor; both routing IDs and the default per-sink filters
+must survive reload and CLI synchronization. The destination payload must remain
+absent from public state/YAML and present in the private mode-0600 companion env
+file. This tests configuration topology, not webhook event delivery.
+The website also enables metrics through Configure/Save;
 the revision card becomes stale, and CLI pull/push establishes a new desired
 revision before apply. Configure tab selection and metrics settings survive reload.
 After actual runtime apply, the browser shows matching desired/applied revisions

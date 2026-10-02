@@ -120,6 +120,35 @@ export async function startBrowser(service: { url: string; cookie: string }) {
         await saved.getByRole("button", { name: "Cancel", exact: true }).click();
         return body.monitor.id as string;
       },
+      async createDestination(url: string, onCreated: (id: string) => void) {
+        await page.goto(service.url + "/app/destinations");
+        await page.getByRole("button", { name: "Add HTTPS webhook destination", exact: true }).click();
+        const dialog = page.getByRole("dialog", { name: "Add HTTPS webhook destination", exact: true });
+        await dialog.getByRole("textbox", { name: "Display name", exact: true }).fill("Website routing");
+        await dialog.getByRole("textbox", { name: "Webhook URL", exact: true }).fill(url);
+        const created = page.waitForResponse(response => response.url() === service.url + "/api/destinations" && response.request().method() === "POST");
+        await dialog.getByRole("button", { name: "Add destination", exact: true }).click();
+        const response = await created; assert.equal(response.status(), 200, "website destination creation must succeed");
+        const body = await response.json(); assert.equal(typeof body.destination?.id, "string"); onCreated(body.destination.id);
+        await dialog.waitFor({ state: "hidden" }); await page.reload();
+        await page.getByRole("region", { name: "Destination Website routing", exact: true }).waitFor();
+        return body.destination.id as string;
+      },
+      async addSink(monitorId: string) {
+        await page.goto(service.url + "/app/monitors");
+        const card = page.getByRole("region", { name: "Monitor Website alert", exact: true });
+        await card.getByRole("button", { name: "Add sink", exact: true }).click();
+        const dialog = page.getByRole("dialog", { name: "Add sink to Website alert", exact: true });
+        assert.equal(await dialog.getByRole("textbox", { name: "Destination", exact: true }).inputValue(), "Website routing (webhook)");
+        const created = page.waitForResponse(response => response.url() === `${service.url}/api/monitors/${monitorId}/sinks` && response.request().method() === "POST");
+        await dialog.getByRole("button", { name: "Add sink", exact: true }).click();
+        const response = await created; assert.equal(response.status(), 200, "website sink creation must succeed");
+        const body = await response.json(); assert.equal(typeof body.sink?.id, "string");
+        await dialog.waitFor({ state: "hidden" }); await page.reload();
+        await card.getByText("→ Website routing", { exact: true }).waitFor();
+        await card.getByRole("button", { name: "Edit dedup 300s", exact: true }).waitFor();
+        return body.sink.id as string;
+      },
       async applied(id: string, sequence: number, revision: string) {
         await this.deployment(id, "In sync");
         const card = page.getByRole("region", { name: "Configuration revisions" });

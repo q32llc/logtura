@@ -1906,3 +1906,42 @@ The complete real browser/installed CLI/workerd/Docker journey passes with the n
 monitor, including runtime revision convergence, restart reporting and graceful
 shutdown. Both after-create and after-runtime injections pass with verified owned
 resource cleanup. Pushed-head CI remains a separate gate.
+
+### Destination website baseline and portable routing synchronization
+
+The destination page gains 17 interaction tests, bringing the UI suite to 110.
+Cases cover keyboard selection, typed public/private fields, declared optional
+values, cancelled drafts and driver isolation, failed creation retries, OAuth start
+links/return notices/dismissal, catalog failures, unknown destination kinds,
+confirmed deletion and deletion failure preservation. Destination choices are
+actual buttons and existing destinations expose named regions. These tests use
+mocked APIs/notifications and synthetic values; they do not grant real OAuth access
+or claim external delivery.
+
+The real browser creates an HTTPS webhook destination and attaches it to the
+website-created connection-scoped monitor. Both destination and sink survive
+reload. Installed CLI pull/push must retain their exact IDs, destination kind and
+default per-sink dedup filters. The private webhook URL must be absent from public
+configuration state and portable YAML, but present in the CLI's companion env file
+with mode 0600. The real runtime still needs to converge to the complete desired
+revision. Teardown includes owned destinations and verifies no destinations remain;
+owned monitor deletion removes sinks before destination/connection cleanup.
+
+All 110 UI tests and raised coverage gates pass. Aggregate statements/branches/
+functions/lines measure 45.95/42.19/43.87/46.18; enforced floors rise to
+45.5/42/43.5/46. Destinations measures 98.55/97.91/100/100 and enforces
+98/97/100/100. No UI pages are excluded to achieve these gains. Service/E2E types,
+the Vite/package build and full real browser/CLI/workerd/Docker happy path pass.
+
+The selected provider source set remains empty: this proves portable destination/
+sink topology and private-payload handling, not webhook event delivery. Existing
+standalone Vector event delivery is separate evidence. Final coverage, complete
+provider/source/site/browser cases, remote ledgers, managed apply, coordinated
+package release, rollback and staged production rollout remain required. Codecov
+permission approval remains pending. Public package source and production resources
+are unchanged by this private website/test slice.
+Both after-create and after-runtime failure injections pass with verified cleanup
+including destinations. Pushed-head CI remains an independent gate. Preceding
+monitor head 346b2a0 reaches the Codecov upload in run 36989208667 after passing
+all prior code, package, type, real runtime, unit/UI and coverage artifact steps;
+its upload outcome still requires terminal verification.
