@@ -38,39 +38,54 @@ pnpm exec vitest run --project workerd test/workerd/e2e-lifecycle.test.ts
 Run from the private repository root after building the public packages:
 
 ```sh
-pnpm build:packages
+pnpm build
+PLAYWRIGHT_BROWSERS_PATH=.tmp/playwright pnpm exec playwright install chromium
 pnpm typecheck:e2e
 pnpm test:e2e:local
 LOGT_E2E_INJECT_FAILURE=after-create pnpm test:e2e:local
 LOGT_E2E_INJECT_FAILURE=after-runtime pnpm test:e2e:local
 ```
 
-This requires Linux Docker host networking, Node 22+, npm/pnpm, and access to
-package/base-image registries. Missing Docker or unsupported platforms fail; the
-scenario does not silently skip runtime checks. Private CI requires the happy path
-and both injected failure paths. `after-push` is also available for diagnosis.
+This requires Linux Docker host networking, Node 22+, pinned Playwright Chromium,
+npm/pnpm, and access to package/base-image registries. Missing Docker or unsupported platforms fail; the
+scenario does not silently skip runtime checks. Private CI pins the verified Ubuntu
+24.04 baseline and requires the happy path and both injected failure paths. `after-push` is also available for diagnosis.
+
+CI installs Chromium and its system libraries using `playwright install --with-deps chromium`. On a local Linux host missing browser libraries, use the same `--with-deps` option. See the [official Playwright CI setup](https://playwright.dev/docs/ci).
 
 The runner packs every public package and installs them in a private temporary
 consumer. It starts the real bundled service in workerd with a fresh D1 database,
 applies all migrations, and seeds only a disposable identity and signed session.
+The native Workers Assets plugin serves the real built React UI.
 Connection and deployment creation, device approval, configuration changes,
 reporting and deletion use HTTP endpoints. Its queue actually runs discovery.
 Provider requests use strict fixtures and unexpected requests fail verification.
 It never loads `.env` or uses an existing CLI account or production database.
 
-An installed CLI signs in through device approval, pulls a self-managed Fly
-forwarder, edits its connection label, pushes the desired revision and applies
-it. A Fly HTTP fixture installs the actual planned files into a packaged Docker
-runtime image. The CLI-only fetch interceptor redirects Machines API requests;
+A real Chromium browser checks the anonymous CLI access page, approves an installed
+CLI login, and observes the pulled/edited/pushed connection label after sign-out,
+a fresh authenticated context and reload. A second CLI login is denied without
+replacing the saved account. The website enables metrics through Configure/Save;
+the revision card becomes stale, and CLI pull/push establishes a new desired
+revision before apply. Configure tab selection and metrics settings survive reload.
+After actual runtime apply, the browser shows matching desired/applied revisions
+and “In sync” across reload. Browser client revocation persists across reload and
+the saved CLI token receives HTTP 401. The separately authenticated forwarder
+continues reporting after a container restart. Unhandled browser JavaScript errors
+fail the scenario. Only identity/session establishment is seeded; GitHub OAuth and
+other provider login flows are separate requirements.
+
+An installed CLI applies the synchronized self-managed Fly forwarder. A Fly HTTP
+fixture installs the actual planned files into a packaged Docker runtime image. The CLI-only fetch interceptor redirects Machines API requests;
 it does not replace service responses or runtime observations. The supervisor is
 the image's PID 1 and owns real Vector, which sends heartbeat/metrics to real
 workerd. Assertions require accepted applied state, matching desired revision,
 checkpoint recovery after a container restart and graceful shutdown. The runtime
 executable comes from the installed CLI tarball, with no host Node/package mount.
 
-This case has an explicitly empty provider source selection. It proves a
-heartbeat/metrics topology and connection-label synchronization, not provider event
-delivery, source/site update behavior, browser rendering or actual Fly resources.
+This case has an explicitly empty provider source selection. It proves heartbeat/
+metrics, connection-label/metrics-target synchronization and the browser flows above. Provider event delivery, source/site update behavior,
+complete browser/provider flows and actual Fly resources remain required.
 The fixture maps an immutable-looking image reference to a verified Docker image
 configuration ID; real Fly registry/index/platform digest behavior remains a
 separate required check. The existing standalone Vector flow tests exercise actual

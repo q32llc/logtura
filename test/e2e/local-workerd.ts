@@ -13,6 +13,9 @@ export async function startLocalService() {
   const options = {
     modules: true, script: compiled.outputFiles![0]!.text, compatibilityDate: "2025-05-01",
     compatibilityFlags: ["nodejs_compat"], host: "127.0.0.1", port: 0,
+    assets: { directory: "dist", binding: "ASSETS",
+      routerConfig: { invoke_user_worker_ahead_of_assets: true, has_user_worker: true },
+      assetConfig: { not_found_handling: "single-page-application" as const } },
     d1Databases: ["DB"], d1Persist: false, queuePersist: false, queueProducers: { JOBS_QUEUE: "e2e-jobs" }, queueConsumers: { "e2e-jobs": {} },
     bindings: { APP_URL: "http://localhost", SESSION_SECRET: secret,
       CREDENTIAL_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },

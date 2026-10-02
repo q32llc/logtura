@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
+import { startBrowser } from "../test/e2e/browser";
 import { startLocalService } from "../test/e2e/local-workerd";
 
 if (process.platform !== "linux") throw new Error("Local runtime E2E requires Linux Docker host networking");
@@ -43,6 +44,7 @@ async function waitFor(check: () => Promise<boolean> | boolean, label: string, t
 }
 const runId = randomUUID().replaceAll("-", ""), imageTag = `logtura-local-e2e:${runId}`, container = `logtura-local-e2e-${runId}`, volume = `logtura-local-e2e-checkpoint-${runId}`;
 let local: Awaited<ReturnType<typeof startLocalService>> | undefined;
+let website: Awaited<ReturnType<typeof startBrowser>> | undefined;
 let provider: ReturnType<typeof createServer> | undefined;
 let deploymentId: string | undefined, connectionId: string | undefined;
 let deployed = false, imageBuilt = false, installationAttempted = false, volumeCreated = false;
@@ -76,16 +78,18 @@ try {
   monitorIds = (await request("/api/monitors")).monitors.map((monitor: any) => monitor.id);
   deploymentId = (await request("/api/deployments", { connectionId, displayName: "Existing fixture forwarder", targetKind: "fly", managed: false, sourceIds: [], heartbeatTarget: "logtura" }, "POST")).deployment.id;
   assert.ok(deploymentId); assert.ok(connectionId);
-  await request(`/api/deployments/${deploymentId}`, { externalId: "fly:e2e-forwarder:abc123", metricsTarget: "logtura" }, "PUT");
+  await request(`/api/deployments/${deploymentId}`, { externalId: "fly:e2e-forwarder:abc123" }, "PUT");
   console.log("Local workerd: migrated fresh D1 and created owned connection/deployment through HTTP");
   injectFailure("after-create");
 
+  website = await startBrowser(service);
+  await website.deployment(deploymentId, "No configuration revision has been recorded for this deployment.");
   const login = start(bin, ["login", "--service", service.url, "--no-browser"]);
   // Attach rejection handling immediately while awaiting the approval code.
   const loginResult = login.result; void loginResult.catch(() => {});
   await waitFor(() => /Approval code: ([A-Z0-9-]+)/.test(login.stdout()), "installed CLI device login");
   const code = login.stdout().match(/Approval code: ([A-Z0-9-]+)/)![1];
-  await request(`/api/cli/devices/${code}/decision`, { approve: true }, "POST");
+  await website.approve(code!);
   await loginResult;
   assert.equal((JSON.parse(await run(bin, ["--json", "whoami"]))).user.id, service.userId);
   await run(bin, ["pull", deploymentId, "--service", service.url, "--output", config]);
@@ -94,13 +98,30 @@ try {
   writeFileSync(edits, JSON.stringify([{ kind: "connection.update", id: connectionId, patch: { displayName: "CLI-updated account" } }]));
   await run(bin, ["--config", config, "config", "edit", edits]);
   await run(bin, ["--config", config, "push"]);
-  const desired = (await request(`/api/deployments/${deploymentId}/config/state`)).state;
+  let desired = (await request(`/api/deployments/${deploymentId}/config/state`)).state;
   assert.ok(desired.desired.sequence > (before.state?.desired.sequence ?? 0));
   assert.equal(desired.desired.document.connections[0].connection.displayName, "CLI-updated account");
   assert.equal((await request("/api/connections")).connections.find((item: any) => item.id === connectionId).displayName, "CLI-updated account");
   assert.equal(desired.applied, null);
   console.log("Installed CLI: browser-approved login, private pull/edit/push and website API desired revision agree");
 
+  await website.changedConnection(connectionId);
+  await website.deployment(deploymentId, "Waiting for forwarder");
+  const savedAccount = readFileSync(account, "utf8");
+  const denied = start(bin, ["login", "--service", service.url, "--no-browser", "--name", "e2e-denied"]);
+  void denied.result.catch(() => {});
+  await waitFor(() => /Approval code: ([A-Z0-9-]+)/.test(denied.stdout()), "denied CLI device login");
+  await website.deny(denied.stdout().match(/Approval code: ([A-Z0-9-]+)/)![1]!);
+  await assert.rejects(denied.result, /access_denied/);
+  assert.ok(readFileSync(account, "utf8") === savedAccount, "denied login must preserve the saved account");
+  await website.enableMetrics(deploymentId);
+  const previousSequence = desired.desired.sequence;
+  await run(bin, ["pull", deploymentId, "--output", config, "--force"]);
+  await run(bin, ["--config", config, "push"]);
+  desired = (await request(`/api/deployments/${deploymentId}/config/state`)).state;
+  assert.ok(desired.desired.sequence > previousSequence);
+  await website.deployment(deploymentId, "Waiting for forwarder");
+  console.log("Real browser: approval/denial, signed-out return, CLI-visible website edit and reload continuity passed");
   injectFailure("after-push");
   const imageContext = join(temporary, "image"); mkdirSync(imageContext);
   writeFileSync(join(imageContext, "Dockerfile"), core.renderDockerfile([], { runtimeSupervisor: true, mountVectorYamlAtRuntime: true }));
@@ -164,9 +185,21 @@ try {
     const detail = (await request(`/api/deployments/${deploymentId}`)).deployment;
     return Number.isFinite(detail.lastSeenAt) && detail.lastSeenAt > 0 && Number.isFinite(detail.metricsSnapshot?.updatedAt) && Object.keys(detail.metricsSnapshot.byComponent).length > 0;
   }, "actual Vector heartbeat and metrics HTTP delivery");
-  const counterBeforeRestart = state.lastReportSequence;
+  await website.applied(deploymentId, desired.desired.sequence, desired.desired.revision);
+  await website.revoke();
+  await assert.rejects(run(bin, ["whoami"]), /invalid_account_token \(HTTP 401\)/);
+  website.assertNoErrors();
+  const counterBeforeRestart = (await request(`/api/deployments/${deploymentId}/config/state`)).state.lastReportSequence;
   await run("docker", ["restart", "--time", "35", container]);
-  await waitFor(async () => (await request(`/api/deployments/${deploymentId}/config/state`)).state.lastReportSequence > counterBeforeRestart, "durable runtime reporting across container restart");
+  const restartedAt = await run("docker", ["inspect", "--format", "{{.State.StartedAt}}", container]);
+  await waitFor(async () => {
+    const logs = await run("docker", ["logs", "--since", restartedAt, container]);
+    const reported = logs.split("\n").some(line => {
+      try { const event = JSON.parse(line); return event.event === "applied_report" && event.accepted === true && event.reportSequence > counterBeforeRestart; } catch { return false; }
+    });
+    const current = (await request(`/api/deployments/${deploymentId}/config/state`)).state;
+    return reported && current.lastReportSequence > counterBeforeRestart && current.activeInstanceId === state.activeInstanceId && !current.stale;
+  }, "durable runtime reporting across container restart");
   assert.deepEqual(service.unexpected, []);
   assert.ok(!JSON.stringify(state).includes("fixture-private-provider-token"));
   injectFailure("after-runtime");
@@ -193,6 +226,7 @@ finally {
       }).catch(() => cleanupFailures.push(`verify ${kind} cleanup`));
     }
   }
+  if (website) await website.close().catch(() => cleanupFailures.push("owned browser"));
   if (provider) await new Promise<void>(resolve => provider!.close(() => resolve()));
   if (local) await local.service.dispose().catch(() => cleanupFailures.push("isolated workerd"));
   try { rmSync(temporary, { recursive: true, force: true }); } catch { cleanupFailures.push("private temporary files"); }

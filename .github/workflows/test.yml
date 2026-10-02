@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -44,6 +44,11 @@ jobs:
 
       - name: real Vector delivery flow
         run: pnpm test:flow
+
+      - name: install Chromium for the real website journey
+        run: pnpm exec playwright install --with-deps chromium
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: .tmp/playwright
 
       - name: installed CLI and real local workerd runtime journey
         run: |

@@ -1745,3 +1745,52 @@ image publication 36977613898 succeeded. New-head CI must verify this real-servi
 journey on a clean runner. This private test infrastructure adds no unpublished
 public API and changes no production forwarder, npm release or production schema.
 The full convergence, high-coverage and staged shipping goal remains active.
+
+
+### Real website ↔ installed CLI convergence (implemented)
+
+The local journey now launches pinned Playwright 1.63.0 Chromium and serves the
+actual built React app through Miniflare's native Workers Assets plugin. Anonymous
+CLI-access guidance and the GitHub sign-in link render. The authenticated browser
+approves an installed CLI device login through the real UI, and denies a second
+login without replacing the previously saved private account credential.
+
+After CLI pull/edit/push, the connection detail heading shows the updated label.
+Actual sign-out returns HTTP 303 and clears the session cookie. A fresh authenticated
+browser context, followed by reload, still sees the CLI change. Session establishment
+is seeded for the disposable identity; this does not claim live GitHub OAuth.
+The browser then enables metrics using Configure/Save. The revision card becomes
+`Configuration changed`, and the chosen target/tab survive reload. CLI pull/push
+captures that website edit and establishes a new desired sequence before apply.
+This tests both directions using the real service, rather than a mocked web API.
+
+After the actual packaged Docker supervisor/Vector reports loaded configuration,
+the browser renders `In sync` with matching desired/applied sequence/hash across
+reload. Revoking the CLI client through the website survives reload and the saved
+CLI token receives `invalid_account_token` (HTTP 401). The independent forwarder
+credential remains usable: after container restart, a fresh runtime log entry must
+record an accepted higher report sequence, and D1 state must preserve the active
+instance/revision. The counter baseline is read immediately before restart, and
+logs are scoped to the restarted process start time to avoid treating a pre-restart
+periodic report as recovery. Unhandled JavaScript errors through browser shutdown
+fail the journey.
+
+The full browser/runtime happy path and the injected failures after creation and
+after runtime reporting pass locally, including ownership cleanup. Node E2E and
+service types, the actual React build and all 27 existing UI tests/coverage gates
+pass. Unit UI coverage remains 19.70/16.58/16.15/17.91; browser success is not counted
+as instrumented coverage, and the final UI coverage target is still outstanding.
+Private CI installs pinned Chromium/system dependencies and runs all three cases.
+Its OS is pinned to the verified existing Ubuntu 24.04 baseline rather than allowing
+an implicit OS change to alter browser prerequisites. Public package code is
+unchanged and remains pushed on public main.
+
+Preceding private head ae2550c passes the installed CLI/workerd/runtime happy and
+failure cases plus all code/package/type/real Vector/unit/UI/coverage artifact gates
+in clean CI run 36980574817; only Codecov fails with `Repository not found`.
+New-head browser CI still requires independent verification. This scenario retains
+an explicitly empty provider-source selection. Real provider event delivery,
+source/site-update journeys, complete browser/provider matrices, remote cleanup
+ledgers, managed apply, registry/platform digest checks, high final coverage,
+Codecov access, coordinated npm release and staged production rollout remain
+required. No production resources, schema or forwarder were changed by this slice.
