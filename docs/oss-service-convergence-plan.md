@@ -1872,3 +1872,37 @@ path pass locally. Both after-create and after-runtime cleanup injections pass.
 The final happy-path run also passes the stricter exact provider token check.
 Clean pushed-head CI remains a separate verification gate. Public package source
 and production resources/schema are unchanged by this private website/test slice.
+
+### Monitor and sink website configuration baseline
+
+The monitor page now has 23 interaction tests covering global/scoped creation,
+trimmed names, cancellation/reset, creation retries, enabled-state changes,
+independent monitor/per-sink pipeline saves, multi-monitor/sink isolation, routing
+and missing-resource labels, destination choice, sink cancellation/creation retries,
+confirmed monitor deletion, sink removal and failure preservation. Tests use the
+actual shared filter editor and page with mocked APIs/notifications; they do not
+claim delivery to real destinations. Monitor cards expose named regions to make
+each configuration independently accessible.
+
+The real browser journey creates a connection-scoped `Website alert` monitor with
+errors followed by 120-second dedup. It types `script, message` character by
+character rather than setting the field in one event, then reloads and reopens the
+saved filter to verify both fields. The installed CLI subsequently pulls/pushes
+that website edit; assertions require the exact monitor ID, connection scope and
+both filter configurations in the service's desired portable document. The existing
+actual runtime must still converge to that complete desired revision. Teardown
+removes owned monitors before their connections so scoped-resource cascades cannot
+turn successful cleanup into misleading deletion errors.
+
+All 93 UI tests pass. Aggregate statements/branches/functions/lines measure
+41.51/38.84/39.38/41.24; CI floors rise to 41/38.5/39/41 with all UI files still
+included. Monitors measures 99.17/95.71/100/100 and enforces 99/95/100/100. Service
+and E2E typechecking and the actual Vite/package build pass. This is an incremental
+baseline, not the final UI coverage target. It retains empty source selection;
+real provider event delivery, complete website/provider matrices, remote persistent
+cleanup ledgers, managed apply, package publication and production rollout remain
+required. Public package code and production resources are unchanged.
+The complete real browser/installed CLI/workerd/Docker journey passes with the new
+monitor, including runtime revision convergence, restart reporting and graceful
+shutdown. Both after-create and after-runtime injections pass with verified owned
+resource cleanup. Pushed-head CI remains a separate gate.

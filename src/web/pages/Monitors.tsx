@@ -197,7 +197,7 @@ export function Monitors() {
           {monitors.map((m) => {
             const monitorSinks = sinksByMonitor.get(m.id) ?? [];
             return (
-              <Card key={m.id} withBorder p="md">
+              <Card key={m.id} component="section" aria-label={`Monitor ${m.displayName}`} withBorder p="md">
                 <Group justify="space-between" mb="sm">
                   <Stack gap={2}>
                     <Group gap={6}>

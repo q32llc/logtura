@@ -113,12 +113,16 @@ try {
   await website.deny(denied.stdout().match(/Approval code: ([A-Z0-9-]+)/)![1]!);
   await assert.rejects(denied.result, /access_denied/);
   assert.ok(readFileSync(account, "utf8") === savedAccount, "denied login must preserve the saved account");
+  const websiteMonitorId = await website.createMonitor(id => { monitorIds.push(id); });
   await website.enableMetrics(deploymentId);
   const previousSequence = desired.desired.sequence;
   await run(bin, ["pull", deploymentId, "--output", config, "--force"]);
   await run(bin, ["--config", config, "push"]);
   desired = (await request(`/api/deployments/${deploymentId}/config/state`)).state;
   assert.ok(desired.desired.sequence > previousSequence);
+  const websiteMonitor = desired.desired.document.monitors.find((item: any) => item.monitor.id === websiteMonitorId)?.monitor;
+  assert.equal(websiteMonitor?.connectionId, connectionId);
+  assert.deepEqual(websiteMonitor?.filterSteps, [{ kind: "errors" }, { kind: "dedup", window_secs: 120, fields: ["script", "message"] }]);
   await website.deployment(deploymentId, "Waiting for forwarder");
   console.log("Real browser: approval/denial, signed-out return, CLI-visible website edit and reload continuity passed");
   injectFailure("after-push");
@@ -206,6 +210,8 @@ try {
   assert.equal(await run("docker", ["inspect", "--format", "{{.State.ExitCode}}", container]), "0");
   await run(bin, ["logout"]);
   await request(`/api/deployments/${deploymentId}`, undefined, "DELETE"); deploymentId = undefined;
+  for (const id of monitorIds) await request(`/api/monitors/${id}`, undefined, "DELETE");
+  monitorIds = [];
   await request(`/api/connections/${connectionId}`, undefined, "DELETE"); connectionId = undefined;
   console.log("Actual packaged Docker supervisor: loaded issued bytes, reported to real workerd/D1, converged website state and stopped gracefully");
 } catch (error) { failure = error; }
@@ -217,8 +223,8 @@ finally {
   if (imageBuilt) await run("docker", ["image", "rm", imageTag]).catch(() => cleanupFailures.push("owned image tag"));
   if (ownedRequest) {
     if (deploymentId) await ownedRequest(`/api/deployments/${deploymentId}`, undefined, "DELETE").catch(() => cleanupFailures.push("owned deployment"));
-    if (connectionId) await ownedRequest(`/api/connections/${connectionId}`, undefined, "DELETE").catch(() => cleanupFailures.push("owned connection"));
     for (const id of monitorIds) await ownedRequest(`/api/monitors/${id}`, undefined, "DELETE").catch(() => cleanupFailures.push("owned monitor"));
+    if (connectionId) await ownedRequest(`/api/connections/${connectionId}`, undefined, "DELETE").catch(() => cleanupFailures.push("owned connection"));
     for (const kind of ["deployments", "connections", "monitors"]) {
       await ownedRequest(`/api/${kind}`).then(body => {
         if (body[kind].length !== 0) cleanupFailures.push(`remaining ${kind}`);

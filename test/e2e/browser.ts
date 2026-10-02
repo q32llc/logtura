@@ -88,6 +88,38 @@ export async function startBrowser(service: { url: string; cookie: string }) {
         assert.equal(await page.getByRole("textbox", { name: "Metrics target", exact: true }).inputValue(), "logtura (last-received only)");
         assert.equal(new URL(page.url()).searchParams.get("tab"), "configure");
       },
+      async createMonitor(onCreated: (id: string) => void) {
+        await page.goto(service.url + "/app/monitors");
+        await page.getByRole("button", { name: "New monitor", exact: true }).click();
+        const dialog = page.getByRole("dialog", { name: "New monitor", exact: true });
+        await dialog.getByRole("textbox", { name: "Name", exact: true }).fill("Website alert");
+        await dialog.getByRole("textbox", { name: "Scope", exact: true }).click();
+        await page.getByRole("option", { name: "CLI-updated account", exact: true }).click();
+        await dialog.getByRole("button", { name: "Add", exact: true }).click();
+        await page.getByRole("menuitem", { name: "Dedup", exact: true }).click();
+        const filter = page.getByRole("dialog", { name: "Add Dedup", exact: true });
+        await filter.getByRole("textbox", { name: "Window (seconds)", exact: true }).fill("120");
+        // Type normally: the comma must survive each intermediate keystroke.
+        const fields = filter.getByRole("textbox", { name: "Fields (comma-separated)", exact: true });
+        await fields.fill(""); await fields.pressSequentially("script, message");
+        await filter.getByRole("button", { name: "Add", exact: true }).click();
+        await filter.waitFor({ state: "hidden" });
+        const created = page.waitForResponse(response => response.url() === service.url + "/api/monitors" && response.request().method() === "POST");
+        await dialog.getByRole("button", { name: "Create", exact: true }).click();
+        const response = await created;
+        assert.equal(response.status(), 200, "website monitor creation must succeed");
+        const body = await response.json(); assert.equal(typeof body.monitor?.id, "string");
+        onCreated(body.monitor.id);
+        await dialog.waitFor({ state: "hidden" });
+        await page.reload();
+        const card = page.getByRole("region", { name: "Monitor Website alert", exact: true });
+        await card.getByText("CLI-updated account", { exact: true }).waitFor();
+        await card.getByRole("button", { name: "Edit dedup 120s", exact: true }).click();
+        const saved = page.getByRole("dialog", { name: "Edit Dedup", exact: true });
+        assert.equal(await saved.getByRole("textbox", { name: "Fields (comma-separated)", exact: true }).inputValue(), "script, message");
+        await saved.getByRole("button", { name: "Cancel", exact: true }).click();
+        return body.monitor.id as string;
+      },
       async applied(id: string, sequence: number, revision: string) {
         await this.deployment(id, "In sync");
         const card = page.getByRole("region", { name: "Configuration revisions" });
