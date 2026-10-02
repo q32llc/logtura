@@ -122,6 +122,7 @@ const app = new Hono<AppContext>();
 app.use("/api/deployments/:id/config",async(c,next)=>{c.header("cache-control","no-store");await next();});
 app.use("/api/deployments/:id/config/*",async(c,next)=>{c.header("cache-control","no-store");await next();});
 app.use("/api/applied/:id",async(c,next)=>{c.header("cache-control","no-store");await next();});
+app.use("/api/connections/:id/debug/tail-token",async(c,next)=>{c.header("cache-control","no-store");await next();});
 app.use("/api/tail/*",async(c,next)=>{c.header("cache-control","no-store");await next();});
 app.use("*", attachOptionalUser);
 
@@ -590,6 +591,7 @@ apiAuth.post("/connections/:id/debug/tail-token", async (c) => {
   const user = c.get("user")!;
   const conn = await getConnection(c.env.DB, user.id, c.req.param("id"));
   if (!conn) return c.json({ error: "not_found" }, 404);
+  if (!["supabase-edge-logs", "railway-logs"].includes(conn.provider)) return c.json({error:"wrong_provider"},400);
   const { mintTailToken } = await import("./providers/tail-token");
   const token = await mintTailToken(
     { connectionId: conn.id, userId: user.id },
@@ -597,7 +599,7 @@ apiAuth.post("/connections/:id/debug/tail-token", async (c) => {
   );
   return c.json({
     tailToken: token,
-    tailTokenUrl: `${c.env.APP_URL}/api/tail/supabase/token`,
+    tailTokenUrl: `${c.env.APP_URL}/api/tail/${conn.provider === "railway-logs" ? "railway" : "supabase"}/token`,
   });
 });
 
@@ -620,7 +622,7 @@ apiAuth.get("/connections/:id/supabase-projects", async (c) => {
     );
     token = await ensureFreshAccessToken(c.env, conn);
   } catch (err) {
-    console.error("supabase token refresh failed", err);
+    console.error("supabase token refresh failed");
     return c.json(
       {
         error: "token_refresh_failed",
@@ -630,49 +632,55 @@ apiAuth.get("/connections/:id/supabase-projects", async (c) => {
       400,
     );
   }
-  const projRes = await fetch("https://api.supabase.com/v1/projects", {
-    headers: { authorization: `Bearer ${token}`, accept: "application/json" },
-  });
-  if (!projRes.ok) {
-    return c.json(
-      { error: "list_failed", message: `HTTP ${projRes.status}` },
-      400,
-    );
-  }
-  const projects = (await projRes.json()) as Array<{
-    ref: string;
-    name: string;
-    organization_id?: string;
-  }>;
-  const enriched = await Promise.all(
-    projects.map(async (p) => {
-      const fnRes = await fetch(
-        `https://api.supabase.com/v1/projects/${p.ref}/functions`,
-        {
-          headers: {
-            authorization: `Bearer ${token}`,
-            accept: "application/json",
-          },
-        },
+  try {
+    const projRes = await fetch("https://api.supabase.com/v1/projects", {
+      headers: { authorization: `Bearer ${token}`, accept: "application/json" },
+    });
+    if (!projRes.ok) {
+      return c.json(
+        { error: "list_failed", message: `HTTP ${projRes.status}` },
+        400,
       );
-      let functionCount: number | null = null;
-      if (fnRes.ok) {
-        try {
-          const arr = (await fnRes.json()) as unknown[];
-          functionCount = Array.isArray(arr) ? arr.length : null;
-        } catch {
-          functionCount = null;
+    }
+    const projects = (await projRes.json()) as Array<{
+      ref: string;
+      name: string;
+      organization_id?: string;
+    }>;
+    if (!Array.isArray(projects) || projects.some(p => !p || typeof p.ref !== "string" || !p.ref || typeof p.name !== "string")) throw new Error("Invalid Supabase project list");
+    const enriched = await Promise.all(
+      projects.map(async (p) => {
+        const fnRes = await fetch(
+          `https://api.supabase.com/v1/projects/${p.ref}/functions`,
+          {
+            headers: {
+              authorization: `Bearer ${token}`,
+              accept: "application/json",
+            },
+          },
+        );
+        let functionCount: number | null = null;
+        if (fnRes.ok) {
+          try {
+            const arr = (await fnRes.json()) as unknown[];
+            functionCount = Array.isArray(arr) ? arr.length : null;
+          } catch {
+            functionCount = null;
+          }
         }
-      }
-      return {
-        ref: p.ref,
-        name: p.name,
-        organizationId: p.organization_id ?? null,
-        functionCount,
-      };
-    }),
-  );
-  return c.json({ projects: enriched });
+        return {
+          ref: p.ref,
+          name: p.name,
+          organizationId: p.organization_id ?? null,
+          functionCount,
+        };
+      }),
+    );
+    return c.json({ projects: enriched });
+  } catch {
+    console.error("supabase project list failed");
+    return c.json({error:"list_failed",message:"Failed to list Supabase projects"},400);
+  }
 });
 
 apiAuth.post("/connections/:id/supabase-pick-project", async (c) => {
@@ -686,7 +694,7 @@ apiAuth.post("/connections/:id/supabase-pick-project", async (c) => {
   const body = (await c.req.json().catch(() => null)) as {
     projectRef?: string;
   } | null;
-  const projectRef = body?.projectRef?.trim();
+  const projectRef = typeof body?.projectRef === "string" ? body.projectRef.trim() : "";
   if (!projectRef || !/^[a-z0-9]{20}$/.test(projectRef)) {
     return c.json({ error: "invalid_project_ref" }, 400);
   }
@@ -700,6 +708,8 @@ apiAuth.post("/connections/:id/supabase-pick-project", async (c) => {
     id,
     {
       credentials: creds,
+      expectedProvider: conn.provider,
+      expectedConnection: conn,
       externalAccountId: projectRef,
     },
   );
@@ -728,7 +738,7 @@ apiAuth.get("/connections/:id/railway-environments", async (c) => {
     );
     token = await ensureFreshRailwayAccessToken(c.env, conn);
   } catch (err) {
-    console.error("railway token refresh failed", err);
+    console.error("railway token refresh failed");
     return c.json(
       {
         error: "token_refresh_failed",
@@ -743,12 +753,12 @@ apiAuth.get("/connections/:id/railway-environments", async (c) => {
     const projects = await listRailwayProjectsWithEnvironments(token);
     return c.json({ projects });
   } catch (err) {
-    console.error("railway environment list failed", err);
+    console.error("railway environment list failed");
     return c.json(
       {
         error: "list_failed",
         message:
-          err instanceof Error ? err.message : "Failed to list Railway environments",
+          "Failed to list Railway environments",
       },
       400,
     );
@@ -767,8 +777,8 @@ apiAuth.post("/connections/:id/railway-pick-environment", async (c) => {
     projectId?: string;
     environmentId?: string;
   } | null;
-  const projectId = body?.projectId?.trim() ?? "";
-  const environmentId = body?.environmentId?.trim() ?? "";
+  const projectId = typeof body?.projectId === "string" ? body.projectId.trim() : "";
+  const environmentId = typeof body?.environmentId === "string" ? body.environmentId.trim() : "";
   if (!isRailwayId(projectId) || !isRailwayId(environmentId)) {
     return c.json({ error: "invalid_railway_environment" }, 400);
   }
@@ -782,6 +792,8 @@ apiAuth.post("/connections/:id/railway-pick-environment", async (c) => {
     user.id,
     id,
     {
+      expectedProvider: conn.provider,
+      expectedConnection: conn,
       credentials: {
         ...creds,
         projectId,

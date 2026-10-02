@@ -178,13 +178,14 @@ export async function updateConnectionCredentials(
   input: {
     credentials: unknown;
     expectedProvider?: string;
+    expectedConnection?: ConnectionRow;
     externalAccountId?: string | null;
     providerInstallationId?: string | null;
     displayName?: string | null;
   },
 ): Promise<ConnectionRow | null> {
-  const existing = await getConnection(db, userId, connectionId);
-  if (!existing || (input.expectedProvider !== undefined && existing.provider !== input.expectedProvider)) return null;
+  const existing = input.expectedConnection ?? await getConnection(db, userId, connectionId);
+  if (!existing || existing.id !== connectionId || existing.user_id !== userId || (input.expectedProvider !== undefined && existing.provider !== input.expectedProvider)) return null;
   const json = JSON.stringify(input.credentials);
   const ct = await encryptSecret(json, env.CREDENTIAL_ENCRYPTION_KEY);
   const ts = now();

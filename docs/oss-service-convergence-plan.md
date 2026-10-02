@@ -3571,3 +3571,46 @@ Final private backend/per-package targets and remaining provider delivery,
 remote cleanup, legacy managed replacement/rollback, coordinated publication and
 staged production rollout gates remain open. No production resource, migration
 or published npm version changed in this slice.
+
+
+### Native connection inventory and provider selection baseline
+
+Public shared-filter head `bca28ec` completed its exact
+[CI run](https://github.com/logtura/logtura/actions/runs/37058954061). Private
+shared-filter head `1469619` completed its exact
+[image run](https://github.com/q32llc/logtura/actions/runs/37059181077); its
+[test run](https://github.com/q32llc/logtura/actions/runs/37059181100) was still
+running at this milestone's initial validation.
+
+Sixteen additional native cases cover owned connection/source catalogs,
+installation lookup, connection details, queued/deduplicated discovery, deletion,
+owner-scoped debug tail tokens, Supabase project/function-count enrichment,
+Railway scoped/account project fallback and environment/service counts. Both
+provider pickers cover successful scope selection, credential preservation,
+graph-version advancement, queued discovery, malformed fields and ownership/
+provider rejection. API requests and race regressions run through the actual
+Worker and D1; only outbound provider HTTP is replaced.
+
+Non-string picker fields now return 400 instead of throwing while calling
+`trim`. Selection updates carry the initially read connection snapshot into the
+existing atomic credential/metadata SQL fence. Interleaved real D1 rotations
+prove that neither picker restores an old token after another writer replaced
+it; mismatched snapshot IDs/users are also rejected before encryption. Broker
+debug responses are `no-store`, select the correct Railway/Supabase URL and
+reject providers without a broker. Supabase list shape/JSON failures and Railway
+provider failures return stable errors without logging or returning upstream
+private bodies.
+
+Full validation passed 1,320 native/package tests across 117 files and
+all 285 website tests, plus the service/package build and application/E2E types.
+Private aggregate coverage is 92.99% statements, 89.94% branches, 95.20%
+functions and 92.78% lines. Separate backend coverage is 89.47%, 85.01%,
+91.95% and 88.67%, respectively. Aggregate and separate backend floors rise
+again with this baseline. The previous shared-filter slice verified the actual
+local browser/CLI/workerd/managed Vector journey; changed inventory/picker
+requests in this slice are covered directly by native workerd tests.
+
+Final backend/per-package targets, full provider stream/delivery coverage,
+durable remote cleanup, legacy managed replacement/rollback, coordinated npm
+publication and staged production rollout remain open. No public package,
+production resource, migration or published npm version changed in this slice.
