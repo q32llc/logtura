@@ -1064,3 +1064,44 @@ updates and acknowledgements, website desired/applied display, full remote/brows
 E2E, final coverage, provider/telemetry hardening, dependencies, npm publication and
 staged production rollout remain required. Migration 0024 joins 0018–0023 as
 unreleased production work. The full shipping goal remains active.
+
+
+### Linked CLI push and durable resume (implemented)
+
+The packaged CLI now exposes `push`, explicit changed-private-payload upload and
+`push --resume`. Preparation checks the linked origin/account, both revision fences,
+all referenced payloads and credential purpose changes. Changed references receive
+opaque keyed versions; unchanged private data is retained remotely. Changed OAuth
+broker credentials require raw grant material or a fresh pull.
+
+A mode-0600 pending request is persisted and fsynced before PUT, with a stable UUID,
+exact request, original baseline and keyed local snapshot. It contains opted-in
+private uploads until recovery completes. Receipt lookup precedes retry. Definitive
+400/409 rejection is recorded; unknown outcomes cannot be abandoned by accepting
+remote state. Confirmed commits/rejections allow explicit latest-remote acceptance;
+replacing intervening local edits additionally requires `--force`. Successful import
+advances YAML, environment and link in one recoverable transaction. Resuming after
+local advancement but before pending cleanup performs no second write. Normal edits,
+pull and deployment refuse pending pushes; offline status remains available.
+
+Directory locks use per-process random ownership markers and conservative live-PID
+checks. Recovery does not delete another writer's marker. Pending/schema/payload
+validation fails without exposing values. Both recovery artifacts are gitignored.
+
+Validation: 729 backend/package tests across 66 files pass. Private aggregate coverage
+is 74.49% statements, 69.99% branches, 78.29% functions and 72.31% lines; enforced
+floors rise to 74/69/78/72. Push and its lock enforce 100% across all four metrics.
+The installed packed CLI test drops a committed response, resumes from its receipt
+and proves only one PUT occurred. All 15 packed packages and both CLI aliases pass.
+Public validation passes 488 tests across 37 files with coverage of
+80.59/77.13/80.06/79.03 (statements/branches/functions/lines). Public package builds
+and typechecks pass. Tests also cover explicit uploads, account/origin fences, local/remote conflicts,
+malformed private state, lock races, cleanup interruption and Windows directory-sync
+behavior. These tests do not substitute for the planned real service/browser/forwarder
+journey or destructive remote E2E harness.
+
+Existing-target forwarder apply/reporting, website desired/applied display, complete
+local/workerd/remote/browser E2E, final coverage targets, provider/telemetry hardening,
+dependency upgrades, npm publication and staged production rollout remain required.
+No npm release, production migration or deployment is claimed by this slice. The
+complete shipping goal remains active.

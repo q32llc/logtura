@@ -1,3 +1,7 @@
+import { pushDeploymentConfig,readPendingPush } from "./push";
+import { readDeploymentLink } from "./deployment-link";
+import { assertNoPendingPush } from "./file-transaction";
+import { normalizeServiceUrl } from "@logtura/core";
 import { deploymentStatus } from "./deployment-link";
 import { recoverFileTransaction } from "./file-transaction";
 import { applyGraphEditFile, diffGraphFiles, diffRemoteGraph, editGraphFile, exportGraphFile, selectGraphSource } from "./graph";
@@ -49,6 +53,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       console.log(help());
       return 0;
     }
+    const readOnly=["login","whoami","logout","stats","diff","validate","bundle","push"].includes(command) || (command==="config" && ["status","recover","hash","diff"].includes(args[0]??""));
+    if(!readOnly)assertNoPendingPush(findConfigPath(global.config).path);
+    if(command==="push")return await cmdPush(global,args);
     if (command === "init") return cmdInit(global, args);
     if (command === "login" || command === "whoami" || command === "logout") return await cmdAccount(command, global, args);
     if (command === "diff") return await cmdDiff(global,args);
@@ -68,6 +75,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     console.error(err instanceof Error ? err.message : String(err));
     return 1;
   }
+}
+
+async function cmdPush(global:GlobalArgs,args:string[]):Promise<number>{
+ const flags=parseFlags(args);for(const flag of Object.keys(flags))if(!["service","uploadSecrets","resume","acceptRemote","force"].includes(flag))throw new Error(`Unsupported push option: ${flag}`);
+ const path=findConfigPath(global.config).path,pending=await readPendingPush(path),link=pending?.link??await readDeploymentLink(path);if(!link)throw new Error("Pull a hosted deployment before pushing");
+ const service=stringFlag(flags,"service");if(service && normalizeServiceUrl(service)!==link.service)throw new Error("Push service does not match the linked origin");
+ if(process.env.LOGT_SERVICE_URL && normalizeServiceUrl(process.env.LOGT_SERVICE_URL)!==link.service)throw new Error("Configured service does not match the linked origin");
+ const result=await pushDeploymentConfig(accountClient(link.service),path,{resume:booleanFlag(flags,"resume"),uploadSecrets:booleanFlag(flags,"uploadSecrets"),acceptRemote:booleanFlag(flags,"acceptRemote"),force:booleanFlag(flags,"force")});
+ console.log(global.json?JSON.stringify(result):`${result.acceptedRemote?"Accepted remote configuration for":"Pushed"} ${link.deployment.id} (${result.result.revision})`);return 0;
 }
 
 async function cmdDiff(global:GlobalArgs,args:string[]):Promise<number>{
@@ -491,6 +507,9 @@ function parseFlags(argv: string[]): Record<string, string | boolean> {
     else if (a === "--json") flags.json = true;
     else if (a === "--vector-validate") flags.vectorValidate = true;
     else if (a === "-q" || a === "--quiet") flags.quiet = true;
+    else if (a === "--upload-secrets") flags.uploadSecrets = true;
+    else if (a === "--resume") flags.resume = true;
+    else if (a === "--accept-remote") flags.acceptRemote = true;
     else if (a === "--force") flags.force = true;
     else if (a === "--all") flags.all = true;
     else if (a === "--token") flags.token = needValue(argv, ++i, a);
@@ -712,6 +731,7 @@ function help(): string {
 Commands:
   init                              Create logt.yaml
   pull <deployment-id> [-o file]     Pull a website deployment and private .env
+  push [--upload-secrets]            Push a linked graph; --resume recovers an interrupted push
   login [--service URL]             Approve CLI access in your browser
   whoami [--service URL]            Show the signed-in service account
   logout [--local]                  Revoke CLI access and remove credentials

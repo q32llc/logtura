@@ -36,6 +36,8 @@ export default defineConfig({
         "packages/cli/src/pull.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/file-transaction.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/deployment-link.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/cli/src/push.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/cli/src/push-lock.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/service-client.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/account.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
         "packages/core/src/config.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },

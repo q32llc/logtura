@@ -10,3 +10,6 @@ coverage
 *.logtura-link.json*
 .logtura-transaction.json*
 .env.*
+
+.logtura-push.json*
+.logtura-push.lock/

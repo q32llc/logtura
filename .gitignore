@@ -15,3 +15,6 @@ containers/forwarder/assets/
 # Private deployment baselines and interrupted-write artifacts
 *.logtura-link.json*
 .logtura-transaction.json*
+
+.logtura-push.json*
+.logtura-push.lock/

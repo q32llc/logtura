@@ -82,16 +82,28 @@ monitors: []
     assert.ok(!JSON.stringify(exported.document).includes('fixture-token'));
     const savedFetch=globalThis.fetch,savedToken=process.env.LOGT_SERVICE_TOKEN;
     process.env.LOGT_SERVICE_TOKEN='lt_cli_'+'T'.repeat(43);
+    let hostedCurrent={...exported,configurationVersion:3,desiredSequence:0,revision:await hashConfigDocument(exported.document),deployment:{id:'dep_fixture',displayName:'Existing'}},hostedReceipt=null,writes=0;
     globalThis.fetch=async(url,init)=>{
       assert.equal(new Headers(init.headers).get('authorization'),'Bearer lt_cli_'+'T'.repeat(43));
       if(url==='https://fixture.test/api/me')return Response.json({user:{id:'usr_fixture',githubLogin:'fixture'}});
-      assert.equal(url,'https://fixture.test/api/deployments/dep_fixture/config?includeSecrets=1');
-      return Response.json({...exported,configurationVersion:3,desiredSequence:0,revision:await hashConfigDocument(exported.document),deployment:{id:'dep_fixture',displayName:'Existing'}});
+      if(url.includes('/config/receipts/'))return hostedReceipt?Response.json(hostedReceipt):Response.json({error:'receipt_not_found'},{status:404});
+      if(init.method==='PUT'){
+        writes++;const body=JSON.parse(init.body);assert.equal(body.expectedConfigurationVersion,3);assert.equal(body.expectedSequence,0);assert.equal(body.secretValues,undefined);
+        const result={configurationVersion:4,sequence:1,document:body.document,revision:await hashConfigDocument(body.document),sourceAliases:{}};
+        hostedReceipt={requestId:body.requestId,result};hostedCurrent={...hostedCurrent,...result,desiredSequence:1};
+        throw new Error('packed fixture dropped the committed response');
+      }
+      assert.equal(url,'https://fixture.test/api/deployments/dep_fixture/config?includeSecrets=1');return Response.json(hostedCurrent);
     };
-    try{assert.equal(await main(['pull','dep_fixture','--service','https://fixture.test','-o','linked/logt.yaml']),0);}
-    finally{globalThis.fetch=savedFetch;process.env.LOGT_SERVICE_TOKEN=savedToken;}
+    try{
+      assert.equal(await main(['pull','dep_fixture','--service','https://fixture.test','-o','linked/logt.yaml']),0);
+      assert.equal(await main(['-c','linked/logt.yaml','source','select','fixture','pushed-site','--id','src_pushed']),0);
+      assert.equal(await main(['-c','linked/logt.yaml','push']),1);
+      assert.equal(statSync('linked/.logtura-push.json').mode&0o777,0o600);
+      assert.equal(await main(['-c','linked/logt.yaml','push','--resume']),0);assert.equal(writes,1);
+    }finally{globalThis.fetch=savedFetch;process.env.LOGT_SERVICE_TOKEN=savedToken;}
     const linked=JSON.parse(readFileSync('linked/logt.yaml.logtura-link.json','utf8'));
-    assert.equal(linked.accountId,'usr_fixture');assert.equal(linked.configurationVersion,3);assert.equal(linked.desiredSequence,0);
+    assert.equal(linked.accountId,'usr_fixture');assert.equal(linked.configurationVersion,4);assert.equal(linked.desiredSequence,1);
     assert.equal(statSync('linked/logt.yaml.logtura-link.json').mode&0o777,0o600);
     assert.ok(!JSON.stringify(linked).includes('fixture-token'));
 
@@ -132,7 +144,7 @@ monitors: []
   bin("logtura",["-c",linkedPath,"source","select","fixture","linked-new-site","--id","src_linked_new"]);
   assert.equal(readFileSync(`${linkedPath}.logtura-link.json`,"utf8"),linkedState);
   const linkedStatus=JSON.parse(bin("logt",["-c",linkedPath,"config","status","--json"]));
-  assert.equal(linkedStatus.configurationVersion,3);assert.equal(linkedStatus.desiredSequence,0);
+  assert.equal(linkedStatus.configurationVersion,4);assert.equal(linkedStatus.desiredSequence,1);
   assert.ok(linkedStatus.changes.some(change=>change.id==="src_linked_new"));assert.deepEqual(linkedStatus.privateChanges,[]);
   const initialGraphRevision = bin("logt", ["-c", "graph.yaml", "config", "hash"]).trim();
   bin("logtura", ["-c", "graph.yaml", "source", "select", "fixture", "fixture-second", "--id", "src_second"]);

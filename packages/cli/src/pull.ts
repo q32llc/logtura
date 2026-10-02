@@ -5,10 +5,10 @@ import { stringify } from "yaml";
 import { parseDeploymentManifest, hashConfigDocument, type DeploymentConfigExport, type LogturaServiceClient } from "@logtura/core";
 import { writeEnvValues } from "./local-env";
 import { createDeploymentLink, validateDeploymentLink, type DeploymentLink } from "./deployment-link";
-import { assertTransactionClear, commitFileTransaction, deploymentLinkPath } from "./file-transaction";
+import { assertNoPendingPush, assertTransactionClear, commitFileTransaction, deploymentLinkPath } from "./file-transaction";
 /** Stage both files before touching either destination. Roll back ordinary I/O
  * failures, preserve unrelated .env entries, and never leave public secret files. */
-export async function writePulledConfig(result: DeploymentConfigExport, path: string, force = false, link?: DeploymentLink): Promise<void> {
+export async function writePulledConfig(result: DeploymentConfigExport, path: string, force = false, link?: DeploymentLink, pendingRequestId?:string): Promise<void> {
     const parsed = parseDeploymentManifest(result.document, { env: result.secretValues });
     if (parsed.missingEnv.length)
         throw new Error("Service export is missing required secret payloads");
@@ -19,6 +19,7 @@ export async function writePulledConfig(result: DeploymentConfigExport, path: st
     if (config === env)
         throw new Error("Configuration cannot overwrite the companion .env file");
     const checkDestinations=()=>{
+      assertNoPendingPush(config,pendingRequestId);
       for (const target of [config, env, ...(link ? [deploymentLinkPath(config)] : [])])
         if (existsSync(target) && !lstatSync(target).isFile())
             throw new Error("Pull requires regular file destinations");

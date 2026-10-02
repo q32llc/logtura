@@ -1,4 +1,4 @@
-import { assertTransactionClear } from "./file-transaction";
+import { assertNoPendingPush,assertTransactionClear } from "./file-transaction";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -47,7 +47,7 @@ export function readConfigDoc(path: string): UnknownRecord {
 }
 
 export function writeConfigDoc(path: string, doc: UnknownRecord): void {
-  assertTransactionClear(path);
+  assertTransactionClear(path);assertNoPendingPush(path);
   writeFileSync(path, stringifyYaml(doc, { lineWidth: 96 }));
 }
 

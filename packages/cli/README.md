@@ -210,7 +210,7 @@ Forwarder reporting tokens cannot authorize account configuration operations.
 
 These account commands require a service deployment with CLI authorization
 support. Standalone setup, config, bundle and provider deployment commands do not
-require login. `pull` exports existing website deployments; push and desired/applied synchronization are upcoming slices.
+require login. `pull` exports existing website deployments; `push` synchronizes local edits back to the website. Forwarder apply/acknowledgement remains upcoming.
 
 
 ## Pull a website deployment
@@ -255,7 +255,7 @@ Pulled manifests use the same public parser and renderer as local shorthand file
 without contacting the website. Existing OAuth broker URLs and opted-in reporting
 still contact the configured endpoints when the forwarder runs. Shorthand
 `connect/source add/sink add/monitor add` commands refuse this graph format;
-graph editing commands and authenticated push are still being implemented.
+Use the portable graph editing commands below and authenticated `push` to synchronize changes.
 Pull currently describes the service's current graph, rather than a persisted
 separate desired or applied revision. It does not update the service.
 
@@ -302,8 +302,7 @@ file replacement. Private JSON input errors do not print the input payload.
 
 Graph edits keep unchanged payload versions and give changed payloads new opaque
 versions. Credential and metadata changes belong in explicit operations; editing
-`.env` by hand does not currently refresh public version references. This must be
-accounted for by the synchronization layer before authenticated push is shipped.
+`.env` by hand does not currently refresh public version references. `push --upload-secrets` detects these changes and refreshes their public versions.
 Local `config diff` and account `diff` report identities and changed field names,
 including ordering, without printing values. These commands compare manifests;
 they do not push, deploy, resolve conflicts or persist desired/applied revisions.
@@ -341,6 +340,8 @@ artifacts from version control:
 ```gitignore
 *.logtura-link.json*
 .logtura-transaction.json*
+.logtura-push.json*
+.logtura-push.lock/
 .env
 .env.*
 ```
@@ -359,5 +360,46 @@ identity. An explicit forced pull can replace an existing link.
 
 YAML, companion `.env` and the link are committed and recovered together on hosted
 pull. Earlier two-file journals remain supported. A service without revision fences
-cannot establish a link; pull fails before changing local files. CLI push and remote
-commit recovery are still upcoming capabilities.
+cannot establish a link; pull fails before changing local files.
+
+
+## Push local changes to the website
+
+```sh
+logt -c forwarder/logt.yaml source select con_workers new-website --kind cf_worker
+logt -c forwarder/logt.yaml push
+# Authorize transfer of changed referenced private JSON payloads.
+logt -c forwarder/logt.yaml push --upload-secrets
+```
+
+Push requires a hosted link and login to its service and account. It uses the saved
+configuration version and desired sequence to reject concurrent website edits.
+Only changed referenced private payloads are uploaded with `--upload-secrets`;
+unchanged credentials stay on the service. Private changes receive new opaque
+manifest versions. Changed OAuth broker URLs require raw grant values or a fresh
+website pull. Push updates the website graph and desired revision; updating the
+running forwarder and reporting its applied revision remain separate capabilities.
+
+Before sending a write, the CLI durably saves a request ID and exact request in
+`.logtura-push.json` (mode 0600). Explicitly authorized private uploads are stored
+there until recovery completes. Exclude this file and `.logtura-push.lock/` from
+version control. Configurations sharing the directory cannot edit or pull over a
+pending push. Status and validation remain available.
+
+```sh
+# Recover a lost response or interrupted push using the exact saved request.
+logt -c forwarder/logt.yaml push --resume
+# After a confirmed commit or definitive rejection, accept the latest website state.
+logt -c forwarder/logt.yaml push --resume --accept-remote
+# Also explicitly replace local edits made since the pending push started.
+logt -c forwarder/logt.yaml push --resume --accept-remote --force
+```
+
+Resume checks the immutable service receipt before retrying the same request ID.
+It does not change the saved upload authorization or payloads. An uncertain outcome
+must be retried before accepting remote state. Local edits or a newer website
+revision stop automatic replacement and retain the pending request. Successful
+recovery commits YAML, `.env` and the linked baseline together, then removes the
+pending request. If a local file transaction was interrupted, run `config recover`
+before resuming. A live push process holds a directory lock; dead-process locks can
+be reclaimed without deleting another process's ownership marker.

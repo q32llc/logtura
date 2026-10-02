@@ -5,12 +5,18 @@ interface Entry {target:string;stage:string;backup:string;existed:boolean;}
 interface Journal {schemaVersion:1;pid:number;committed:boolean;files:Entry[];}
 export function transactionPath(config:string):string {return resolve(dirname(resolve(config)),".logtura-transaction.json");}
 export function deploymentLinkPath(config:string):string {return `${resolve(config)}.logtura-link.json`;}
+export function pendingPushPath(config:string):string{return resolve(dirname(resolve(config)),".logtura-push.json");}
+export function assertNoPendingPush(config:string,permit?:string):void {
+ const path=pendingPushPath(config);if(!existsSync(path))return;
+ if(permit && lstatSync(path).isFile())try{if(JSON.parse(readFileSync(path,"utf8")).request?.requestId===permit)return;}catch{}
+ throw new Error("Pending push; run logt push --resume before writing configuration");
+}
 export function assertTransactionClear(config:string):void {
   if(existsSync(transactionPath(config)))throw new Error("Configuration transaction pending; run logt config recover before reading or writing");
 }
 function assertConfigDestination(config:string):void {
   const journal=transactionPath(config);
-  if([resolve(dirname(config),".env"),journal,`${journal}.commit`].includes(resolve(config)))throw new Error("Configuration destination is reserved for private transaction state");
+  if([resolve(dirname(config),".env"),journal,`${journal}.commit`,pendingPushPath(config),resolve(dirname(config),".logtura-push.lock")].includes(resolve(config)))throw new Error("Configuration destination is reserved for private transaction state");
 }
 function syncFile(path:string):void {const fd=openSync(path,"r");try{fsyncSync(fd);}finally{closeSync(fd);}}
 function syncDirectory(path:string):void {
