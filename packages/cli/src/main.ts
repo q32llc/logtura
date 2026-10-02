@@ -782,3 +782,5 @@ Fly deploy options:
 if (import.meta.url === `file://${process.argv[1]}`) {
   process.exitCode = await main();
 }
+
+export { withForwarderReportFile, reportLoadedForwarderFile, runForwarderReporting } from "./runtime-report";

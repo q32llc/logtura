@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, statSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,16 +9,35 @@ import { spawnSync } from "node:child_process";
 const root = process.cwd();
 const load = (name) => import(pathToFileURL(join(root, "packages", name, "dist/index.js")));
 const { compileForwarderRuntime, exportDeploymentManifest, createSecretVersioner, hashConfigDocument,
-  verifyLoadedForwarder, GENERATOR_VERSION, VECTOR_VERSION } = await load("core");
+  verifyLoadedForwarder, DeploymentReportingClient, GENERATOR_VERSION, VECTOR_VERSION } = await load("core");
+const { runForwarderReporting } = await import(pathToFileURL(join(root, "packages/cli/dist/main.js")));
 const { customVectorProvider } = await load("custom-vector");
 const { webhookDriver } = await load("destination-webhook");
 const temporary = mkdtempSync(join(tmpdir(), "logt-vector-flow-"));
 const name = `logt-e2e-${crypto.randomUUID()}`;
 const deliveries = [];
-let attempts = 0;
+let attempts = 0, appliedCounter = 0, expectedInstance;
+const appliedReports = [];
 const server = createServer(async (request, response) => {
   let body = "";
   for await (const chunk of request) body += chunk;
+  if (request.url === "/api/applied/dep_fixture") {
+    try {
+      const report = JSON.parse(body);
+      assert.equal(request.headers.authorization, "Bearer fixture-report-token");
+      assert.equal(report.instanceId, expectedInstance.instanceId);
+      assert.equal(report.sequence, expectedInstance.sequence);
+      assert.equal(report.revision, expectedInstance.revision);
+      appliedReports.push(report.reportSequence);
+      const accepted = report.reportSequence > appliedCounter;
+      if (accepted) appliedCounter = report.reportSequence;
+      // The fixture accepted the first report but loses its acknowledgment.
+      if (appliedReports.length === 1) { response.destroy(); return; }
+      response.writeHead(200, {"content-type": "application/json"});
+      response.end(JSON.stringify({accepted}));
+    } catch { response.writeHead(400); response.end("invalid applied report"); }
+    return;
+  }
   attempts++;
   if (attempts === 1) { response.writeHead(503); response.end("retry fixture"); return; }
   try {
@@ -59,11 +78,12 @@ try {
     }] }],
   };
   const exported = await exportDeploymentManifest(input, await createSecretVersioner(crypto.randomUUID()));
-  const {bundle, artifact} = await compileForwarderRuntime({service: "https://runtime-fixture.test",
+  const {bundle, artifact} = await compileForwarderRuntime({service: `http://127.0.0.1:${receiverPort}`,
     deploymentId: "dep_fixture", document: exported.document,
     instance: {requestId: crypto.randomUUID(), instanceId: crypto.randomUUID(),
       configurationVersion: 0, sequence: 1, revision: await hashConfigDocument(exported.document)},
     env: exported.secretValues, providers: input.providers, destinations: input.destinations});
+  expectedInstance = artifact.instance;
   assert.ok(!bundle.vectorYaml.includes("/api/heartbeat/"));
   assert.ok(!bundle.vectorYaml.includes("/api/metrics/"));
   writeFileSync(join(temporary, "vector.yaml"), bundle.vectorYaml);
@@ -91,6 +111,27 @@ try {
   const boundName = Object.keys(artifact.environment)[0];
   assert.ok(boundName);
   await assert.rejects(verifyLoadedForwarder(artifact, {...observed, environment: {...environment, [boundName]: "changed"}}));
+  const reporting = new DeploymentReportingClient({url: artifact.service, token: "fixture-report-token", fetch});
+  const stopReporting = new AbortController(), results = [], checkpoint = join(temporary, "report-checkpoint.json");
+  await runForwarderReporting({checkpoint, artifact, signal: stopReporting.signal,
+    intervalMs: 10, retryMs: 20, maxRetryMs: 100,
+    observe: async () => {
+      const current = JSON.parse(docker(["inspect", name]))[0];
+      const file = spawnSync("docker", ["exec", name, "cat", "/etc/vector/vector.yaml"], {encoding: "utf8", timeout: 5000});
+      assert.equal(file.status, 0);
+      return {...observed, files: {"vector.yaml": file.stdout},
+        environment: Object.fromEntries(current.Config.Env.map(value => {const index = value.indexOf("=");return [value.slice(0,index),value.slice(index+1)];})),
+        ready: current.State.Running && (await fetch(`${api}/health`, {signal: AbortSignal.timeout(1000)})).status === 200};
+    },
+    report: value => reporting.reportApplied(artifact.deploymentId, value),
+    onResult: result => {results.push(result);if(result.accepted)stopReporting.abort();},
+  });
+  assert.deepEqual(appliedReports, [1,1,2]);
+  assert.deepEqual(results, [{reportSequence:1,accepted:false},{reportSequence:2,accepted:true}]);
+  assert.equal(appliedCounter, 2);
+  assert.equal(statSync(checkpoint).mode & 0o777, 0o600);
+  assert.equal(JSON.parse(readFileSync(checkpoint,"utf8")).pending, null);
+  assert.equal(JSON.parse(readFileSync(checkpoint,"utf8")).lastReportSequence, 2);
   const response = await fetch(ingress, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify([
     { message: "keep-error-one", level: "error" }, { message: "drop-info", level: "info" }, { message: "keep-error-two", level: "error" },
   ]), signal: AbortSignal.timeout(5000) });
@@ -103,7 +144,7 @@ try {
     assert.equal(event.logtura_provider, "custom-vector");
     assert.equal(event.error, true);
   }
-  console.log("Real Vector flow passed: normalization, error filtering, routing, context, retry delivery, and issued runtime integrity without Logtura service");
+  console.log("Real Vector flow passed: normalization, error filtering, routing, context, retry delivery, issued runtime integrity, and durable HTTP report recovery without Logtura service");
 } finally {
   docker(["rm", "--force", name], true);
   await new Promise((resolve) => server.close(resolve));

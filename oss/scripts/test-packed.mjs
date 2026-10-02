@@ -62,7 +62,7 @@ monitors: []
   const script = `import assert from 'node:assert/strict';
     import {GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit} from '@logtura/core';
     import {writeFileSync,readFileSync,statSync} from 'node:fs';
-    import {main} from '@logtura/cli';
+    import {main,reportLoadedForwarderFile,runForwarderReporting} from '@logtura/cli';
     import {cloudflareWorkerTailDriver} from '@logtura/driver-cloudflare-worker-tail';
     const input={providers:[cloudflareWorkerTailDriver],destinations:[],monitors:[],
       connections:[{connection:{id:'fixture',provider:cloudflareWorkerTailDriver.id,displayName:'Fixture',externalAccountId:'fixture-account'},
@@ -148,6 +148,12 @@ monitors: []
     const reportStore={load:async()=>checkpoint,save:async(value)=>{checkpoint=structuredClone(value)}};
     assert.deepEqual(await reportLoadedForwarder({artifact:compiled.artifact,observed,store:reportStore,report:async()=>true}),{reportSequence:1,accepted:true});
     assert.equal(checkpoint.lastReportSequence,1);
+    const checkpointFile='runtime-checkpoint.json';
+    assert.deepEqual(await reportLoadedForwarderFile({checkpoint:checkpointFile,artifact:compiled.artifact,observed,report:async()=>true}),{reportSequence:1,accepted:true});
+    assert.equal(statSync(checkpointFile).mode&0o777,0o600);
+    const stopReporting=new AbortController();
+    await runForwarderReporting({checkpoint:checkpointFile,artifact:compiled.artifact,observe:async()=>observed,report:async()=>true,signal:stopReporting.signal,onResult:()=>stopReporting.abort()});
+    assert.equal(JSON.parse(readFileSync(checkpointFile,'utf8')).lastReportSequence,2);
     const parsed=parseDeploymentManifest(exported.document,{env:exported.secretValues,providers:input.providers,destinations:input.destinations});
     assert.deepEqual(generateBundle(parsed.input),bundle);
     const edited=await editDeploymentManifest(exported.document,exported.secretValues,[{kind:'source.add',connectionId:'fixture',source:{id:'src_second',externalId:'fixture-second',displayName:'Second',sourceKind:'worker',metadata:null}}],await createSecretVersioner('local-private-key'));

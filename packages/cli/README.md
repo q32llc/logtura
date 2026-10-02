@@ -429,3 +429,33 @@ Managed forwarders use the service deployment path, which owns their image and
 machine settings. Standalone configs retain local `flyctl` creation and deployment
 without service login. This target binding does not yet report a loaded forwarder
 revision to the website; runtime acknowledgement remains upcoming.
+
+### Durable forwarder reporting adapter
+
+The installed `@logtura/cli` library exports `reportLoadedForwarderFile`,
+`withForwarderReportFile` and `runForwarderReporting` for Node 22+ process adapters.
+They implement the core runtime/reporting contracts without requiring hosted account
+credentials. A reporting transport can use the separate `DeploymentReportingClient`.
+
+Use a dedicated private writable directory on persistent storage and a distinct
+checkpoint path for each activated instance. The file adapter holds a process-owner
+lock across intent, transport and completion; overlapping reporters fail rather than
+race counters. Dead-owner recovery retains uncertain intent. Checkpoints replace
+atomically from flushed mode-0600 stages; POSIX directory entries are flushed too.
+Windows skips directory fsync. Corrupt/foreign state, unsafe files or symlinked
+checkpoint directories fail closed. Only narrowly named abandoned stages are cleaned.
+Do not store checkpoints over configuration, artifact or credential files.
+
+The reporting loop calls `observe()` again for every attempt. That callback must
+capture files, bound environment, versions and readiness from the process the adapter
+actually owns; these functions do not start Vector or manufacture a ready observation.
+Supply `report(value)` and an `AbortSignal`. Successful/ignored responses advance the
+local checkpoint, with a default 60-second interval. Network failures, HTTP 429/5xx
+and transport timeouts retain intent and retry with jittered exponential backoff
+(default 1–30 seconds). Integrity, storage, authentication, schema and callback errors
+stop. Stop interrupts waiting; an in-flight transport finishes before shutdown returns
+(the reporting SDK bounds requests to 20 seconds). No raw transport errors are logged.
+
+This is a library adapter; CLI activation/apply commands and production container
+wiring are separate capabilities. Standalone CLI rendering/deployment continues to
+work without the Logtura service.

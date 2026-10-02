@@ -1298,3 +1298,58 @@ activation and apply orchestration, actual Vector reporting E2E, remote/browser
 journeys and durable remote cleanup also remain required. Final coverage targets,
 provider/telemetry hardening, dependency updates, publication, unapplied migrations
 0018–0025 and staged production rollout remain part of the active full shipping goal.
+
+
+### Node filesystem reporting and bounded delivery recovery (implemented)
+
+The installed CLI library now exports a durable filesystem store/one-shot reporter
+and a reporting loop. Mode-0600 stages are flushed before atomic checkpoint
+replacement, with parent-directory fsync on POSIX (Windows skips directory fsync).
+A process-owner directory lock covers load, transport and completion together;
+concurrent reporters fail, and dead owners recover without discarding uncertain
+intent. Invalid/foreign checkpoints, symlinks and unsafe files fail closed. Cleanup
+removes only narrowly named abandoned regular stages. Each activated instance needs
+its own checkpoint on persistent private storage. Existing configuration pushes use
+the extracted shared directory-lock implementation with unchanged behavior.
+
+The loop re-observes the caller's owned runtime on every attempt. Transient network
+errors, HTTP 429/5xx and transport timeouts retain intent and use jittered exponential
+backoff (default 1–30 seconds). Successful or ignored responses complete the attempt
+and resume the normal 60-second interval. Integrity, storage, authentication, schema
+and observer/callback errors stop; local TypeErrors are not mistaken for transport
+failures. Abort interrupts waits and prevents new observations/reports; an in-flight
+transport finishes before return, bounded to 20 seconds by the reporting SDK.
+
+Validation passes 775 private tests in 76 files and 524 public tests in 44 files.
+Private coverage is 76.56/72.96/80.00/73.99 and public coverage is
+83.17/80.53/82.44/81.44 (statements/branches/functions/lines). Aggregate floors rise
+to 76/72/80/73 and 83/80/82/81. Shared private locking enforces 100% across all metrics;
+the new reporting adapter enforces 97% statements, 95% branches and 100% functions
+and lines (measured 97.67/96/100/100). Untaken defensive paths are Windows directory
+fsync skipping and an unexpected non-abort timer failure; Linux checks do not claim
+Windows execution. Tests kill an actual Node writer at six fsync/rename boundaries,
+then recover the lock, stage and report counter. They also cover overlapping writers,
+corrupt/foreign state, symlinks, serialization failure, bounded retry/reset behavior,
+transport-only retry classification and shutdown during each phase.
+
+Both layouts pass package builds/typechecks and all 15 packed consumer checks, which
+exercise the installed filesystem reporter and loop exports. The service build passes.
+The real Vector fixture verifies its own running container and then runs the installed
+Node reporter against a local HTTP fixture. That fixture accepts counter 1 but loses
+the acknowledgment; requests arrive as 1, 1, 2, and private durable state completes at
+counter 2. Filtering/routing/context and webhook 503 retry still pass. This is a real
+Vector/HTTP/filesystem journey with a local reporting fixture, not a claim of a complete
+hosted workerd, remote or browser apply journey.
+
+Rechecked foundation-head CI (private 60dabb0 run 36955767513, public f1550ea run
+36955763976) fails only at Codecov upload with `Repository not found`. Private
+forwarder-image run 36955767550 passes. External Codecov repository activation/access
+remains unresolved and the upload gate stays enforced.
+
+Production owned-process startup/readiness/version capture, immutable file/asset
+installation, shutdown and container wiring remain required, alongside durable
+activation and CLI/service apply orchestration. This Node adapter supplies reporting
+persistence/retry rather than manufacturing process observations. Full local/workerd,
+remote and browser journeys/cleanup, final backend/public 95/90 and UI 90/85 coverage,
+provider/telemetry hardening, dependency upgrades, npm publication, migrations 0018–0025
+and staged production rollout remain outstanding. The full shipping goal remains active.
