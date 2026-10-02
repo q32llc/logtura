@@ -915,3 +915,41 @@ provider/telemetry hardening, dependency updates, npm publication and staged
 production rollout remain required. Migrations 0018–0023 and this route remain
 unreleased in production. The goal remains active; Codecov activation remains an
 external configuration issue while independent work continues.
+
+### Durable local configuration replacement (implemented)
+
+Standalone graph edits/exports and hosted pulls now share a durable two-file
+transaction for manifest YAML and its private companion `.env`. A mode-0600 `.logtura-transaction.json` journal is created exclusively
+and flushed in the shared directory before copying shared environment values or
+preparing stages. Stages are flushed before any original moves. Directory entries are flushed after original/installation moves
+on supported platforms. A separately flushed commit marker becomes authoritative
+before backups are discarded. This lock covers all configs sharing that `.env`.
+
+`logt -c <config> config recover` checks the journal's schema, exact destination and
+stage/backup paths, regular-file artifacts and process owner. Recovery refuses a
+live or unverifiable owner. Before commit it restores originals/removes newly
+installed files; after commit it keeps the new pair and cleans up. Missing committed
+destinations retain recovery data rather than discarding the last backup. Rollback
+attempts both files even when one restore fails and retains the journal on failure.
+All config reads/edits refuse pending recovery, preventing a mixed pair from being
+rendered or deployed. Stages, backups and journals must be retained together.
+Windows skips unsupported directory fsync; equivalent machine-power-loss durability
+is not claimed there. PID reuse conservatively refuses recovery.
+
+Validation includes real child processes killed after each of five rename boundaries,
+ordinary write/rollback/cleanup failures, initial creation without originals, malformed
+journals, forged paths, symlink artifacts, live/unverifiable owners, absent committed
+destinations, shared-environment exclusion and executable recovery commands. The
+new transaction module enforces 100% statements/branches/functions/lines in both
+repositories. Backend/package validation passes 674 tests across 62 files, with
+coverage 72.79/67.63/76.98/71.15. The independent public layout passes 443 tests
+across 35 files with coverage 78.31/74.07/78.24/77.45, and both layouts pass
+package builds, CLI types and all 15 packed-package checks. Packed consumers additionally crash an actual
+compiled graph edit and recover it through the installed CLI without a TypeScript
+loader or service dependency.
+
+Linked deployment baselines, private fingerprints, explicit secret push and uncertain
+remote-commit recovery remain required next. This local transaction currently covers
+the YAML/environment pair; extending it for linked state must preserve the same
+journal and recovery guarantees. All other remaining publication, rollout, final
+coverage, full E2E and service/forwarder capabilities remain in scope.

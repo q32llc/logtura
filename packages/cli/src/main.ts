@@ -1,3 +1,4 @@
+import { recoverFileTransaction } from "./file-transaction";
 import { applyGraphEditFile, diffGraphFiles, diffRemoteGraph, editGraphFile, exportGraphFile, selectGraphSource } from "./graph";
 import {
   chmodSync,
@@ -97,6 +98,10 @@ async function cmdAccount(command: string, global: GlobalArgs, args: string[]): 
 
 async function cmdConfig(global: GlobalArgs, args: string[]): Promise<number> {
   const ref = findConfigPath(global.config);
+  if(args[0]==="recover"){
+    rejectExtra(args.slice(1));const recovered=recoverFileTransaction(ref.path);
+    console.log(global.json?JSON.stringify({path:ref.path,recovered}):recovered?"Recovered interrupted configuration write":"No interrupted configuration write");return 0;
+  }
   if(args[0]==="edit" || args[0]==="diff"){
     if(args.length!==2)throw new Error(`config ${args[0]} requires one file`);
     const result=args[0]==="edit"?{revision:await applyGraphEditFile(ref.path,args[1]!)}:await diffGraphFiles(ref.path,args[1]!);
@@ -121,7 +126,7 @@ async function cmdConfig(global: GlobalArgs, args: string[]): Promise<number> {
     console.log(global.json ? JSON.stringify({schemaVersion: 1, path: output}) : `normalized ${output}`);
     return 0;
   }
-  throw new Error("config supports: normalize [-o file], hash, export [-o file], edit <operations.json>, diff <baseline.yaml>");
+  throw new Error("config supports: recover, normalize [-o file], hash, export [-o file], edit <operations.json>, diff <baseline.yaml>");
 }
 
 function cmdInit(global: GlobalArgs, args: string[]): number {
@@ -714,6 +719,7 @@ Commands:
   source remove <source-id>         Remove a site from a portable graph
   config normalize [-o file]        Add stable IDs and inline custom fragments
   config hash                       Print the portable configuration revision
+  config recover                    Recover an interrupted YAML/.env write
   connect <provider>                Add a provider connection (cloudflare, fly, railway, ...)
   source add <source>               Add a source driver (cloudflare-worker-tail, ...)
   sink add <kind> <name>            Add a sink

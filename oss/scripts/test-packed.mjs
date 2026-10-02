@@ -123,6 +123,24 @@ monitors: []
   assert.match(readFileSync(join(consumer, "graph.yaml"), "utf8"), /discoverSources: false/);
   assert.match(readFileSync(join(consumer, "graph.yaml"), "utf8"), /discoverMonitors: true/);
   bin("logt", ["-c", "graph.yaml", "validate"]);
+  // Crash a compiled transaction in an isolated installed consumer, then recover
+  // through the actual executable. No TypeScript loader or service is available.
+  const recoveryDir = join(consumer, "recovery"); mkdirSync(recoveryDir);
+  const recoveryConfig = join(recoveryDir, "logt.yaml");
+  const recoveryFiles = [join(recoveryDir, ".env"), recoveryConfig].map((target, i) => {
+    const original = readFileSync(join(consumer, i === 0 ? ".env" : "graph.yaml"), "utf8");
+    writeFileSync(target, original, {mode: i === 0 ? 0o600 : 0o644}); return {target, original};
+  });
+  const crashScript = `import fs from 'node:fs'; import {syncBuiltinESMExports} from 'node:module';
+    let count=0; const rename=fs.renameSync; fs.renameSync=(...args)=>{rename(...args); if(++count===2)process.kill(process.pid,'SIGKILL')};
+    syncBuiltinESMExports(); const {main}=await import('@logtura/cli');
+    process.exitCode=await main(['-c',${JSON.stringify(recoveryConfig)},'source','select','fixture','crash-test','--id','src_crash']);`;
+  const crashed = spawnSync(process.execPath, ["--input-type=module", "-e", crashScript], {cwd: consumer, encoding: "utf8", env: {...process.env, ...offline}});
+  assert.equal(crashed.signal, "SIGKILL", crashed.stderr);
+  assert.equal(JSON.parse(bin("logtura", ["-c", recoveryConfig, "config", "recover", "--json"])).recovered, true);
+  for (const file of recoveryFiles) assert.equal(readFileSync(file.target, "utf8"), file.original);
+  assert.deepEqual(readdirSync(recoveryDir), [".env", "logt.yaml"]);
+  assert.equal(JSON.parse(bin("logt", ["-c", recoveryConfig, "config", "recover", "--json"])).recovered, false);
   console.log(`Packed consumer checks passed for ${packages.length} packages and both CLI aliases`);
 } finally {
   rmSync(temporary, { recursive: true, force: true });

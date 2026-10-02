@@ -233,8 +233,21 @@ revision without putting the payloads in the manifest. Keep `.env` private.
 Pull requires an account CLI credential; a forwarder's reporting token cannot
 export configuration. Existing configuration and conflicting secret values require
 `--force`. Unrelated `.env` entries are preserved. Staged writes roll back ordinary
-I/O failures; a process or machine crash during the two-file replacement can leave
-backup files requiring recovery. The CLI does not print exported secrets.
+I/O failures. A durable, mode-0600 `.logtura-transaction.json` journal protects
+both files during replacement. After an interrupted write, run:
+
+```sh
+logt -c forwarder/logt.yaml config recover
+```
+
+Recovery restores the previous pair before commit, or keeps the new pair after
+commit and removes backups. It refuses to race a live writer or recover invalid
+journals, symlink artifacts or a missing committed destination. All configurations
+sharing that directory's `.env` refuse reads/edits until recovery finishes. Keep
+stages, backups and the journal together; do not delete them to bypass recovery.
+The CLI does not print exported secrets. Directory fsync is used on platforms
+that support it; Windows recovery covers process interruption without claiming
+the same power-loss durability.
 
 Pulled manifests use the same public parser and renderer as local shorthand files.
 `validate`, `bundle`, `env`, `config normalize/hash` and local deployment operate

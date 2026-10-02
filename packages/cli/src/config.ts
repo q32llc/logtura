@@ -1,3 +1,4 @@
+import { assertTransactionClear } from "./file-transaction";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -32,10 +33,12 @@ export function findConfigPath(explicit?: string): ConfigFileRef {
 }
 
 export function loadConfigFile(path: string): ParsedConfig {
+  assertTransactionClear(path);
   return parseConfig(readFileSync(path, "utf8"), path);
 }
 
 export function readConfigDoc(path: string): UnknownRecord {
+  assertTransactionClear(path);
   if (!existsSync(path)) return {};
   const parsed = parseYaml(readFileSync(path, "utf8")) as unknown;
   if (parsed === null || parsed === undefined) return {};
@@ -44,6 +47,7 @@ export function readConfigDoc(path: string): UnknownRecord {
 }
 
 export function writeConfigDoc(path: string, doc: UnknownRecord): void {
+  assertTransactionClear(path);
   writeFileSync(path, stringifyYaml(doc, { lineWidth: 96 }));
 }
 
@@ -57,6 +61,7 @@ export function parseConfig(text: string, filename = "logt.yaml"): ParsedConfig 
 }
 
 export function readConfigEnvironment(path:string):Record<string,string>{
+  assertTransactionClear(path);
   const values=Object.fromEntries(readDotEnvFile(resolve(dirname(resolve(path)),".env")));
   for(const [key,value] of Object.entries(process.env))if(value!==undefined)values[key]=value;
   return values;

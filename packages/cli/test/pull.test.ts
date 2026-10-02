@@ -86,7 +86,7 @@ describe("account deployment pull", () => {
         vi.mocked(fs.renameSync).mockImplementation((from, to) => { if (to === path)
             throw new Error("unwritable config"); return rename(from, to); });
         await expect(writePulledConfig(await result(), path, true)).rejects.toThrow("recovery");
-        const backup = readdirSync(root).find(file => file.endsWith(".bak"))!;
+        const backup = readdirSync(root).find(file => file.startsWith("logt.yaml.") && file.endsWith(".bak"))!;
         expect(readFileSync(join(root, backup), "utf8")).toBe("original");
         expect(readFileSync(env, "utf8")).toBe("ORIGINAL=keep\n");
     });

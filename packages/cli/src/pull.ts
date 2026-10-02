@@ -1,9 +1,10 @@
-import { existsSync, lstatSync, mkdirSync, renameSync, rmSync, writeFileSync, copyFileSync, chmodSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, writeFileSync, copyFileSync, chmodSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { stringify } from "yaml";
 import { parseDeploymentManifest, hashConfigDocument, type DeploymentConfigExport, type LogturaServiceClient } from "@logtura/core";
 import { writeEnvValues } from "./local-env";
+import { assertTransactionClear, commitFileTransaction } from "./file-transaction";
 /** Stage both files before touching either destination. Roll back ordinary I/O
  * failures, preserve unrelated .env entries, and never leave public secret files. */
 export async function writePulledConfig(result: DeploymentConfigExport, path: string, force = false): Promise<void> {
@@ -20,11 +21,11 @@ export async function writePulledConfig(result: DeploymentConfigExport, path: st
             throw new Error("Pull requires regular file destinations");
     if (existsSync(config) && !force)
         throw new Error("Configuration exists; pass --force to replace it");
+    assertTransactionClear(config);
     mkdirSync(dirname(config), { recursive: true, mode: 0o700 });
     const tag = randomUUID();
-    const files = [env, config].map(target => ({ target, stage: `${target}.${tag}.tmp`, backup: `${target}.${tag}.bak`, saved: false, installed: false }));
-    let committed = false;
-    try {
+    const files = [env, config].map(target => ({ target, stage: `${target}.${tag}.tmp`, backup: `${target}.${tag}.bak` }));
+    commitFileTransaction(config, files, () => {
         writeFileSync(files[0]!.stage, "", { flag: "wx", mode: 0o600 });
         if (existsSync(env)) {
             copyFileSync(env, files[0]!.stage);
@@ -35,43 +36,9 @@ export async function writePulledConfig(result: DeploymentConfigExport, path: st
         if (written.skipped.length)
             throw new Error("Companion .env has conflicting values; pass --force to replace them");
         writeFileSync(files[1]!.stage, stringify(result.document), { flag: "wx", mode: 0o644 });
-        for (const file of files) {
-            if (existsSync(file.target)) {
-                renameSync(file.target, file.backup);
-                file.saved = true;
-            }
-            renameSync(file.stage, file.target);
-            file.installed = true;
-        }
-        committed = true;
-    }
-    catch (error) {
-        const recovery: string[] = [];
-        for (const file of [...files].reverse()) {
-            try {
-                if (file.installed)
-                    rmSync(file.target, { force: true });
-                if (file.saved) {
-                    renameSync(file.backup, file.target);
-                    file.saved = false;
-                }
-            }
-            catch {
-                recovery.push(file.backup);
-            }
-        }
-        if (recovery.length)
-            throw new Error(`Pull failed; original files retained for recovery: ${recovery.join(", ")}`);
-        throw error;
-    }
-    finally {
-        for (const file of files) {
-            rmSync(file.stage, { force: true });
-            if (committed || !file.saved)
-                rmSync(file.backup, { force: true });
-        }
-    }
+    });
 }
+
 export async function pullDeploymentConfig(client: LogturaServiceClient, id: string, path: string, force = false): Promise<string> {
     const result = await client.pullDeploymentConfig(id, true);
     await writePulledConfig(result, path, force);
