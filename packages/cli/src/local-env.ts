@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 
 export function readDotEnvFile(path = ".env"): Map<string, string> {
   const out = new Map<string, string>();
@@ -33,15 +33,18 @@ export function writeEnvValues(
     }
     if (old === value) continue;
     const rendered = `${key}=${quoteEnv(value)}`;
-    const idx = lines.findIndex((line) =>
-      new RegExp(`^\\s*(?:export\\s+)?${escapeRegExp(key)}=`).test(line),
-    );
-    if (idx >= 0) lines[idx] = rendered;
+    const matcher = new RegExp(`^\\s*(?:export\\s+)?${escapeRegExp(key)}=`);
+    const matches = lines.map((line, index) => matcher.test(line) ? index : -1).filter(index => index >= 0);
+    if (matches.length) {
+      lines[matches[0]!] = rendered;
+      for (const index of matches.slice(1).reverse()) lines.splice(index, 1);
+    }
     else lines.push(rendered);
     changed = true;
   }
 
-  if (changed) writeFileSync(path, lines.join("\n").replace(/\n*$/, "\n"));
+  if (existsSync(path)) chmodSync(path, 0o600);
+  if (changed) writeFileSync(path, lines.join("\n").replace(/\n*$/, "\n"), { mode: 0o600 });
   return { changed, skipped };
 }
 
@@ -50,10 +53,11 @@ export function appendMissingEnvKeys(path: string, keys: string[]): boolean {
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
   const present = readDotEnvFile(path);
   const missing = [...new Set(keys)].filter((k) => !present.has(k));
+  if (existsSync(path)) chmodSync(path, 0o600);
   if (missing.length === 0) return false;
   const prefix = existing && !existing.endsWith("\n") ? "\n" : "";
   const added = missing.map((k) => `${k}=`).join("\n") + "\n";
-  writeFileSync(path, existing + prefix + added);
+  writeFileSync(path, existing + prefix + added, { mode: 0o600 });
   return true;
 }
 

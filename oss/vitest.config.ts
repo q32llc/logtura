@@ -26,11 +26,13 @@ export default defineConfig({
     coverage: {
       provider: "istanbul",
       reporter: ["text", "html", "lcov", "json-summary"],
-      // Initial measured floor; the convergence plan requires 95/90 targets.
+      // Final aggregate package target met; all production package source stays included.
       thresholds: {
-        statements: 90.5, branches: 88.5, functions: 91.5, lines: 90.5,
+        statements: 95, branches: 92, functions: 96.5, lines: 95.5,
         "packages/core/src/reconcile.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/graph.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/cli/src/provider-connectors.ts": { statements: 100, branches: 97, functions: 100, lines: 100 },
+        "packages/cli/src/local-env.ts": { statements: 98, branches: 94, functions: 100, lines: 100 },
         "packages/cli/src/graph.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/manifest.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/json.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },

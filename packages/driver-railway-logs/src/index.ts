@@ -329,7 +329,7 @@ interface RailwayServiceSummary {
   latestDeploymentStatus: string | null;
 }
 
-async function getRailwayProjectTokenScope(
+export async function getRailwayProjectTokenScope(
   token: string,
 ): Promise<{
   projectId: string;

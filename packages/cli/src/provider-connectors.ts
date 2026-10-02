@@ -7,7 +7,7 @@ import {
 import { cloudflareWorkerTailDriver } from "@logtura/driver-cloudflare-worker-tail";
 import { cloudflareAiGatewayDriver } from "@logtura/driver-cloudflare-ai-gateway";
 import { flyLogTailDriver } from "@logtura/driver-fly-log-tail";
-import { railwayLogsDriver } from "@logtura/driver-railway-logs";
+import { railwayLogsDriver, getRailwayProjectTokenScope } from "@logtura/driver-railway-logs";
 import { vercelLogsDriver } from "@logtura/driver-vercel-logs";
 import { supabaseEdgeLogsDriver } from "@logtura/driver-supabase-edge-logs";
 import { confirm, ask, askSecret, openBrowser } from "./prompt";
@@ -36,6 +36,7 @@ export interface ConnectedProvider {
     id: string;
     source: string;
     items: DiscoveredSource[];
+    discoveryFailed?: true;
   }>;
 }
 
@@ -60,6 +61,12 @@ const CONNECTORS: Record<string, ProviderConnector> = {
     tokenEnv: "RAILWAY_API_TOKEN",
     tokenPage: "https://railway.com/account/tokens",
     verify: async (apiToken) => railwayLogsDriver.verifyCredentials({ apiToken }),
+    resolveAccountId: async (apiToken, accountId) => {
+      if (accountId.includes(":")) return accountId;
+      const scope = await getRailwayProjectTokenScope(apiToken);
+      return scope?.environmentId === accountId ? `${scope.projectId}:${accountId}` : `${accountId}:`;
+    },
+    discover: (apiToken, accountId) => railwayLogsDriver.discoverSources({ credentials: { apiToken }, accountId: accountId ?? "" }),
     sourceDrivers: ["railway-logs"],
   }),
   vercel: simpleTokenConnector({
@@ -67,6 +74,8 @@ const CONNECTORS: Record<string, ProviderConnector> = {
     tokenEnv: "VERCEL_API_TOKEN",
     tokenPage: "https://vercel.com/account/tokens",
     verify: async (apiToken) => vercelLogsDriver.verifyCredentials({ apiToken }),
+    resolveAccountId: async (_token, _accountId, options) => options.accountId ?? null,
+    discover: (apiToken, accountId) => vercelLogsDriver.discoverSources({ credentials: { apiToken }, accountId: accountId ?? "" }),
     sourceDrivers: ["vercel-logs"],
   }),
   supabase: simpleTokenConnector({
@@ -74,6 +83,7 @@ const CONNECTORS: Record<string, ProviderConnector> = {
     tokenEnv: "SUPABASE_PAT",
     tokenPage: "https://supabase.com/dashboard/account/tokens",
     verify: async (pat) => supabaseEdgeLogsDriver.verifyCredentials({ pat }),
+    discover: (pat, accountId) => supabaseEdgeLogsDriver.discoverSources({ credentials: { pat }, accountId: accountId ?? "" }),
     sourceDrivers: ["supabase-edge-logs"],
   }),
 };
@@ -141,10 +151,15 @@ function flyConnector(): ProviderConnector {
   return {
     id: "fly",
     async connect({ name, env, options }) {
-      const token =
-        options.token ??
-        env.values.get("FLY_API_TOKEN") ??
-        shellOut("fly", ["auth", "token"]);
+      let token: string | null;
+      try {
+        token = options.token || env.values.get("FLY_API_TOKEN") || process.env.FLY_API_TOKEN
+          ? await acquireSecret({ env, envName: "FLY_API_TOKEN", explicit: options.token, quiet: options.quiet, force: options.force, prompt: "Paste Fly token: " })
+          : shellOut("fly", ["auth", "token"]);
+      } catch (err) {
+        if (isSkippedSecret(err)) return skippedProvider("fly", name);
+        throw err;
+      }
       if (!token) {
         if (options.quiet) throw new Error("Fly token missing; run fly auth login or pass --token");
         console.log("No token, skipping FLY_API_TOKEN.");
@@ -180,6 +195,8 @@ function simpleTokenConnector(input: {
   tokenEnv: string;
   tokenPage: string;
   verify: (token: string) => Promise<Array<{ id: string; name: string }>>;
+  resolveAccountId?: (token: string, accountId: string, options: ConnectOptions) => Promise<string | null>;
+  discover: (token: string, accountId: string | null) => Promise<DiscoveredSource[]>;
   sourceDrivers: string[];
 }): ProviderConnector {
   return {
@@ -201,15 +218,16 @@ function simpleTokenConnector(input: {
         throw err;
       }
       const accounts = await input.verify(token);
-      const accountId =
+      const selectedAccountId =
         options.accountId ?? (await chooseAccount(accounts, options.quiet));
+      const accountId = input.resolveAccountId ? await input.resolveAccountId(token, selectedAccountId, options) : selectedAccountId;
       return {
         provider: input.id,
         providerName: name,
-        displayName: accounts.find((a) => a.id === accountId)?.name ?? name,
+        displayName: accounts.find((a) => a.id === selectedAccountId)?.name ?? name,
         accountId,
         envValues: { [input.tokenEnv]: token },
-        sources: input.sourceDrivers.map((source) => ({ id: source, source, items: [] })),
+        sources: await Promise.all(input.sourceDrivers.map(source => discoverSafely(source, () => input.discover(token, accountId)))),
       };
     },
   };
@@ -293,14 +311,14 @@ async function chooseAccount(
 async function discoverSafely(
   source: string,
   fn: () => Promise<DiscoveredSource[]>,
-): Promise<{ id: string; source: string; items: DiscoveredSource[] }> {
+): Promise<{ id: string; source: string; items: DiscoveredSource[]; discoveryFailed?: true }> {
   try {
     return { id: source, source, items: await fn() };
   } catch (err) {
     console.warn(
       `could not discover ${source}: ${err instanceof Error ? err.message : String(err)}`,
     );
-    return { id: source, source, items: [] };
+    return { id: source, source, items: [], discoveryFailed: true };
   }
 }
 

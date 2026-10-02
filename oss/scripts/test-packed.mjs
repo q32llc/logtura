@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync, mkdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -304,6 +304,42 @@ monitors: []
   for (const file of recoveryFiles) assert.equal(readFileSync(file.target, "utf8"), file.original);
   assert.deepEqual(readdirSync(recoveryDir), [".env", "logt.yaml"]);
   assert.equal(JSON.parse(bin("logt", ["-c", recoveryConfig, "config", "recover", "--json"])).recovered, false);
+  const providerFixture = join(consumer, "provider-fixture.mjs");
+  writeFileSync(providerFixture, String.raw`import assert from 'node:assert/strict';
+for(const key of ['RAILWAY_API_TOKEN','VERCEL_API_TOKEN','SUPABASE_PAT','SUPABASE_PROJECT_REF'])delete process.env[key];
+globalThis.fetch = async (input, init) => {
+  const url = new URL(input);
+  assert.equal(new Headers(init?.headers).get('authorization'), 'Bearer fixture-provider-secret');
+  if (url.origin === 'https://api.vercel.com') {
+    if (url.pathname === '/v2/user') return Response.json({user:{uid:'user',username:'User'}});
+    if (url.pathname === '/v9/projects') { assert.equal(url.searchParams.has('teamId'),false);return Response.json({projects:[{id:'vercel-project',name:'Site'}]}); }
+  }
+  if (url.origin === 'https://api.supabase.com') {
+    if (url.pathname === '/v1/projects') return Response.json([{id:'project',ref:'project-ref',name:'Shop'}]);
+    if (url.pathname === '/v1/projects/project-ref/functions') return Response.json([{id:'function-id',slug:'api'}]);
+  }
+  if (url.href === 'https://backboard.railway.com/graphql/v2') {
+    const {query,variables}=JSON.parse(init.body),operation=/query\s+(\w+)/.exec(query)?.[1];
+    if(operation==='ProjectToken' || operation==='ProjectTokenScope')return Response.json({data:{}});
+    if(operation==='ExternalProjects')return Response.json({data:{externalWorkspaces:[{projects:[{id:'project',name:'Shop'}]}]}});
+    assert.deepEqual(variables,{projectId:'project'});
+    if(operation==='Project')return Response.json({data:{project:{id:'project',name:'Shop'}}});
+    if(operation==='ProjectEnvironments')return Response.json({data:{project:{environments:{edges:['production','staging'].map(id=>({node:{id,serviceInstances:{edges:[{node:{serviceId:'api',serviceName:'API'}}]}}}))}}}});
+  }
+  throw new Error('Unexpected outbound request in installed provider fixture');
+};`);
+  const providerEnvironment = {...offline, NODE_OPTIONS:`--import=${pathToFileURL(providerFixture)}`, RAILWAY_API_TOKEN:"", VERCEL_API_TOKEN:"", SUPABASE_PAT:"", SUPABASE_PROJECT_REF:""};
+  for (const [provider, marker] of [["railway", '== "staging"'], ["vercel", "vercel-project"], ["supabase", "function-id"]]) {
+    const directory = join(consumer, "provider-configs", provider); mkdirSync(directory, {recursive:true});
+    const config = join(directory, "logt.yaml"); writeFileSync(config, "{}\n");
+    for (const alias of ["logt", "logtura"]) run(join(consumer,"node_modules",".bin",alias), ["-c",config,"connect",provider,"--name","site","--token","fixture-provider-secret","--quiet"],consumer,providerEnvironment);
+    const contents = readFileSync(config,"utf8"); assert.ok(!contents.includes("fixture-provider-secret"));
+    assert.equal((contents.match(/^    source: /gm)??[]).length,1,contents);
+    assert.equal(statSync(join(directory,".env")).mode&0o777,0o600);
+    run(join(consumer,"node_modules",".bin","logt"),["-c",config,"validate"],consumer,providerEnvironment);
+    const bundleDirectory=join(directory,"bundle");run(join(consumer,"node_modules",".bin","logtura"),["-c",config,"bundle","-o",bundleDirectory],consumer,providerEnvironment);
+    assert.ok(readFileSync(join(bundleDirectory,"vector.yaml"),"utf8").includes(marker));
+  }
   console.log(`Packed consumer checks passed for ${packages.length} packages, both CLI aliases and the forwarder runtime binary`);
 } finally {
   rmSync(temporary, { recursive: true, force: true });

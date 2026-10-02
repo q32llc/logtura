@@ -15,7 +15,7 @@ import {
 import { basename, dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { generateBundle } from "@logtura/core";
-import type { BundleEnvVar } from "@logtura/core";
+import type { BundleEnvVar, DiscoveredSource } from "@logtura/core";
 import {
   defaultProviderName,
   ensureListSection,
@@ -201,6 +201,7 @@ async function cmdConnect(global: GlobalArgs, args: string[]): Promise<number> {
   entry.provider = provider;
   entry.display_name = stringFlag(flags, "displayName") ?? connected.displayName;
   const accountId = connected.accountId ?? providerDefaultAccountEnv(provider);
+  for (const key of ["account_id", "accountId", "external_account_id", "externalAccountId"]) delete entry[key];
   if (accountId) entry.account_id = accountId;
   entry.credentials = {
     ...(isRecord(entry.credentials) ? entry.credentials : {}),
@@ -667,28 +668,33 @@ function envPathForConfig(configPath: string): string {
 function mergeDiscoveredSources(
   doc: Record<string, unknown>,
   providerName: string,
-  discovered: Array<{ id: string; source: string; items: Array<{ externalId: string }> }>,
+  discovered: Array<{ id: string; source: string; items: DiscoveredSource[]; discoveryFailed?: true }>,
 ): void {
   const sources = ensureSection(doc, "sources");
   for (const group of discovered) {
-    const key = defaultSourceName(group.source, sources);
+    if (group.discoveryFailed) continue;
+    const providerKind = sourceConnectMetadata(group.source)?.provider;
+    const compatibleProviders = Object.values(ensureSection(doc, "providers")).filter(value => isRecord(value) && value.provider === providerKind);
+    const key = Object.entries(sources).find(([, value]) => isRecord(value) && value.source === group.source &&
+      (value.provider === providerName || value.provider === undefined && compatibleProviders.length === 1))?.[0] ?? defaultSourceName(group.source, sources);
     const existing = (sources[key] && isRecord(sources[key]) ? sources[key] : {}) as Record<string, unknown>;
     sources[key] = {
       ...existing,
       source: group.source,
       provider: providerName,
-      ...sourceInventoryField(group.source, group.items.map((i) => i.externalId)),
+      ...sourceInventoryField(group.source, group.items),
     };
   }
 }
 
-function sourceInventoryField(source: string, ids: string[]): Record<string, unknown> {
+function sourceInventoryField(source: string, items: DiscoveredSource[]): Record<string, unknown> {
+  const ids = items.map(item => item.externalId);
   if (source === "cloudflare-worker-tail") return { scripts: ids };
   if (source === "cloudflare-ai-gateway") return { gateways: ids };
   if (source === "fly-log-tail") return { apps: ids };
-  if (source === "railway-logs") return { services: ids };
+  if (source === "railway-logs") return { services: items.map(item => ({ id: item.externalId, name: item.displayName, environment_id: item.metadata?.environment_id })) };
   if (source === "vercel-logs") return { projects: ids };
-  if (source === "supabase-edge-logs") return { functions: ids, gateway: true };
+  if (source === "supabase-edge-logs") return { functions: items.filter(item => item.sourceKind === "supabase_edge_fn").map(item => ({ slug: item.externalId, function_id: item.metadata?.function_id })), gateway: items.some(item => item.sourceKind === "supabase_gateway") };
   return { sources: ids };
 }
 

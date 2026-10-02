@@ -601,3 +601,17 @@ The CLI library also exports `applyLinkedFlyDeployment`, `readPendingFlyApply` a
 and NDJSON, including paths with spaces. They use the same public metrics interpreter
 as the service, select the latest samples and sum error labels. Empty exports produce
 a header-only table; invalid JSON returns exit code 1 without printing its contents.
+
+Provider setup discovers Railway services, Vercel projects and Supabase functions
+with the packaged drivers. Railway stores a `project:environment` scope (an empty
+environment selects every visible environment in that project) and preserves each
+service's environment in the configuration. Supabase preserves function IDs and
+represents the HTTP gateway once. Vercel defaults to personal projects; use
+`--account-id <team-id>` for team projects.
+
+Reconnect with the same `--name` updates its existing source block. Failed
+discovery prints a warning and retains that block's previous selections. Successful
+empty discovery clears its inventory. Credential files are written with mode 0600;
+replacement tokens use the same confirmation/`--force` rules for Fly as other
+providers. Duplicate assignments for a replaced key are removed so the effective
+token matches the verified value.

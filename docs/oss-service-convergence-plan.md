@@ -2316,3 +2316,63 @@ fails. Scoped app permission approval remains pending. No published package
 version is overwritten and production resources are unchanged. Further provider
 delivery matrices, managed apply, remote ownership ledgers, coordinated package
 publication/rollback and staged production rollout remain required.
+
+### Standalone provider setup, stable inventory reconnect and final public coverage target
+
+CLI setup now discovers Railway services, Vercel projects and Supabase functions
+with the packaged provider drivers instead of writing empty inventories after
+verification. Railway resolves account/project-token selection to its existing
+`project:environment` discovery representation and preserves per-service
+environments. Its public token-scope helper is exported for this shared path.
+Supabase retains runtime function IDs and represents the gateway exactly once.
+Vercel uses personal scope by default; an explicit account ID selects a team.
+Switching a prior team connection back to personal removes obsolete account
+aliases. These changes apply to standalone shorthand setup; portable linked
+graphs retain their existing identity/edit/push contracts.
+
+Reconnect reuses the named provider's existing source blocks and a sole-provider
+implicit block, preserving source names and other block fields. Failed discovery
+prints a warning and preserves existing selections; a successful empty catalog
+may clear them. Rejected verification creates no credentials and changes no
+configuration. Fly now respects the same replacement confirmation/quiet-force
+contract as the other connectors and accepts process credentials without its CLI.
+Credential/placeholder writers create mode-0600 files and repair existing file
+permissions, including unchanged-value reuse. Replacing a token removes duplicate
+assignments so the last effective value cannot remain an older credential.
+
+Thirty-three additional cases cover connector lookup, local/process/explicit/CLI
+credential acquisition, prompts, skip/cancel, replacement guards, permission
+templates, account choice, independent discovery failures, exact driver HTTP
+contracts, Railway account/project/environment scope, Vercel personal/team scope,
+Supabase function/gateway metadata, preserved Cloudflare source identity,
+verification refusal, failed reconnect discovery and private file contents/modes.
+The CLI connector file measures 100 statements/functions/lines and 97.93 branches,
+enforcing 100/97/100/100. Local environment writing enforces 98/94/100/100.
+
+Installed consumer validation now invokes both actual CLI aliases from tarballs
+outside the workspace through Railway/Vercel/Supabase connect and reconnect,
+validation and bundle generation. Explicit outbound provider fixtures reject any
+service or unexpected provider call, inherited credentials are removed, no Logtura
+account is available, source blocks remain singular and private files are checked.
+The tests establish standalone setup/rendering with provider contract fixtures;
+they do not establish live provider log delivery or live OAuth grants.
+
+The complete private suite passes 945 cases across 91 files, measuring
+83.16 statements / 81.20 branches / 86.54 functions / 80.58 lines; aggregate floors
+are raised to 83/81/86.3/80.4. Independent public builds/types and all 698 cases
+across 60 files pass, measuring 95.07/92.59/96.82/95.69. Public aggregate floors
+are raised to 95/92/96.5/95.5, with unchanged full production source inclusion and
+all prior strict file gates. This meets the plan's final public package aggregate
+95 statement/line/function and 90 branch target. The final private backend target
+still requires further work. Both layouts pass installed checks for all 15 packages.
+The rebuilt public standalone Vector flow also passes actual delivery/routing,
+retries, issued artifact verification, durable report recovery, packaged image
+startup and owned PID-1 supervision. Final higher gates pass in both layouts.
+
+Preceding private/public Railway heads 711a9a4 and dee28c9 pass every code and
+runtime gate in terminal CI runs 37001314168 and 37001291816; only enforced Codecov
+upload fails. Scoped app permission approval remains pending. No published version
+is overwritten and no production resource changes. Further live provider delivery
+matrices, shared managed apply, remote ownership ledgers, coordinated publication
+and staged production migration/rollout/rollback remain required; the full goal
+remains active.

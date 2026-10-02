@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
@@ -43,4 +43,15 @@ describe("local credential files", () => {
     expect(() => appendMissingEnvKeys(path, ["BAD=key"])).toThrow(/invalid environment key/i);
     expect(readFileSync(path, "utf8")).toBe("TOKEN=old\n");
   });
+});
+
+it("creates private credential files and repairs permissions even when their values are unchanged", () => {
+  const path = file(); writeEnvValues(path, { TOKEN: "secret" }); expect(statSync(path).mode & 0o777).toBe(0o600);
+  const existing = file(); writeFileSync(existing, "TOKEN=secret\n", { mode: 0o664 });
+  expect(writeEnvValues(existing, { TOKEN: "secret" }).changed).toBe(false); expect(statSync(existing).mode & 0o777).toBe(0o600);
+  const placeholder = file(); appendMissingEnvKeys(placeholder, ["TOKEN"]); expect(statSync(placeholder).mode & 0o777).toBe(0o600);
+});
+it("replaces every duplicate assignment so the last effective value cannot retain an old token", () => {
+  const path = file(); writeFileSync(path, "# keep\nTOKEN=old\nOTHER=keep\nexport TOKEN=stale\nTOKEN=last\n");
+  writeEnvValues(path, { TOKEN: "new" }, { force: true }); expect(readFileSync(path, "utf8")).toBe("# keep\nTOKEN=new\nOTHER=keep\n"); expect(readDotEnvFile(path).get("TOKEN")).toBe("new");
 });
