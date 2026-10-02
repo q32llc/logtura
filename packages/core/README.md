@@ -491,3 +491,20 @@ const toml = renderFlyToml({
   envVars: ["CLOUDFLARE_API_TOKEN"],
 });
 ```
+
+`renderFlyLaunchScript({ appName, region?, envVars })` composes the private
+self-deploy script used by the service. Each environment entry needs a `name`
+and a string `value`, or `null`/empty for a value supplied at execution time.
+Known values remain literal shell arguments, including quotes, dollars,
+backticks, Unicode and newlines. NUL/non-string values are rejected. Missing
+values fail before app creation; supply them in the script's environment.
+An empty environment list launches and deploys without an empty secrets call.
+
+```ts
+import { renderFlyLaunchScript } from "@logtura/core";
+const script = renderFlyLaunchScript({
+  appName: "logtura-example",
+  envVars: [{ name: "CLOUDFLARE_API_TOKEN", value: null }],
+});
+// Save privately, then run with CLOUDFLARE_API_TOKEN in the environment.
+```

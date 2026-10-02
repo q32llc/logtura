@@ -1,4 +1,4 @@
-import { renderFlyToml } from "@logtura/core";
+import { renderFlyToml, renderFlyLaunchScript } from "@logtura/core";
 import {
   createLimitedAccessToken,
   flyAuthHeader,
@@ -105,28 +105,7 @@ export const flyDriver: DeployTargetDriver<FlyCredentials> = {
       envVars: sourceBundle.envVars.map((v) => v.name),
     });
 
-    const secretsLines = sourceBundle.envVars
-      .map((v) => {
-        const placeholder = v.value !== null ? v.value : `<${v.name.toLowerCase()}>`;
-        return `  ${v.name}="${placeholder}"`;
-      })
-      .join(" \\\n");
-
-    const launchScript = [
-      "#!/usr/bin/env bash",
-      "set -euo pipefail",
-      "",
-      "# Step 1: create the Fly app (no first deploy yet).",
-      `flyctl launch --copy-config --no-deploy --name ${appName}${region ? ` --region ${region}` : ""}`,
-      "",
-      "# Step 2: set the secrets the running container needs.",
-      `flyctl secrets set --app ${appName} \\`,
-      secretsLines,
-      "",
-      "# Step 3: deploy.",
-      `flyctl deploy --app ${appName}`,
-      "",
-    ].join("\n");
+    const launchScript = renderFlyLaunchScript({appName, region, envVars: sourceBundle.envVars});
 
     const files = [
       { name: "Dockerfile", content: sourceBundle.dockerfile, language: "dockerfile" },
@@ -139,6 +118,7 @@ export const flyDriver: DeployTargetDriver<FlyCredentials> = {
       "1. Save these files to an empty directory.",
       "2. Install flyctl if you haven't:  brew install flyctl   (or see fly.io/docs/flyctl/install)",
       "3. Sign in:                         flyctl auth login",
+      "   Set any missing credential environment variables listed in fly.toml before running.",
       `4. Run the deploy script:           bash deploy.sh`,
       "",
       "deploy.sh creates a Fly app named " +

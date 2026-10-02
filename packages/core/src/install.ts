@@ -46,7 +46,7 @@ export function renderEnvFile(envVars: BundleEnvVar[]): string {
   return lines.join("\n");
 }
 
-function shellQuote(v: string): string {
+export function shellQuote(v: string): string {
   // .env files are commonly read with various parsers. Single-quote
   // the value if it contains anything funky; bare otherwise.
   if (/^[A-Za-z0-9_./:@\-]+$/.test(v)) return v;

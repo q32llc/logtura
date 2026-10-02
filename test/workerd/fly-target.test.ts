@@ -20,7 +20,7 @@ it("uses the public self-deploy renderer and retains bundle files, secrets and a
  const result=flyDriver.generateTargetBundle({sourceBundle:bundle,deploymentName:"  Production Forwarder! ",connectionId:"con_fallback",region:"ord"});
  expect(result.files.find(f=>f.name==="fly.toml")!.content).toBe(renderFlyToml({appName:"logtura-production-forwarder",region:"ord",envVars:["TOKEN","MISSING"]}));
  expect(result.files.map(f=>f.name)).toEqual(["Dockerfile","vector.yaml","fly.toml","deploy.sh"]);
- expect(result.files[3]!.content).toContain('TOKEN="fixture-value"');expect(result.files[3]!.content).toContain('MISSING="<missing>"');
+ expect(result.files[3]!.content).toContain("'TOKEN=fixture-value'");expect(result.files[3]!.content).toContain('MISSING=${MISSING}');
  expect(result.files[3]!.content).toContain("--region ord");expect(result.selfDeployInstructions).toContain("logtura-production-forwarder");
  const fallback=flyDriver.generateTargetBundle({sourceBundle:{...bundle,envVars:[]},deploymentName:"!",connectionId:"con_ABC"});
  expect(fallback.files[2]!.content).toContain('app = "logtura-conabc"');expect(fallback.files[2]!.content).toContain('primary_region = "iad"');

@@ -3318,3 +3318,40 @@ The preceding compatible-reapply private head `ccb07aa` completed exact
 Public renderer and owned reporting updates are pushed in `9d902e4` and `feb5e13`;
 100% changed executable line coverage was verified locally before pushing.
 No production resources, migrations or published npm versions changed.
+
+### Shared literal-safe Fly launch script (implemented)
+
+The hosted self-deploy download now calls public
+`@logtura/core.renderFlyLaunchScript`. Known credentials become literal shell
+arguments, including quotes, substitutions, backticks, Unicode and newlines.
+Missing or empty credentials require nonempty inherited environment values
+before any Fly command runs. Invalid identities, environment names and NUL
+values fail during rendering; a bundle with no secrets skips the secrets command.
+The generated file retains its existing launch/secrets/deploy workflow.
+
+Fourteen new tests execute the generated script with real Bash and an executable
+provider recorder, assert exact argument boundaries and ensure substitution
+payloads never execute. The shared renderer and private Fly driver retain their
+100% coverage gates. Validation passed 1,167 private assertions, 759 standalone
+public assertions, builds and type checks, all 15 installed package consumers,
+and the actual browser/CLI/workerd/Vector journey through managed creation,
+durable restart and compatible CLI-edited reapply. Public coverage is 95.26%
+statements, 92.95% branches, 96.91% functions and 95.83% lines; private aggregate
+coverage is 88.21%, 85.93%, 91.23% and 86.74%, respectively. These aggregate
+results do not satisfy the separate final service-backend coverage requirement.
+
+The preceding private renderer/reporting head `67d4ac4` completed exact
+[test CI](https://github.com/q32llc/logtura/actions/runs/37044920735) and
+[image CI](https://github.com/q32llc/logtura/actions/runs/37044920725). The public
+head `feb5e13` completed its exact
+[CI run](https://github.com/logtura/logtura/actions/runs/37044659464). Coverage
+continues to use owned reports and gates, with no external Codecov service.
+
+Complete Fly artifact composition remains required: the hosted four-file
+self-deploy download currently omits additional source runtime assets, whereas
+the generic archive and standalone bundle writer preserve them. Shared asset
+packaging and binary download handling need their own tested slice. Legacy
+replacement/rollback, the full provider matrix, remote interruption cleanup,
+final backend coverage, coordinated package release and staged production
+rollout remain open. No production resource, migration or published npm version
+changed in this slice.
