@@ -3728,3 +3728,43 @@ Per-package/CLI floors, complete provider stream/delivery coverage, durable
 remote cleanup, legacy managed replacement/rollback, coordinated publication
 and staged production rollout remain open. No public package, production
 resource, migration or published npm version changed in this slice.
+
+### Actual Bun Railway WebSocket runtime baseline
+
+Fly transport head `89f52c7` completed its exact
+[private CI run](https://github.com/q32llc/logtura/actions/runs/37064739893).
+
+The earlier emitted-helper tests used a VM WebSocket substitute. A new required
+`pnpm test:railway-runtime` command runs the actual generated Railway helper
+bytes in the Bun image taken from the driver's Dockerfile dependency. A real
+Bun server verifies account/project/broker headers, the negotiated
+`graphql-transport-ws` protocol, subscription query/variables, application
+ping/pong, selected-service demultiplexing, attribute parsing, socket closure,
+reconnect and replay deduplication across connections. Broker tokens remain
+cached across reconnects; missing credentials prevent socket creation. The
+fixture redirects only the provider endpoint through a native WebSocket subclass
+and checks the negotiated protocol on the real client. It uses the documented
+[Bun server and client APIs](https://bun.sh/docs/runtime/http/websockets).
+No external network access is permitted inside the owned fixture container.
+Owned children, server, container and temporary files are cleaned on normal
+success and caught failures.
+
+A real broker HTTP failure also exposed upstream response bodies in structured
+helper errors. Those failures now contain status only; invalid JSON and
+missing/non-string/empty access tokens produce stable errors. Five additional
+emitted-helper cases cover these responses; the actual Bun fixture verifies the
+HTTP failure output excludes the private body.
+
+Private validation passed 1,357 tests across 119 files; independent public
+validation passed 804 tests across 67 files. Both layouts passed their builds,
+types, the real Bun runtime scenarios and clean packed-consumer checks for all
+15 packages, both CLI aliases and the forwarder runtime binary. Private aggregate
+coverage is 95.48% statements, 92.40% branches, 97.57% functions and 95.80% lines;
+public aggregate is 95.28%, 92.99%, 96.95% and 95.85%, respectively. The new runtime
+command is required in both CI workflows after package build.
+
+This verifies actual Bun/helper transport behavior against a controlled server.
+A live Railway sandbox and complete provider-to-Vector-to-destination matrix
+remain required, along with per-package floors, durable remote cleanup, legacy
+managed replacement/rollback, coordinated npm publication and staged production
+rollout. No production resource, migration or published npm version changed.

@@ -22,7 +22,8 @@
     "test:destinations": "vitest run --project '@logtura/destination-*'",
     "build": "pnpm -r --workspace-concurrency=1 --if-present build",
     "test:packed": "node scripts/test-packed.mjs",
-    "test:flow": "node scripts/test-vector-flow.mjs"
+    "test:flow": "node scripts/test-vector-flow.mjs",
+    "test:railway-runtime": "node scripts/test-railway-bun.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",

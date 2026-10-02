@@ -55,3 +55,18 @@ it("refuses missing helper credentials before opening a socket", async () => {
   await expect(run.result).rejects.toThrow("exit 1");
   expect(run.errors).toEqual(["RAILWAY_API_TOKEN is required"]); expect(run.connections).toEqual([]);
 });
+
+it.each([
+  [503, "fixture-private-body", "HTTP 503"],
+  [200, "fixture-private-invalid-json", "invalid JSON"],
+  [200, "null", "no access_token"],
+  [200, '{"access_token":42}', "no access_token"],
+  [200, '{"access_token":""}', "no access_token"],
+])("sanitizes emitted broker failures (HTTP %s, %s)", async (status, body, message) => {
+  const fetch = vi.fn(async () => new Response(body, {status}));
+  const run = await execute("https://fixture.invalid/token#tail-fixture", [], fetch);
+  expect(run.connections).toEqual([]);
+  expect(run.events).toHaveLength(1);
+  expect(run.events[0]).toMatchObject({source:"logtura_railway_helper", message:`railway environment log tail: Railway token refresh ${message === "invalid JSON" ? "returned invalid JSON" : message === "no access_token" ? "returned no access_token" : `failed: ${message}`}`});
+  expect(JSON.stringify(run.events)).not.toContain("fixture-private");
+});

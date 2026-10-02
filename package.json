@@ -29,7 +29,8 @@
     "test:ui": "vitest run --config vitest.ui.config.ts",
     "test:ui:coverage": "vitest run --config vitest.ui.config.ts --coverage",
     "typecheck:e2e": "tsc -p tsconfig.e2e.json",
-    "test:e2e:local": "tsx scripts/e2e-local.ts"
+    "test:e2e:local": "tsx scripts/e2e-local.ts",
+    "test:railway-runtime": "node oss/scripts/test-railway-bun.mjs"
   },
   "dependencies": {
     "@logtura/cloudflare-shared": "workspace:*",

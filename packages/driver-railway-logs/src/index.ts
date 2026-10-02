@@ -663,10 +663,11 @@ async function resolveToken() {
   });
   const text = await res.text();
   if (!res.ok) {
-    throw new Error("Railway token refresh failed: HTTP " + res.status + " " + text.slice(0, 200));
+    throw new Error("Railway token refresh failed: HTTP " + res.status);
   }
-  const body = JSON.parse(text);
-  if (!body.access_token) throw new Error("Railway token refresh returned no access_token");
+  let body;
+  try { body = JSON.parse(text); } catch { throw new Error("Railway token refresh returned invalid JSON"); }
+  if (!body || typeof body.access_token !== "string" || !body.access_token) throw new Error("Railway token refresh returned no access_token");
   cachedToken = body.access_token;
   cachedTokenExpiresAt = Date.now() + Math.max(60, Number(body.expires_in ?? 3000)) * 1000;
   return cachedToken;
