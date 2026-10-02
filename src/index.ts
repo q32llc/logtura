@@ -1,3 +1,4 @@
+import { GraphInputError, parseMonitorMutation, parseSinkMutation } from "./graph-input";
 import { exchangeSlackWebhook, readSlackOAuthState } from "./destinations/slack-oauth";
 import { readProviderOAuthState } from "./providers/oauth-state";
 import { createDeploymentIngest } from "./deployment-ingest";
@@ -2280,21 +2281,13 @@ apiAuth.get("/monitors", async (c) => {
 
 apiAuth.post("/monitors", async (c) => {
   const user = c.get("user")!;
-  const body = (await c.req.json()) as {
-    displayName?: string;
-    filterSteps?: FilterStep[];
-    connectionId?: string | null;
-    enabled?: boolean;
-  };
-  if (!body.displayName) {
-    return c.json({ error: "missing_fields" }, 400);
-  }
+  let body;
+  try { body = parseMonitorMutation(await c.req.json(), true); }
+  catch (error) { return c.json({ error: error instanceof GraphInputError ? error.code : "invalid_form" }, 400); }
+  if (body.connectionId && !await getConnection(c.env.DB, user.id, body.connectionId)) return c.json({ error: "connection_not_found" }, 404);
   const monitor = await createMonitor(c.env.DB, {
-    userId: user.id,
-    connectionId: body.connectionId ?? null,
-    displayName: body.displayName,
-    filterSteps: body.filterSteps ?? [],
-    enabled: body.enabled,
+    userId: user.id, connectionId: body.connectionId ?? null,
+    displayName: body.displayName!, filterSteps: body.filterSteps ?? [], enabled: body.enabled,
   });
   await markUserDeploymentsOutdated(c.env.DB, user.id);
   return c.json({ monitor: toApiMonitor(monitor) });
@@ -2303,12 +2296,11 @@ apiAuth.post("/monitors", async (c) => {
 apiAuth.put("/monitors/:id", async (c) => {
   const user = c.get("user")!;
   const id = c.req.param("id");
-  const body = (await c.req.json()) as {
-    displayName?: string;
-    filterSteps?: FilterStep[];
-    connectionId?: string | null;
-    enabled?: boolean;
-  };
+  if (!await getMonitor(c.env.DB, user.id, id)) return c.json({ error: "not_found" }, 404);
+  let body;
+  try { body = parseMonitorMutation(await c.req.json(), false); }
+  catch (error) { return c.json({ error: error instanceof GraphInputError ? error.code : "invalid_form" }, 400); }
+  if (body.connectionId && !await getConnection(c.env.DB, user.id, body.connectionId)) return c.json({ error: "connection_not_found" }, 404);
   const updated = await updateMonitor(c.env.DB, user.id, id, body);
   if (!updated) return c.json({ error: "not_found" }, 404);
   await markUserDeploymentsOutdated(c.env.DB, user.id);
@@ -2327,18 +2319,14 @@ apiAuth.post("/monitors/:id/sinks", async (c) => {
   const monitorId = c.req.param("id");
   const monitor = await getMonitor(c.env.DB, user.id, monitorId);
   if (!monitor) return c.json({ error: "not_found" }, 404);
-  const body = (await c.req.json()) as {
-    destinationId?: string;
-    filterSteps?: FilterStep[];
-  };
-  if (!body.destinationId) {
-    return c.json({ error: "missing_destination" }, 400);
-  }
-  const dest = await getDestination(c.env.DB, user.id, body.destinationId);
+  let body;
+  try { body = parseSinkMutation(await c.req.json(), true); }
+  catch (error) { return c.json({ error: error instanceof GraphInputError ? error.code : "invalid_form" }, 400); }
+  const dest = await getDestination(c.env.DB, user.id, body.destinationId!);
   if (!dest) return c.json({ error: "destination_not_found" }, 404);
   const sink = await createSink(c.env.DB, {
     monitorId,
-    destinationId: body.destinationId,
+    destinationId: body.destinationId!,
     filterSteps: body.filterSteps,
   });
   await markUserDeploymentsOutdated(c.env.DB, user.id);
@@ -2348,7 +2336,9 @@ apiAuth.post("/monitors/:id/sinks", async (c) => {
 apiAuth.put("/sinks/:id", async (c) => {
   const user = c.get("user")!;
   const id = c.req.param("id");
-  const body = (await c.req.json()) as { filterSteps?: FilterStep[] };
+  let body;
+  try { body = parseSinkMutation(await c.req.json(), false); }
+  catch (error) { return c.json({ error: error instanceof GraphInputError ? error.code : "invalid_form" }, 400); }
   await updateSinkSteps(c.env.DB, user.id, id, body.filterSteps ?? []);
   await markUserDeploymentsOutdated(c.env.DB, user.id);
   return c.json({ ok: true });

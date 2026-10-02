@@ -27,8 +27,12 @@ try {
   // Typecheck the installed tarballs with their declarations, without skipLibCheck.
   const typesFile = join(consumer, "consumer.mts");
   writeFileSync(typesFile, packages.map((name, index) => `import * as package${index} from '@logtura/${name}';`).join("\n") + `
-    import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient, FlyMachinesClient, buildFlyRuntimeConfig, flyBundleFiles, resolveFlyImage, selfDeployFiles, runtimeAssetFiles, renderDockerRunCommand} from '@logtura/core';
+    import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient, FlyMachinesClient, buildFlyRuntimeConfig, flyBundleFiles, resolveFlyImage, selfDeployFiles, runtimeAssetFiles, renderDockerRunCommand, validateFilterSteps, type FilterStep} from '@logtura/core';
     import {type PendingActivation, type PendingFlyApply, activateLinkedDeployment} from '@logtura/cli';
+    const validatedFilters:FilterStep[] = validateFilterSteps([{kind:"errors"}]);
+    // @ts-expect-error The filter parser returns a typed array, never any.
+    const invalidFilters:string = validateFilterSteps([]);
+    void validatedFilters;void invalidFilters;
     const typedActivation: (client:LogturaServiceClient,config:string,options?:{resume?:boolean})=>Promise<DeploymentInstanceReceipt> = activateLinkedDeployment;
     // @ts-expect-error Config fields remain required; these exports must not become any.
     const invalidInput:GenerateInput = {};
@@ -103,7 +107,7 @@ monitors: []
   assert.equal(bin("logtura",["stats","metrics file.ndjson"]),stats);
   assert.match(stats,/packed_sink\tsink\thttp\t-\t7\t-/);
   const script = `import assert from 'node:assert/strict';
-    import {selfDeployFiles,flySelfDeployFiles,runtimeAssetFiles,renderDockerRunCommand,parseMetricsBody,applyMetricsToSnapshot,rateFor,buildFlyRuntimeConfig,flyBundleFiles,resolveFlyImage,GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,FlyMachinesClient,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit} from '@logtura/core';
+    import {selfDeployFiles,flySelfDeployFiles,runtimeAssetFiles,renderDockerRunCommand,parseMetricsBody,applyMetricsToSnapshot,rateFor,buildFlyRuntimeConfig,flyBundleFiles,resolveFlyImage,GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,validateFilterSteps,FlyMachinesClient,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit} from '@logtura/core';
     import {writeFileSync,readFileSync,statSync} from 'node:fs';
     import {main,applyLinkedFlyDeployment,readPendingFlyApply,activateLinkedDeployment,readPendingActivation,finishLinkedActivation,reportLoadedForwarderFile,runForwarderReporting} from '@logtura/cli';
     import {cloudflareWorkerTailDriver} from '@logtura/driver-cloudflare-worker-tail';
@@ -117,6 +121,8 @@ monitors: []
         selectedSources:[{id:'worker',externalId:'fixture-worker',displayName:'fixture-worker',sourceKind:'worker',metadata:null}],credentials:{apiToken:'fixture-token'}}]};
     const bundle=generateBundle(input);
     validateDeploymentInput(input);
+    assert.deepEqual(validateFilterSteps([{kind:"errors"}]),[{kind:"errors"}]);
+    assert.throws(()=>validateFilterSteps([{kind:"errors",private:"fixture-private-filter"}]),/unknown field/);
     const plan=planDeploymentChanges({connections:[],sources:[],destinations:[],monitors:[],sinks:[]},input);
     assert.equal(plan.connections[0].connection.id,'fixture');
     assert.equal(plan.sources[0].source.id,'worker');

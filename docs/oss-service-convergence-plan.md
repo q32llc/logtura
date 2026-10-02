@@ -3529,3 +3529,45 @@ was already verified on the preceding auth slice; this slice's changed Slack
 requests execute directly in native workerd tests. Final backend coverage and
 the remaining convergence/release/rollout gates are still required. No public
 package, production resource, migration or published npm version changed.
+
+
+### Shared filter validation and native monitor/sink mutation baseline
+
+The Slack milestone `11a595f` completed its exact
+[private CI run](https://github.com/q32llc/logtura/actions/runs/37057911614).
+
+The auth milestone `31b619e` completed its exact
+[private CI run](https://github.com/q32llc/logtura/actions/runs/37057082972).
+
+Public core now exports `validateFilterSteps`, the same validator and canonical
+copy operation used by portable deployment manifests. Seven public cases cover
+the complete DSL, independent copied output and invalid fields/parameters without
+including private values in errors. Installed ESM/declaration consumers verify
+the export and typed return value under NodeNext, Node16 and Bundler resolution.
+Hosted monitor and sink edits consume this packaged validator.
+
+Six native request cases exercise complete CRUD sequences, connection/all-source
+monitor defaults, partial updates, sink defaults, graph-version advancement,
+owned forwarder invalidation, cascading deletion and user isolation. Invalid
+JSON, unknown fields, wrong field types and invalid filters return stable 400
+errors before writes. Missing/foreign monitors and destinations remain scoped;
+idempotent delete/sink-update behavior is preserved. A missing ownership check
+previously allowed monitor creation/update to reference another user's connection;
+both routes now reject foreign or missing connections before mutation.
+
+Validation passed 1,304 native/package tests across 116 files, all 285 website
+tests, both repository builds/types, E2E types and installed consumers of all
+15 tarballs in both layouts. The real local browser/installed CLI/workerd/Vector
+journey also passed website convergence, durable restart, CLI-edited leased
+managed reapply and owned-resource cleanup. Standalone public tests passed 799
+cases. The new
+host mutation parser has 100% coverage in all four dimensions. Private aggregate
+coverage is 91.26% statements, 88.77% branches, 92.89% functions and 90.56%
+lines; separate backend coverage is 85.47%, 82.12%, 86.25% and 83.89%. Public
+coverage is 95.28%, 92.99%, 96.95% and 95.85%, respectively. Public source is
+pushed in `bca28ec`, with 100% changed executable line coverage (2/2).
+
+Final private backend/per-package targets and remaining provider delivery,
+remote cleanup, legacy managed replacement/rollback, coordinated publication and
+staged production rollout gates remain open. No production resource, migration
+or published npm version changed in this slice.

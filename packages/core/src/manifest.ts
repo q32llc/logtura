@@ -73,7 +73,7 @@ function constructManifest(input:GenerateInput):{document:DeploymentManifest;sec
         ...(input.discoverMonitors === undefined ? {} : {discoverMonitors: input.discoverMonitors}),
         connections: input.connections.map(c => ({ connection: pick(c.connection, ["id", "provider", "displayName", "externalAccountId"]) as unknown as Connection, selectedSources: c.selectedSources.map(s => ({ ...pick(s, ["id", "externalId", "displayName", "sourceKind"]), metadata: s.metadata === null ? null : secret("SOURCE", s.id, s.metadata) })),
             ...(c.selectAll === undefined ? {} : { selectAll: c.selectAll }), ...(c.discoverSources === undefined ? {} : {discoverSources:c.discoverSources}), credentials: c.credentials === undefined ? null : secret("CREDENTIALS", c.connection.id, c.credentials) })),
-        monitors: input.monitors.map(m => ({ monitor: { ...pick(m.monitor, ["id", "connectionId", "displayName", "enabled"]), filterSteps: filters(m.monitor.filterSteps, "monitor filters") } as unknown as Monitor, sinks: m.sinks.map(s => ({ sink: { id: s.sink.id, filterSteps: filters(s.sink.filterSteps, "sink filters") }, destination: pick(s.destination, ["id", "kind", "displayName"]) as unknown as Destination, destinationConfig: secret("DESTINATION", s.sink.id, s.destinationConfig) })) })),
+        monitors: input.monitors.map(m => ({ monitor: { ...pick(m.monitor, ["id", "connectionId", "displayName", "enabled"]), filterSteps: validateFilterSteps(m.monitor.filterSteps, "monitor filters") } as unknown as Monitor, sinks: m.sinks.map(s => ({ sink: { id: s.sink.id, filterSteps: validateFilterSteps(s.sink.filterSteps, "sink filters") }, destination: pick(s.destination, ["id", "kind", "displayName"]) as unknown as Destination, destinationConfig: secret("DESTINATION", s.sink.id, s.destinationConfig) })) })),
         ...(input.heartbeat === undefined ? {} : { heartbeat: pick(input.heartbeat, ["kind", "deploymentId", "appUrl"]) as GenerateInput["heartbeat"] }),
         ...(input.metrics === undefined ? {} : { metrics: input.metrics.kind === "destination" ? { kind: "destination", destination: pick(input.metrics.destination, ["id", "kind", "displayName"]) as unknown as Destination, destinationConfig: secret("METRICS", input.metrics.destination.id, input.metrics.destinationConfig) } : input.metrics.kind === "none" ? { kind: "none" } : pick(input.metrics, ["kind", "deploymentId", "appUrl"]) as {
                 kind: "logtura";
@@ -106,7 +106,8 @@ function text(value: unknown, path: string): string { if (typeof value !== "stri
 function nullableText(value: unknown, path: string): string | null { return value === null ? null : text(value, path); }
 function bool(value: unknown, path: string): boolean { if (typeof value !== "boolean")
     throw new Error(`${path}: expected boolean`); return value; }
-function filters(value: unknown, path: string): FilterStep[] {
+/** Validate and copy the filter DSL shared by portable manifests and hosted edits. */
+export function validateFilterSteps(value: unknown, path = "filters"): FilterStep[] {
     return list(value, path).map((value, i) => {
         const r = row(value, `${path}[${i}]`);
         const kind = text(r.kind, path);
@@ -186,8 +187,8 @@ export function parseDeploymentManifest(value: unknown, options: ConfigParseOpti
         only(r, ["monitor", "sinks"], "monitor entry");
         only(m, ["id", "connectionId", "displayName", "enabled", "filterSteps"], "monitor");
         return {
-            monitor: { id: text(m.id, "monitor.id"), connectionId: nullableText(m.connectionId, "connectionId"), displayName: text(m.displayName, "displayName"), enabled: bool(m.enabled, "enabled"), filterSteps: filters(m.filterSteps, "monitor filters") },
-            sinks: list(r.sinks, "sinks").map(value => { const s = row(value, "sink entry"), entity = row(s.sink, "sink"); only(s, ["sink", "destination", "destinationConfig"], "sink entry"); only(entity, ["id", "filterSteps"], "sink"); return { sink: { id: text(entity.id, "sink.id"), filterSteps: filters(entity.filterSteps, "sink filters") }, destination: destination(s.destination), destinationConfig: secret(s.destinationConfig, "destinationConfig", {}) }; })
+            monitor: { id: text(m.id, "monitor.id"), connectionId: nullableText(m.connectionId, "connectionId"), displayName: text(m.displayName, "displayName"), enabled: bool(m.enabled, "enabled"), filterSteps: validateFilterSteps(m.filterSteps, "monitor filters") },
+            sinks: list(r.sinks, "sinks").map(value => { const s = row(value, "sink entry"), entity = row(s.sink, "sink"); only(s, ["sink", "destination", "destinationConfig"], "sink entry"); only(entity, ["id", "filterSteps"], "sink"); return { sink: { id: text(entity.id, "sink.id"), filterSteps: validateFilterSteps(entity.filterSteps, "sink filters") }, destination: destination(s.destination), destinationConfig: secret(s.destinationConfig, "destinationConfig", {}) }; })
         };
     });
     const scoped = (value: unknown) => { const r = row(value, "reporting target"); only(r, ["kind", "deploymentId", "appUrl"], "reporting target"); if (r.kind !== "none" && r.kind !== "logtura")

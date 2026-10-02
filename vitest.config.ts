@@ -58,6 +58,7 @@ export default defineConfig({
       // Baseline floor; raise these as the planned coverage slices land.
       // Final scope targets are 95% lines/statements/functions and 90% branches.
       thresholds: {
+        "src/graph-input.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/destinations/slack-oauth.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/**/*.{ts,tsx}": { statements: 85, branches: 81.2, functions: 85.7, lines: 83.5 },
         "src/providers/vercel-oauth.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
