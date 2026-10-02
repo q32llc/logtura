@@ -1,3 +1,4 @@
+import { rateFor } from "@logtura/core";
 import { DeploymentRevisionStatus } from "../components/DeploymentRevisionStatus";
 import { deploymentSourceSummary } from "../deployment-selection";
 import {
@@ -950,25 +951,11 @@ function userRates(
 }
 
 function perComponentRate(c: ApiMetricsComponent) {
-  const rate = (
-    field: "received" | "sent" | "errors" | "discarded",
-  ): number | null => {
-  const cur = c[field];
-  const prev = c.prev?.[field];
-  if (cur === undefined || prev === undefined || !c.prev) return null;
-  const prevSampleAt = c.prev.sampleAtByField?.[field] ?? c.prev.sampleAt;
-  const curSampleAt = c.sampleAtByField?.[field] ?? c.lastSeen;
-  const dt = curSampleAt - prevSampleAt;
-    if (dt <= 0) return null;
-    const dv = cur - prev;
-    if (dv < 0) return 0;
-    return (dv * 60_000) / dt;
-  };
   return {
-    received: rate("received"),
-    sent: rate("sent"),
-    errors: rate("errors"),
-    discarded: rate("discarded"),
+    received: rateFor(c,"received"),
+    sent: rateFor(c,"sent"),
+    errors: rateFor(c,"errors"),
+    discarded: rateFor(c,"discarded"),
   };
 }
 

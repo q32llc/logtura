@@ -1620,3 +1620,43 @@ rollback, complete local/workerd/remote/browser journeys, final high coverage fl
 D1/telemetry hardening, dependency/workflow upgrades, coordinated npm versions and
 publication, migrations 0018–0025 and staged production rollout remain outstanding.
 The existing production forwarder is unchanged and the full shipping goal stays active.
+
+
+### Shared metrics interpretation and stable checkpoints (implemented)
+
+Vector metrics parsing, snapshot transitions and rate calculations now live in the
+public core package. The service retains its import facade and the website consumes
+the public rate function and snapshot types. Standalone `logt stats` and `logtura
+stats` use the same interpreter without login, accepting a positional file or
+`--metrics`, JSON batches, pretty single events and NDJSON. CLI parse failures do
+not include private payloads, and table cells escape control characters.
+
+Independent counter timestamps preserve rate baselines across interleaved samples.
+Duplicate and older samples cannot overwrite current counters or metadata. Error
+series are summed with per-label timestamps and bounded new label cardinality;
+partial counter resets no longer subtract the prior value twice. Process restarts
+carry lifetime offsets. Prototype-like component identities remain ordinary data,
+and invalid numeric values are rejected. Legacy stored snapshots remain readable.
+
+Derived boot time stays stable within the existing 30-second restart tolerance.
+Previously small uptime timing jitter changed this identity and could repeatedly
+trigger the service's urgent D1 checkpoint path. A real HTTP/workerd/D1 test proves
+that jitter coalesces without another write while a genuine restart persists the
+new identity and lifetime offset. This is a concrete reduction of one unnecessary
+write path; cross-isolate checkpoint coordination, cron query hardening and actual
+production load verification remain outstanding.
+
+Private backend validation passes 851 tests in 85 files, with coverage
+79.75/77.46/81.88/76.59. Public validation passes 599 tests in 53 files, with coverage
+87.09/85.29/85.41/85.28. Floors rise to 79.5/77.2/81.8/76.5 privately and
+87/85/85/85 publicly. Shared metrics coverage is 100/99.19/100/100; CLI metrics is
+100% in every dimension. All 15 isolated packed packages, installed CLI stats,
+strict consumer declarations, service builds/types and 27 UI tests pass.
+
+Preceding linked Fly apply heads b886d55 and 1a3514d passed every code, type,
+package, runtime-flow and coverage artifact check in private CI run 36973605752 and
+public run 36973613647. Both failed only the enforced Codecov upload with
+`Repository not found`; image publication run 36973605864 succeeded. Codecov
+repository access remains unresolved. New-head CI must independently verify this
+metrics slice. No npm release, production migration or deployment is claimed here;
+the full implementation, E2E, coverage and staged shipping goal remains active.

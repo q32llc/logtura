@@ -83,3 +83,6 @@ export { FORWARDER_NODE_IMAGE, runtimeImageFiles, runtimeImageEntrypoint } from 
 export { FlyMachinesClient, FlyMachineError, validateFlyMachine, immutableFlyImage, flyRollbackConfig, matchesFlyConfig, applyFlyMachine } from "./fly";
 export type { FlyMachine, FlyVolume, FlyMachineConfig, FlyMachinePlan } from "./fly";
 export { FLY_RUNTIME_DIRECTORY, validateFlyRuntimeVolume, planFlyRuntime } from "./fly-runtime";
+
+export {parseMetricsBody, emptySnapshot, applyMetricsToSnapshot, rateFor} from "./metrics";
+export type {ComponentKind, ComponentMetrics, MetricsSnapshot, ParsedMetric} from "./metrics";

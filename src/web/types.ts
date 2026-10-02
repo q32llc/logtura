@@ -1,3 +1,4 @@
+import type { ComponentMetrics, MetricsSnapshot } from "@logtura/core";
 import type { OrderedDeploymentSelection } from "../deployment-selection";
 // API response shapes — mirrors what src/index.ts emits. Kept as plain
 // types so both the worker and the React app can import them.
@@ -237,53 +238,8 @@ export type ApiDeploymentStatus =
   | "stopped"
   | "detached";
 
-export interface ApiMetricsComponent {
-  kind: "source" | "transform" | "sink" | "unknown";
-  type: string;
-  received?: number;
-  sent?: number;
-  errors?: number;
-  discarded?: number;
-  sampleAtByField?: Partial<
-    Record<"received" | "sent" | "errors" | "discarded", number>
-  >;
-  /** Per-error_type breakdown of the errors counter. Vector tags
-   *  component_errors_total with `error_type=request_failed |
-   *  encoding_failed | event_send_failed | …` — surfacing the split
-   *  lets the UI say "0.2/min request_failed" instead of an opaque
-   *  "0.2/min errors." */
-  errorsByType?: Record<string, number>;
-  prev?: {
-    received?: number;
-    sent?: number;
-    errors?: number;
-    discarded?: number;
-    sampleAt: number;
-    sampleAtByField?: Partial<
-      Record<"received" | "sent" | "errors" | "discarded", number>
-    >;
-  };
-  lastSeen: number;
-}
-
-export interface ApiMetricsSnapshot {
-  byComponent: Record<string, ApiMetricsComponent>;
-  totals: {
-    received: number;
-    sent: number;
-    errors: number;
-    discarded: number;
-  };
-  lifetimeOffset: {
-    received: number;
-    sent: number;
-    errors: number;
-    discarded: number;
-  };
-  processStartAt: number | null;
-  updatedAt: number;
-  vectorVersion?: string;
-}
+export type ApiMetricsComponent = ComponentMetrics;
+export type ApiMetricsSnapshot = MetricsSnapshot;
 
 export interface ApiDeployment {
   /** Absent on older service versions. */

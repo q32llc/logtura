@@ -78,11 +78,18 @@ monitors: []
   const yaml = readFileSync(join(consumer, "bundle with spaces", "vector.yaml"), "utf8");
   assert.ok(!yaml.includes("/api/heartbeat/"), "standalone bundle must not require hosted heartbeat");
   assert.ok(!yaml.includes("/api/metrics/"), "standalone bundle must not require hosted metrics");
+  const metricEvents=[{name:"vector_component_sent_events_total",timestamp:"2026-10-01T00:00:00Z",tags:{component_id:"packed_sink",component_kind:"sink",component_type:"http"},counter:{value:7}}];
+  writeFileSync(join(consumer,"metrics file.json"),JSON.stringify(metricEvents));
+  writeFileSync(join(consumer,"metrics file.ndjson"),metricEvents.map(event=>JSON.stringify(event)).join("\n"));
+  const stats=bin("logt",["stats","--metrics","metrics file.json"]);
+  assert.equal(bin("logtura",["stats","metrics file.ndjson"]),stats);
+  assert.match(stats,/packed_sink\tsink\thttp\t-\t7\t-/);
   const script = `import assert from 'node:assert/strict';
-    import {GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,FlyMachinesClient,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit} from '@logtura/core';
+    import {parseMetricsBody,applyMetricsToSnapshot,rateFor,GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,FlyMachinesClient,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit} from '@logtura/core';
     import {writeFileSync,readFileSync,statSync} from 'node:fs';
     import {main,applyLinkedFlyDeployment,readPendingFlyApply,activateLinkedDeployment,readPendingActivation,finishLinkedActivation,reportLoadedForwarderFile,runForwarderReporting} from '@logtura/cli';
     import {cloudflareWorkerTailDriver} from '@logtura/driver-cloudflare-worker-tail';
+    const metrics=applyMetricsToSnapshot(null,parseMetricsBody(readFileSync('metrics file.ndjson','utf8')));assert.equal(metrics.byComponent.packed_sink.sent,7);assert.equal(rateFor(metrics.byComponent.packed_sink,'sent'),null);
     const input={providers:[cloudflareWorkerTailDriver],destinations:[],monitors:[],
       connections:[{connection:{id:'fixture',provider:cloudflareWorkerTailDriver.id,displayName:'Fixture',externalAccountId:'fixture-account'},
         selectedSources:[{id:'worker',externalId:'fixture-worker',displayName:'fixture-worker',sourceKind:'worker',metadata:null}],credentials:{apiToken:'fixture-token'}}]};

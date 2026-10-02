@@ -596,3 +596,8 @@ recovery actions do not stop a machine or change server activation.
 Unlinked `deploy fly` still builds and deploys through `flyctl` without Logtura login.
 The CLI library also exports `applyLinkedFlyDeployment`, `readPendingFlyApply` and
 `abandonObsoleteFlyApply` for adapters.
+
+`stats --metrics <file>` and `stats <file>` accept JSON arrays, pretty single events,
+and NDJSON, including paths with spaces. They use the same public metrics interpreter
+as the service, select the latest samples and sum error labels. Empty exports produce
+a header-only table; invalid JSON returns exit code 1 without printing its contents.

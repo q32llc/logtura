@@ -146,3 +146,12 @@ describe("deployment ingest cache", () => {
     expect(snap.totals.errors).toBe(1);
   });
 });
+
+it("accepts NDJSON and coalesces uptime jitter while persisting an actual restart",async()=>{
+ const {deploymentId,token}=await seedIngestDeployment(),url=`http://localhost/api/metrics/${deploymentId}`,headers={authorization:`Bearer ${token}`,"content-type":"application/x-ndjson"},epoch=1_790_880_000_000;
+ const body=(sent:number,uptime:number,time:number)=>[...JSON.parse(metricBody(sent,new Date(time).toISOString())),{name:"vector_uptime_seconds",timestamp:time,gauge:{value:uptime}}].map(event=>JSON.stringify(event)).join("\n");
+ const snapshot=async()=>{const row=await env.DB.prepare("SELECT metrics_snapshot_json FROM deployments WHERE id=?").bind(deploymentId).first<{metrics_snapshot_json:string}>();return row!.metrics_snapshot_json;};
+ expect((await SELF.fetch(url,{method:"POST",headers,body:body(1,60,epoch)})).status).toBe(204);const first=await snapshot();expect(JSON.parse(first)).toMatchObject({totals:{sent:1},processStartAt:epoch-60_000});
+ expect((await SELF.fetch(url,{method:"POST",headers,body:body(2,60.995,epoch+1000)})).status).toBe(204);expect(await snapshot()).toBe(first);
+ expect((await SELF.fetch(url,{method:"POST",headers,body:body(1,1,epoch+120_000)})).status).toBe(204);expect(JSON.parse(await snapshot())).toMatchObject({totals:{sent:1},lifetimeOffset:{sent:2},processStartAt:epoch+119_000});
+});

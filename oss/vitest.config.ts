@@ -27,7 +27,7 @@ export default defineConfig({
       reporter: ["text", "html", "lcov", "json-summary"],
       // Initial measured floor; the convergence plan requires 95/90 targets.
       thresholds: {
-        statements: 85.5, branches: 83, functions: 84, lines: 83.5,
+        statements: 87, branches: 85, functions: 85, lines: 85,
         "packages/core/src/reconcile.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/graph.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/graph.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
@@ -45,6 +45,8 @@ export default defineConfig({
         "packages/cli/src/runtime-report.ts": { statements: 97, branches: 95, functions: 100, lines: 100 },
         "packages/cli/src/private-lock.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/push-lock.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/core/src/metrics.ts": { statements: 99, branches: 95, functions: 100, lines: 100 },
+        "packages/cli/src/metrics.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/fly.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/fly-runtime.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/fly-apply.ts": { statements: 95, branches: 90, functions: 100, lines: 100 },

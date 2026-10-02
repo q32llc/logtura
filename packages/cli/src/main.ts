@@ -410,8 +410,11 @@ async function cmdDeploy(global: GlobalArgs, args: string[]): Promise<number> {
 }
 
 function cmdStats(args: string[]): number {
-  const flags = parseFlags(args);
-  const file = stringFlag(flags, "metrics") ?? args[0];
+  const positional=args[0] && !args[0].startsWith("-")?args[0]:undefined;
+  const flags = parseFlags(positional?args.slice(1):args);
+  for(const flag of Object.keys(flags))if(flag!=="metrics")throw new Error(`Unsupported stats option: ${flag}`);
+  if(positional && flags.metrics)throw new Error("stats accepts one metrics file");
+  const file = stringFlag(flags, "metrics") ?? positional;
   if (!file) throw new Error("stats requires --metrics <file>");
   console.log(printStats(file));
   return 0;

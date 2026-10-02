@@ -429,3 +429,16 @@ installation and releases the lease. This provider operation does not claim appl
 state: the owning CLI/service adapter must observe the runtime's accepted report.
 The CLI's linked apply adapter supplies private durable storage and recovery. These
 public operations themselves do not require a hosted Logtura service.
+
+### Shared metrics interpretation
+
+`parseMetricsBody` accepts Vector JSON arrays, pretty single events and ordinary
+NDJSON. Invalid syntax returns an empty batch for service liveness handling; callers
+may request `{strict: true}` for a generic parse error without payload contents.
+`applyMetricsToSnapshot` merges absolute counters into bounded component snapshots,
+keeps per-field rates, sums per-error-type counters, and preserves lifetime totals
+across individual and process resets. Duplicate/older counter samples cannot replace
+newer values. New error labels are capped at 32 per component and components at 256.
+Prototype-like identities are stored as data keys. `rateFor` returns events per minute
+or `null` before a usable prior sample. The hosted service and standalone CLI stats
+use these same public operations; persistence/checkpoint scheduling stays in adapters.
