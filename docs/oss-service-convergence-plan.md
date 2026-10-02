@@ -3933,3 +3933,61 @@ durable remote cleanup/SIGKILL recovery, legacy managed replacement/rollback,
 coordinated npm publication and staged production rollout remain open. No production
 resource, migration or published npm version changed in this slice.
 
+
+### Actual Vercel Bun streaming and generated forwarder delivery
+
+The CLI baseline head `53e6687` completed its exact
+[public CI run](https://github.com/logtura/logtura/actions/runs/37071156268);
+private head `140e252` completed its exact
+[image run](https://github.com/q32llc/logtura/actions/runs/37071162290).
+The preceding private custom/Vercel package head `a8f345c` completed its exact
+[test run](https://github.com/q32llc/logtura/actions/runs/37069881063).
+
+A new required `pnpm test:vercel-runtime` suite executes the actual generated
+helper bytes under the Bun image declared by the driver, inside a network-isolated
+container with a controlled native HTTP server. Thirteen modes verify personal/
+team authentication and query parameters, missing credentials, deployment HTTP/
+JSON/inventory/identity failures, log-stream HTTP failures, malformed/open log rows,
+empty discovery, stream deadline aborts and discovery deadline aborts. It verifies
+split UTF-8, final rows without a newline, replay suppression across deployment
+changes, real reconnect backoff, stable private-body-free diagnostics and helper
+error cooldown. Deadline clocks are accelerated only by the fixture's preload;
+production timeouts remain 30 seconds for discovery and five minutes for streaming.
+
+The same suite builds the complete public `selfDeployFiles()` context, including
+its generated Vector configuration, helper asset and Bun dependency. Actual Vector
+launches the unchanged generated exec command. Only the helper's API origin is
+redirected; generated credentials are consumed from the bundle environment. A real
+webhook receiver verifies normalization, project/deployment identity, errors-only
+monitor filtering, replay deduplication, shared Logtura context, HTTP retry and
+normal SIGTERM shutdown. A second run injects failure after accepted delivery and
+requires rejection; both paths verify no owned container, image or temporary files
+remain, and stop child processes and the HTTP server.
+
+The regression fixture failed against the previously emitted helper: 563 streams
+opened in 15 seconds and the final row was lost. The helper now flushes the decoder
+and pending row on EOF and waits before reconnecting after successful EOF. It
+validates deployment inventories/identities, bounds discovery requests, replaces
+upstream bodies/parser details with static helper errors, and aborts requests on
+all completion/error paths. Native Bun testing also showed `reader.cancel()` alone
+did not close a malformed open HTTP request; explicit abort is now required and
+verified at the server for malformed rows and unsuccessful HTTP responses.
+
+Private and independent public runtime suites passed, including complete delivery
+and injected-failure cleanup. Both builds/types and clean packed consumer checks
+passed for all fifteen packages, both CLI aliases and the runtime binary; private
+E2E types also passed. Native coverage validation passed 1,421 private tests across
+127 files and 868 public tests across 75 files. Private aggregate coverage is
+97.00% statements, 94.23% branches, 98.82% functions and 97.30% lines; public
+aggregate is 98.31%, 96.33%, 99.41% and 99.07%, respectively. All independent
+package and stronger module gates remain enforced. Helper code emitted inside a
+string is proved by actual Bun execution rather than counted as instrumented
+helper-body coverage.
+
+Private/public CI now require the Vercel runtime suite. The public npm release
+workflow requires both Railway and Vercel actual helper/delivery suites before
+publication. This proves controlled provider protocols and runtime delivery, not
+live Vercel account access or the full provider/destination matrix. Live-provider
+canaries, custom graph output-port/wildcard validation, durable remote cleanup,
+legacy managed replacement/rollback, coordinated publication and staged production
+rollout remain open. No production resource, migration or npm version changed.

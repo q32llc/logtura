@@ -269,6 +269,14 @@ const seen = new Map();
 const helperErrors = new Map();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const HELPER_ERROR_COOLDOWN_MS = 5 * 60 * 1000;
+class TailError extends Error {}
+
+async function requireSuccess(response) {
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new TailError("Vercel request failed: HTTP " + response.status);
+  }
+}
 
 async function vercelJson(path, params) {
   const url = new URL(path, "https://api.vercel.com");
@@ -277,11 +285,26 @@ async function vercelJson(path, params) {
       url.searchParams.set(key, String(value));
     }
   }
-  const res = await fetch(url, {
-    headers: { authorization: "Bearer " + token, accept: "application/json" },
-  });
-  if (!res.ok) throw new Error(String(res.status) + " " + await res.text());
-  return res.json();
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 30000);
+  try {
+    const res = await fetch(url, {
+      headers: { authorization: "Bearer " + token, accept: "application/json" },
+      signal: ac.signal,
+    });
+    await requireSuccess(res);
+    let data;
+    try { data = await res.json(); }
+    catch (err) {
+      if (isExpectedStreamRestart(err)) throw err;
+      throw new TailError("Invalid Vercel JSON response");
+    }
+    if (!data || typeof data !== "object" || Array.isArray(data)) throw new TailError("Invalid Vercel response");
+    return data;
+  } finally {
+    clearTimeout(timer);
+    ac.abort();
+  }
 }
 
 async function latestDeployment(projectId) {
@@ -292,7 +315,11 @@ async function latestDeployment(projectId) {
     state: "READY",
     limit: "1",
   });
-  return data.deployments?.[0]?.uid ?? null;
+  if (!Array.isArray(data.deployments)) throw new TailError("Invalid Vercel deployment inventory");
+  if (!data.deployments.length) return null;
+  const id = data.deployments[0]?.uid;
+  if (typeof id !== "string" || !/^[A-Za-z0-9_-]+$/.test(id)) throw new TailError("Invalid Vercel deployment identity");
+  return id;
 }
 
 function remember(projectId, rowId) {
@@ -311,13 +338,13 @@ function isExpectedStreamRestart(err) {
   return Boolean(err && typeof err === "object" && err.name === "AbortError");
 }
 
-function isExpectedTimeoutMessage(message) {
-  return String(message ?? "").toLowerCase().includes("operation timed out");
+function errorMessage(err) {
+  return err instanceof TailError ? err.message : "Vercel stream request failed";
 }
 
 function emitHelperError(project, err) {
   const now = Date.now();
-  const message = err instanceof Error ? err.message : String(err);
+  const message = errorMessage(err);
   const signature = message.slice(0, 240);
   const state = helperErrors.get(project.id) ?? { signature: "", lastAt: 0, suppressed: 0 };
   if (state.signature === signature && now - state.lastAt < HELPER_ERROR_COOLDOWN_MS) {
@@ -357,39 +384,54 @@ async function tailProject(project) {
           headers: { authorization: "Bearer " + token, accept: "application/json" },
           signal: ac.signal,
         });
-        if (!res.ok) throw new Error(String(res.status) + " " + await res.text());
+        await requireSuccess(res);
+        if (!res.body) throw new TailError("Vercel runtime log stream is missing");
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed) continue;
-            const event = JSON.parse(trimmed);
+        const emitLine = (line) => {
+            if (!line.trim()) return;
+            let event;
+            try { event = JSON.parse(line); }
+            catch { throw new TailError("Invalid Vercel runtime log JSON"); }
+            if (!event || typeof event !== "object" || Array.isArray(event)) throw new TailError("Invalid Vercel runtime log row");
             const rowId = String(event.rowId ?? "");
-            if (!rowId || !remember(project.id, rowId)) continue;
+            if (!rowId || !remember(project.id, rowId)) return;
             event.projectId = project.id;
             event.projectName = project.name;
             event.deploymentId = deploymentId;
             process.stdout.write(JSON.stringify(event) + "\n");
+        };
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) {
+              buffer += decoder.decode();
+              emitLine(buffer);
+              break;
+            }
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() ?? "";
+            for (const line of lines) emitLine(line);
           }
+        } finally {
+          ac.abort();
+          await reader.cancel().catch(() => {});
+          reader.releaseLock();
         }
       } finally {
         clearTimeout(timer);
+        ac.abort();
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (!isExpectedStreamRestart(err) && !isExpectedTimeoutMessage(message)) {
+      if (!isExpectedStreamRestart(err)) {
         emitHelperError(project, err);
-        console.error("vercel tail " + project.id + ": " + message);
+        console.error("vercel tail " + project.id + ": " + errorMessage(err));
       }
-      await sleep(3000);
     }
+    // Successful EOF also needs backoff: short-lived streams must not spin.
+    await sleep(3000);
   }
 }
 

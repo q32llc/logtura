@@ -57,6 +57,12 @@ jobs:
       - name: typecheck
         run: pnpm typecheck
 
+      - name: real Bun Railway WebSocket helper and delivery
+        run: pnpm test:railway-runtime
+
+      - name: real Bun Vercel streaming helper and delivery
+        run: pnpm test:vercel-runtime
+
       - name: real Vector delivery flow
         run: pnpm test:flow
 
