@@ -3396,3 +3396,13 @@ Final backend coverage, full provider delivery/reconnect baseline, durable remot
 cleanup, legacy managed replacement/rollback, coordinated npm release and staged
 production rollout remain required. No production resource, migration or npm
 version changed.
+
+The owned changed-line gate also encountered the API's interface-only source
+module, which Istanbul omits. Its existing source parser now recognizes only
+interfaces, aliases, explicit type imports and the supported re-export forms as
+non-executable. A filesystem regression proves mixed runtime statements,
+side-effect/runtime imports, enums, namespaces, malformed source and missing
+files still fail. All 19 private and 16 standalone reporting/harness guards pass.
+The final owned gate measured 100% of changed executable lines (21/21 private,
+4/4 public), with no filename-based coverage exemption. Public composer
+`d62dd9a` and reporting follow-up `ae9b4db` are pushed to `main`.

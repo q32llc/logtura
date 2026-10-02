@@ -163,3 +163,34 @@ test("omitted re-export-only barrels have no executable lines; missing executabl
   rmSync(join(root,barrel));
   assert.throws(()=>patchCoverage(changed,reports),/missing from coverage/);
 });
+
+
+test("omitted interface/type-only modules are non-executable; mixed runtime modules fail", (t) => {
+  const root=fixture(t), file="src/web/types.ts";
+  mkdirSync(dirname(join(root,file)),{recursive:true});
+  report(root,"coverage",{[source]:[true]});
+  const reports=readReports(["coverage"],root), changed=new Map([[file,new Set([1,2,3])]]);
+  for(const content of [
+    "export interface Shape { encoding?: 'base64'; mode?: number }",
+    "import type { Value } from './value';\nexport interface Shape { value: Value }\nexport type Name = string;",
+    "type Internal = string;\nexport interface Shape { name: Internal }\nexport * from './value';",
+    "// A runtime-looking comment: run();\nexport type Name = string;",
+  ]) {
+    writeFileSync(join(root,file),content);
+    assert.deepEqual(patchCoverage(changed,reports),{covered:0,total:0,uncovered:[],passed:true});
+  }
+  for(const content of [
+    "export interface Shape {}\nexport const runtime = 1;",
+    "import './side-effect';\nexport type Name = string;",
+    "import { Value } from './value';\nexport interface Shape { value: Value }",
+    "export enum Mode { A, B }", "export const enum Mode { A, B }",
+    "export namespace Runtime { export const value = 1 }",
+    "export interface Shape {", "export type Name = ;", "// interface only?",
+    "export type Name = string;\nrun();",
+  ]) {
+    writeFileSync(join(root,file),content);
+    assert.throws(()=>patchCoverage(changed,reports),/missing from coverage/);
+  }
+  rmSync(join(root,file));
+  assert.throws(()=>patchCoverage(changed,reports),/missing from coverage/);
+});

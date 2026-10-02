@@ -113,17 +113,19 @@ export function changedLines(diff) {
   }
   return changes;
 }
-/** Istanbul can omit pure re-export barrels: their own source contains no
- * executable statements. Parse actual checkout source, never infer this from a
+/** Istanbul can omit type-only modules and pure re-export barrels: their own
+ * source contains no executable statements. Parse actual checkout source, never infer this from a
  * filename or a missing report. Anything else still requires instrumentation. */
-function reexportsOnly(file, root) {
+function nonExecutableSource(file, root) {
   if (typeof root !== "string") return false;
   try {
     if (sourcePath(file, root) !== file) return false;
     const parsed = ts.createSourceFile(file, readFileSync(resolve(root, file), "utf8"), ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
     return parsed.parseDiagnostics.length === 0 && parsed.statements.length > 0
-      && parsed.statements.every(statement => ts.isExportDeclaration(statement)
-        && statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier));
+      && parsed.statements.every(statement => ts.isInterfaceDeclaration(statement)
+        || ts.isTypeAliasDeclaration(statement)
+        || (ts.isImportDeclaration(statement) && statement.importClause?.isTypeOnly === true)
+        || (ts.isExportDeclaration(statement) && statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier)));
   } catch { return false; }
 }
 export function patchCoverage(changes, reports) {
@@ -131,7 +133,7 @@ export function patchCoverage(changes, reports) {
   for (const [file, changed] of changes) {
     if (!changed.size) continue;
     if (!reports.files.has(file)) {
-      if (reexportsOnly(file, reports.sourceRoot)) continue;
+      if (nonExecutableSource(file, reports.sourceRoot)) continue;
       throw new Error(`Changed source is missing from coverage: ${file}`);
     }
     const measured = reports.lines.get(file) ?? new Map();
