@@ -28,6 +28,8 @@ export default defineConfig({
       reporter: ["text", "html", "lcov", "json-summary"],
       // Final aggregate package target met; all production package source stays included.
       thresholds: {
+        "packages/custom-vector/src/**/*.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
+        "packages/driver-vercel-logs/src/**/*.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
         // Separate package gates keep aggregate coverage from hiding weak drivers.
         "packages/core/src/**/*.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
         "packages/driver-supabase-edge-logs/src/**/*.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },

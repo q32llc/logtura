@@ -129,5 +129,5 @@ it("keeps a Vercel selection on denied project discovery while accepting its ver
     if (url.pathname === "/v9/projects") return new Response("Projects unavailable fixture", { status: 403 });
     throw new Error(`Unexpected provider URL ${url}`);
   });
-  await connect(path, "vercel"); expect(loadConfigFile(path).input.connections[0]!.selectedSources.map(source => source.externalId)).toEqual(["existing-project"]); expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("Projects unavailable fixture"));
+  await connect(path, "vercel"); expect(loadConfigFile(path).input.connections[0]!.selectedSources.map(source => source.externalId)).toEqual(["existing-project"]); expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("Vercel request failed: 403")); expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain("Projects unavailable fixture");
 });

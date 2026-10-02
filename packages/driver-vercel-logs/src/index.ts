@@ -47,14 +47,7 @@ export const vercelLogsDriver: ProviderDriver<VercelCredentials> = {
     const res = await fetch(`${API_BASE}/v2/user`, {
       headers: vercelHeaders(credentials.apiToken),
     });
-    if (!res.ok) {
-      const body = await res.text();
-      throw new ProviderError(
-        `Vercel token verification failed: ${res.status} ${body.slice(0, 200)}`,
-        res.status,
-      );
-    }
-    const data = (await res.json()) as { user?: { uid?: string; username?: string; name?: string } };
+    const data = await readVercelResponse(res) as { user?: { uid?: string; username?: string; name?: string } };
     const id = data.user?.uid ?? "vercel";
     return [{ id, name: data.user?.username ?? data.user?.name ?? id }];
   },
@@ -66,17 +59,11 @@ export const vercelLogsDriver: ProviderDriver<VercelCredentials> = {
     const res = await fetch(url, {
       headers: vercelHeaders(credentials.apiToken),
     });
-    if (!res.ok) {
-      const body = await res.text();
-      throw new ProviderError(
-        `Vercel projects list failed: ${res.status} ${body.slice(0, 200)}`,
-        res.status,
-      );
-    }
-    const data = (await res.json()) as { projects?: VercelProject[] };
+    const data = await readVercelResponse(res) as { projects?: VercelProject[] };
+    if (data.projects != null && !Array.isArray(data.projects)) throw new ProviderError("Invalid Vercel project inventory", 502);
     const out: DiscoveredSource[] = [];
     for (const project of data.projects ?? []) {
-      if (!project.id) continue;
+      if (!project || typeof project.id !== "string" || !project.id) continue;
       out.push({
         sourceKind: "vercel_project",
         externalId: project.id,
@@ -221,6 +208,18 @@ export const vercelLogsDriver: ProviderDriver<VercelCredentials> = {
     };
   },
 };
+
+/** Provider bodies can contain private data; keep library failures stable. */
+async function readVercelResponse(response: Response): Promise<Record<string, unknown>> {
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new ProviderError(`Vercel request failed: ${response.status}`, response.status);
+  }
+  let body: unknown;
+  try { body = await response.json(); } catch { throw new ProviderError("Invalid Vercel JSON response", 502); }
+  if (!body || typeof body !== "object" || Array.isArray(body)) throw new ProviderError("Invalid Vercel response", 502);
+  return body as Record<string, unknown>;
+}
 
 function vercelHeaders(token: string): HeadersInit {
   return {

@@ -3852,3 +3852,45 @@ against controlled outbound fixtures. Complete live-provider/runtime delivery,
 durable remote cleanup, legacy managed replacement/rollback, coordinated npm
 publication and staged production rollout remain open. No production resource,
 migration or published npm version changed.
+
+### Custom Vector graph validation and Vercel API package baseline
+
+The independent package-gate head `08840e2` completed its exact
+[public CI run](https://github.com/logtura/logtura/actions/runs/37068730397)
+and [private image run](https://github.com/q32llc/logtura/actions/runs/37068738623).
+The generated Railway delivery head `7efd312` completed its exact
+[private CI run](https://github.com/q32llc/logtura/actions/runs/37067431642).
+
+Ten additional cases cover credential-free custom Vector operation, parsed
+source/fragment/feed requirements, malformed/forbidden maps, duplicate identities,
+nested input rewriting, inferred/explicit sink placeholders and source-only or
+transform-only fragments; Vercel profile fallbacks, personal/team discovery,
+metadata defaults, malformed responses and empty/multiple selections.
+Custom Vector now rejects component names that collide after normalization and
+sink placeholders that shadow defined graph components, before emitting an
+invalid graph. Supported graph rendering and opaque non-reference values remain
+covered. Vercel API HTTP/JSON/envelope failures expose stable errors, cancel
+failed response bodies and skip invalid project identities. The CLI discovery
+baseline still retains selected projects on a denied inventory request and now
+proves its warning omits the upstream private body.
+
+Both packages now enforce independent final 95% statement/line/function and
+90% branch floors. Custom Vector measures 99.05% statements, 98.61% branches,
+100% functions and 100% lines; Vercel measures 100%, 98.24%, 100% and 100%,
+respectively. Fourteen of fifteen packages now meet independent final targets;
+the CLI package baseline remains open.
+
+Private validation passed 1,381 tests across 124 files; independent public
+validation passed 828 tests across 72 files. Both layouts passed builds, types,
+all 15 installed-package consumer checks and the real Vector delivery/runtime
+flow, including supported custom source normalization, filters, routing/context,
+HTTP retry and issued runtime/report recovery. Private E2E types also passed.
+Private aggregate coverage is 95.81% statements, 92.97% branches, 97.92%
+functions and 96.13% lines; public aggregate is 96.19%, 94.16%, 97.89% and
+96.88%, respectively.
+
+Actual Vercel helper/live-provider delivery, full custom graph output-port/
+wildcard validation and the remaining provider/destination matrix still require
+proof. Durable remote cleanup/SIGKILL recovery, legacy managed replacement/
+rollback, coordinated npm publication and staged production rollout remain open.
+No production resource, migration or published npm version changed.

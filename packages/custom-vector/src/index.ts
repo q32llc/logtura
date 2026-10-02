@@ -94,6 +94,7 @@ export const customVectorDestination: DestinationDriver<CustomVectorDestinationC
     }
     const defined = definedKeys(config.fragment, ["transforms", "sinks"]);
     const inputPlaceholder = config.input ?? inferSingleDanglingInput(config.fragment, defined);
+    if (defined.has(inputPlaceholder)) throw new Error("custom-vector input must name an external placeholder, not a defined component");
     const prefix = `custom_${safeKey(sinkKey)}`;
     const keyMap = prefixedKeyMap(defined, prefix);
     keyMap.set(inputPlaceholder, inputs[0]!);
@@ -232,7 +233,13 @@ function definedKeys(
 
 function prefixedKeyMap(keys: Set<string>, prefix: string): Map<string, string> {
   const out = new Map<string, string>();
-  for (const key of keys) out.set(key, `${prefix}_${safeKey(key)}`);
+  const mapped = new Set<string>();
+  for (const key of keys) {
+    const target = `${prefix}_${safeKey(key)}`;
+    if (mapped.has(target)) throw new Error("custom-vector component keys collide after normalization");
+    mapped.add(target);
+    out.set(key, target);
+  }
   return out;
 }
 
