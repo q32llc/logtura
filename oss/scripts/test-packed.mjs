@@ -30,6 +30,7 @@ try {
   const bin = (alias, args) => run(join(consumer, "node_modules", ".bin", alias), args, consumer, offline);
   assert.match(bin("logt", ["--help"]), /logt/);
   assert.match(bin("logtura", ["--help"]), /logt/);
+  assert.match(bin("logt-forwarder", ["--help"]), /private.*artifact|artifact.*private/);
   const anonymous = spawnSync(join(consumer, "node_modules", ".bin", "logt"), ["whoami"], {cwd: consumer, encoding: "utf8", env: {...process.env, ...offline}});
   assert.equal(anonymous.status, 1);
   assert.match(anonymous.stderr, /Sign in first/);
@@ -226,7 +227,7 @@ process.stdin.resume();
   for (const file of recoveryFiles) assert.equal(readFileSync(file.target, "utf8"), file.original);
   assert.deepEqual(readdirSync(recoveryDir), [".env", "logt.yaml"]);
   assert.equal(JSON.parse(bin("logt", ["-c", recoveryConfig, "config", "recover", "--json"])).recovered, false);
-  console.log(`Packed consumer checks passed for ${packages.length} packages and both CLI aliases`);
+  console.log(`Packed consumer checks passed for ${packages.length} packages, both CLI aliases and the forwarder runtime binary`);
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }

@@ -39,6 +39,8 @@ export default defineConfig({
         "packages/cli/src/fly-target.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/deployment-link.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/push.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/cli/src/runtime-process.ts": { statements: 98, branches: 92, functions: 100, lines: 100 },
+        "packages/cli/src/runtime-main.ts": { statements: 100, branches: 92, functions: 100, lines: 100 },
         "packages/cli/src/runtime-report.ts": { statements: 97, branches: 95, functions: 100, lines: 100 },
         "packages/cli/src/private-lock.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/push-lock.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },

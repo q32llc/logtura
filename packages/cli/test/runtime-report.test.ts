@@ -89,9 +89,9 @@ for(const [method,boundary,nextCounter,accepted] of [["fsyncSync",1,1,true],["re
   const script=`import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';
    const sync=fs.fsyncSync,original=fs[${JSON.stringify(method)}];let count=0;
    fs[${JSON.stringify(method)}]=(...args)=>{original(...args);if(++count===${boundary})process.kill(process.pid,'SIGKILL')};syncBuiltinESMExports();
-   const {reportLoadedForwarderFile}=await import(${JSON.stringify(pathToFileURL(join(import.meta.dirname,"../src/runtime-report.ts")).href)});
+   const {reportLoadedForwarderFile}=await import(${JSON.stringify(pathToFileURL(join(import.meta.dirname,"../dist/main.js")).href)});
    await reportLoadedForwarderFile({...${JSON.stringify(options)},report:async value=>{fs.appendFileSync(${JSON.stringify(deliveries)},value.reportSequence+'\\n');const fd=fs.openSync(${JSON.stringify(deliveries)},'r');sync(fd);fs.closeSync(fd);return true;}});`;
-  const child=spawnSync(process.execPath,["--import","tsx","--input-type=module","-e",script],{encoding:"utf8",timeout:10_000});
+  const child=spawnSync(process.execPath,["--input-type=module","-e",script],{encoding:"utf8",timeout:10_000});
   expect(child.error).toBeUndefined();expect(child.stderr).toBe("");expect(child.signal).toBe("SIGKILL");
   const highest=existsSync(deliveries)?Math.max(...readFileSync(deliveries,"utf8").trim().split("\n").map(Number)):0;
   expect(await reportLoadedForwarderFile({...f,report:async value=>value.reportSequence>highest})).toEqual({reportSequence:nextCounter,accepted});

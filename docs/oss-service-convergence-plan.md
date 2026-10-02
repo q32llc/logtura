@@ -1353,3 +1353,71 @@ persistence/retry rather than manufacturing process observations. Full local/wor
 remote and browser journeys/cleanup, final backend/public 95/90 and UI 90/85 coverage,
 provider/telemetry hardening, dependency upgrades, npm publication, migrations 0018–0025
 and staged production rollout remain outstanding. The full shipping goal remains active.
+
+### Owned Vector process and packaged runtime executable (implemented)
+
+The CLI library now exports `runForwarderProcess` and `forwarderRuntimeMain`, and
+its npm package includes a dependency-bundled `logt-forwarder` executable. It checks
+an issued private descriptor, installed file bytes, captured environment and the
+actual installed Vector version before starting a POSIX child process group. YAML
+is copied into a private read-only snapshot. Driver assets remain at their generated
+`/opt/logtura/assets` paths and are verified on every report; installation should
+bake them into the image or mount them read-only. Ambient Vector config/reload/logging
+controls cannot add inputs or bypass the supervisor's explicit arguments.
+
+Readiness requires the owned child's pinned internal API-bind event, then loopback
+health and a still-running child. Vector 0.55's text logger writes stderr, while its
+JSON logger writes stdout. The supervisor uses text stderr so pipeline stdout stays
+separate from startup recognition. The private descriptor/key is never passed to
+Vector or printed. The reporting loop re-verifies the snapshot, assets and launch
+environment before delivering each report through the durable store.
+
+A separate runtime lock prevents overlapping launches for one checkpoint. Stop
+interrupts startup and scheduled work, drains an in-flight SDK request, signals the
+whole owned process group and kills unresponsive children after the grace period.
+Failed cleanup retains the snapshot. Container shutdown should allow at least 35
+seconds with default SDK/process limits. Persistent per-instance checkpoint storage
+is required for restart recovery. Host SIGKILL can orphan a detached child; container
+runtimes must own the full process tree. The runtime executable requires an issued
+artifact and does not silently treat an unissued installation as applied.
+
+The real Vector fixture now starts the packaged runtime as PID 1 with its own Vector
+child. It verifies actual startup/reporting, accepted-ack loss recovery (counter
+requests 1, 1, 2), event delivery and graceful container exit code 0. Its reporting
+HTTP fixture is proxied through container loopback so it works when the Docker daemon
+host differs from the caller's host. Async Docker stop keeps that fixture's HTTP
+server responsive while the runtime drains. There is no hosted-service dependency
+in this standalone fixture. Existing delivery/filter/context/503 retry checks still
+pass. The fixture mounts a Linux Node binary; production Node image packaging is
+not implied by this check.
+
+Validation passes 787 private tests in 77 files and 536 public tests in 45 files.
+Private coverage is 77.06/73.33/80.28/74.25 and public coverage is
+83.82/80.95/82.88/81.81 (statements/branches/functions/lines). Private floors rise to
+77/73/80/74; public floors remain 83/80/82/81. Process supervision enforces
+98% statements, 92% branches and 100% functions/lines (measured
+98.42/94.36/100/100). Runtime CLI validation enforces 100% statements/functions/lines
+and 92% branches (measured branches 92.85%). Tests cover owned versus foreign readiness,
+malformed/oversized diagnostics, immutable YAML after source edits, missing assets,
+unsafe file types, version mismatch/discovery failure, launch failure, unexpected exit,
+health/callback failure, phase-specific stop races, forced shutdown and failed cleanup.
+Explicit child handshakes replace timing assumptions for startup/shutdown tests.
+Both layouts pass builds/typechecks, all 15 packed checks including the new executable,
+and real Vector supervision/delivery. The service build passes.
+
+CI audit found an additional clean-public defect at adapter head ecd7d66 (run
+36956891472): six crash tests imported `tsx`, which was available through the private
+checkout but absent from public root dependencies. Those children now load the built
+CLI directly, exercising compiled reporting without a source loader. Local public and
+private checks pass after this fix; new-head CI must verify it independently. Adapter
+head f4308b5 private run 36956894401 failed only at Codecov `Repository not found`,
+and its forwarder-image run 36956894435 passed. Codecov activation/access remains
+unresolved and the upload gate stays enforced.
+
+Production Node/container packaging, immutable asset installation policy, durable
+instance activation and CLI/service apply orchestration remain required. Existing
+standalone/managed deployment entrypoints are unchanged until artifact/apply wiring
+is integrated. Complete hosted local/workerd, remote and browser journeys/cleanup,
+final backend/public 95/90 and UI 90/85 coverage, provider/telemetry hardening,
+dependency upgrades, npm publication, migrations 0018–0025 and staged production
+rollout remain outstanding. The complete shipping goal remains active.

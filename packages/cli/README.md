@@ -459,3 +459,40 @@ stop. Stop interrupts waiting; an in-flight transport finishes before shutdown r
 This is a library adapter; CLI activation/apply commands and production container
 wiring are separate capabilities. Standalone CLI rendering/deployment continues to
 work without the Logtura service.
+
+### Owned Vector process supervision
+
+`logt-forwarder --artifact /etc/vector/logtura-runtime.json` starts the installed
+Vector binary from a private issued runtime descriptor. Supply the descriptor and
+matching `vector.yaml` in the same directory, install declared driver assets under
+`/opt/logtura/assets`, and provide generated environment values plus the deployment
+reporting token in `LOGTURA_HEARTBEAT_TOKEN`. This executable requires Node 22+ and
+a POSIX runtime. It bundles its JavaScript dependencies and can run directly in a
+Vector image that supplies Node; it does not require an npm install inside that image.
+
+The default checkpoint is `/var/lib/logtura/reports/<instance-id>.json`. Mount that
+directory on persistent private storage before relying on restart recovery. Options
+include `--checkpoint`, `--config-directory`, `--vector`, `--interval-ms` and
+`--retry-ms`. The executable requires an artifact and fails closed if it is missing;
+it does not turn an unissued installation into an applied report.
+
+The library also exports `runForwarderProcess` and `forwarderRuntimeMain`. The process
+adapter checks installed bytes/environment and the actual Vector version before
+starting, then takes a private read-only YAML snapshot. It removes ambient Vector
+configuration/reload/logging controls, starts its own child process group with explicit
+config and shutdown arguments, and requires that child's pinned internal API-bind
+notice on stderr before checking loopback readiness. User pipeline stdout remains
+separate from readiness detection. Installed assets are checked again for every
+report and should be baked into the image or mounted read-only. Bound Vector control
+variables that conflict with the supervisor's settings fail integrity verification.
+
+A runtime lock prevents overlapping launches for one checkpoint. Stop interrupts
+waiting/report scheduling, drains an in-flight SDK request, then stops the owned
+process group; unresponsive children are killed after the configured grace period.
+Allow at least 35 seconds for container shutdown with default SDK/process timeouts.
+Failed process cleanup retains the snapshot. Container runtimes should own the whole
+process tree; a host-level SIGKILL can leave an orphan child that needs operator
+cleanup before the fixed Vector API port can bind again. Existing standalone bundle
+and deployment commands retain their current entrypoint until runtime artifact/apply
+wiring is added. This executable does not activate a service instance or create/update
+a deployment itself.

@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, readFileSync, statSync, rmSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { spawnSync } from "node:child_process";
+import { spawnSync,execFile } from "node:child_process";
 
 const root = process.cwd();
 const load = (name) => import(pathToFileURL(join(root, "packages", name, "dist/index.js")));
@@ -14,7 +14,7 @@ const { runForwarderReporting } = await import(pathToFileURL(join(root, "package
 const { customVectorProvider } = await load("custom-vector");
 const { webhookDriver } = await load("destination-webhook");
 const temporary = mkdtempSync(join(tmpdir(), "logt-vector-flow-"));
-const name = `logt-e2e-${crypto.randomUUID()}`;
+const name = `logt-e2e-${crypto.randomUUID()}`, supervisedName = `${name}-owned`;
 const deliveries = [];
 let attempts = 0, appliedCounter = 0, expectedInstance;
 const appliedReports = [];
@@ -144,8 +144,59 @@ try {
     assert.equal(event.logtura_provider, "custom-vector");
     assert.equal(event.error, true);
   }
-  console.log("Real Vector flow passed: normalization, error filtering, routing, context, retry delivery, issued runtime integrity, and durable HTTP report recovery without Logtura service");
+  // Run the actual installed supervisor as PID 1 with its own Vector child.
+  // Node is mounted from the Linux CI/runtime installation; runtime-bin bundles
+  // its package dependencies so this fixture needs no network package install.
+  const portProbe=createServer();await new Promise(resolve=>portProbe.listen(0,"127.0.0.1",resolve));
+  const ownedPort=portProbe.address().port;await new Promise(resolve=>portProbe.close(resolve));
+  const supervisedInput={...input,connections:structuredClone(input.connections)};
+  supervisedInput.connections[0].selectedSources[0].metadata.customVector.fragment.sources.ingress.address=`0.0.0.0:${ownedPort}`;
+  const supervisedExport=await exportDeploymentManifest(supervisedInput,await createSecretVersioner(crypto.randomUUID()));
+  const supervised = await compileForwarderRuntime({service: artifact.service,
+    deploymentId: artifact.deploymentId, document: supervisedExport.document,
+    instance: {...artifact.instance,revision:await hashConfigDocument(supervisedExport.document),instanceId:crypto.randomUUID(),requestId:crypto.randomUUID()},
+    env: supervisedExport.secretValues, providers: input.providers, destinations: input.destinations});
+  writeFileSync(join(temporary,"vector.yaml"),supervised.bundle.vectorYaml);
+  expectedInstance = supervised.artifact.instance;appliedCounter = 0;appliedReports.length = 0;
+  writeFileSync(join(temporary,"logtura-runtime.json"),JSON.stringify(supervised.artifact),{mode:0o600});
+  // Keep the optional SDK's HTTP fixture on loopback inside this container.
+  // Docker's daemon host can differ from the caller's host (e.g. Docker Desktop).
+  writeFileSync(join(temporary,"proxy-run.mjs"),`import {createServer,request} from 'node:http';
+    const proxy=createServer((req,res)=>{const upstream=request('http://host.docker.internal:${receiverPort}'+req.url,{method:req.method,headers:req.headers},reply=>{res.writeHead(reply.statusCode,reply.headers);reply.pipe(res);});upstream.on('error',()=>res.destroy());req.pipe(upstream);});
+    await new Promise(resolve=>proxy.listen(${receiverPort},'127.0.0.1',resolve));
+    await import('/opt/logtura/runtime-bin.mjs');
+    proxy.closeAllConnections();await new Promise(resolve=>proxy.close(resolve));`,{mode:0o600});
+  docker(["run","--detach","--name",supervisedName,"--add-host=host.docker.internal:host-gateway",
+    "--entrypoint","/usr/local/bin/node","--publish",`127.0.0.1::${ownedPort}`,
+    "--volume",`${process.execPath}:/usr/local/bin/node:ro`,
+    "--volume",`${join(root,"packages/cli/dist/runtime-bin.js")}:/opt/logtura/runtime-bin.mjs:ro`,
+    "--volume",`${temporary}:/etc/vector:ro`,"--tmpfs","/var/lib/logtura:rw,mode=0700",
+    ...env,"--env","LOGTURA_HEARTBEAT_TOKEN=fixture-report-token","--env","VECTOR_CONFIG_DIR=/unrelated",
+    `timberio/vector:${VECTOR_VERSION}-debian`,"/etc/vector/proxy-run.mjs",
+    "--artifact","/etc/vector/logtura-runtime.json","--interval-ms","20","--retry-ms","20"]);
+  const supervisedIngress = `http://${docker(["port",supervisedName,`${ownedPort}/tcp`])}`;
+  const supervisedDeadline = Date.now()+30_000;
+  while(appliedCounter<2 && Date.now()<supervisedDeadline){
+    const state = JSON.parse(docker(["inspect",supervisedName]))[0].State;
+    if(!state.Running)throw new Error(`Owned supervisor stopped: ${docker(["logs",supervisedName],true)}`);
+    await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  assert.ok(appliedCounter>=2,`Owned supervisor reporting timed out: ${docker(["logs",supervisedName],true)}`);
+  assert.deepEqual(appliedReports.slice(0,3),[1,1,2]);
+  const supervisedEvent = await fetch(supervisedIngress,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({message:"keep-error-owned-process",level:"error"}),signal:AbortSignal.timeout(5000)});
+  assert.equal(supervisedEvent.status,200);
+  await waitFor(()=>deliveries.some(event=>event.message==="keep-error-owned-process"),"Owned Vector delivery");
+  // Keep the fixture HTTP server responsive while the runtime drains its last
+  // report; a synchronous docker stop would block that server and force a kill.
+  await new Promise((resolve,reject)=>execFile("docker",["stop","--time","35",supervisedName],{timeout:40_000},error=>error?reject(error):resolve()));
+  const finalLogs=spawnSync("docker",["logs",supervisedName],{encoding:"utf8",timeout:5000});
+  assert.equal(JSON.parse(docker(["inspect",supervisedName]))[0].State.ExitCode,0,finalLogs.stdout+finalLogs.stderr);
+  const supervisedLogs=docker(["logs",supervisedName],true);
+  assert.ok(supervisedLogs.includes('"event":"applied_report"'));
+  assert.ok(!supervisedLogs.includes(supervised.artifact.privateKey));
+  console.log("Real Vector flow passed: normalization, error filtering, routing, context, retry delivery, issued runtime integrity, and durable HTTP report recovery, and owned PID-1 process supervision without Logtura service");
 } finally {
+  docker(["rm", "--force", supervisedName], true);
   docker(["rm", "--force", name], true);
   await new Promise((resolve) => server.close(resolve));
   rmSync(temporary, { recursive: true, force: true });

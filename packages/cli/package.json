@@ -61,7 +61,8 @@
   },
   "bin": {
     "logt": "./dist/bin.js",
-    "logtura": "./dist/bin.js"
+    "logtura": "./dist/bin.js",
+    "logt-forwarder": "./dist/runtime-bin.js"
   },
   "engines": {
     "node": ">=22"

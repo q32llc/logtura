@@ -14,6 +14,9 @@ await build({
 const types = spawnSync("tsc", ["-p", "tsconfig.build.json"], { stdio: "inherit" });
 if (types.status !== 0) throw new Error(`Declaration build failed for ${pkg.name}`);
 if (cli) {
+  await build({entryPoints:["src/runtime-bin.ts"],outfile:"dist/runtime-bin.js",bundle:true,
+    format:"esm",platform:"node",target:"node22",banner:{js:"#!/usr/bin/env node"}});
+  chmodSync("dist/runtime-bin.js",0o755);
   writeFileSync("dist/bin.js", '#!/usr/bin/env node\nimport { main } from "./main.js";\nprocess.exitCode = await main();\n');
   chmodSync("dist/bin.js", 0o755);
 }
