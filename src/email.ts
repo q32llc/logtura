@@ -13,13 +13,15 @@ export async function sendEmail(
     textBody: string;
     htmlBody?: string;
   },
-): Promise<void> {
+): Promise<boolean> {
   if (!env.POSTMARK_API_KEY || !env.FROM_EMAIL) {
-    console.log("email_skipped_no_config", { to: input.to });
-    return;
+    console.log("email_skipped_no_config");
+    return false;
   }
   const res = await fetch("https://api.postmarkapp.com/email", {
     method: "POST",
+    signal: AbortSignal.timeout(20_000),
+    redirect: "manual",
     headers: {
       accept: "application/json",
       "content-type": "application/json",
@@ -35,9 +37,12 @@ export async function sendEmail(
     }),
   });
   if (!res.ok) {
-    const text = await res.text();
-    console.error("postmark_send_failed", res.status, text);
+    await res.body?.cancel();
+    console.error("postmark_send_failed", res.status);
+    return false;
   }
+  await res.body?.cancel();
+  return true;
 }
 
 export interface DeploymentSilenceContext {

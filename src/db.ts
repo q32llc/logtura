@@ -1236,68 +1236,6 @@ export async function getDeployTargetById(
     .first<DeployTargetRow>();
 }
 
-/** Bump last_seen_at for a deployment receiving a heartbeat. */
-export async function recordHeartbeat(
-  db: D1Database,
-  deploymentId: string,
-): Promise<void> {
-  const ts = now();
-  await db
-    .prepare(
-      `UPDATE deployments
-       SET last_seen_at = ?, status = CASE
-         WHEN status IN ('pending', 'crashed') THEN 'running'
-         ELSE status
-       END,
-       updated_at = ?
-       WHERE id = ?`,
-    )
-    .bind(ts, ts, deploymentId)
-    .run();
-}
-
-/**
- * Find deployments that should be considered silent: status='running'
- * and last_seen_at older than the threshold AND we haven't alerted in
- * the last `recentAlertWindow`. Used by the cron alerter.
- */
-export async function listStaleDeployments(
-  db: D1Database,
-  silenceThresholdMs: number,
-  recentAlertWindowMs: number,
-): Promise<DeploymentRow[]> {
-  const nowTs = now();
-  const lastSeenCutoff = nowTs - silenceThresholdMs;
-  const alertCutoff = nowTs - recentAlertWindowMs;
-  const r = await db
-    .prepare(
-      `SELECT * FROM deployments
-       WHERE status = 'running'
-         AND last_seen_at IS NOT NULL
-         AND last_seen_at < ?
-         AND (last_alert_sent_at IS NULL OR last_alert_sent_at < ?)`,
-    )
-    .bind(lastSeenCutoff, alertCutoff)
-    .all<DeploymentRow>();
-  return r.results ?? [];
-}
-
-/** Mark a deployment crashed and stamp last_alert_sent_at. */
-export async function markDeploymentSilenceAlerted(
-  db: D1Database,
-  deploymentId: string,
-): Promise<void> {
-  const ts = now();
-  await db
-    .prepare(
-      `UPDATE deployments
-       SET status = 'crashed', last_alert_sent_at = ?, updated_at = ?
-       WHERE id = ?`,
-    )
-    .bind(ts, ts, deploymentId)
-    .run();
-}
-
 export async function updateDeployment(
   db: D1Database,
   userId: string,

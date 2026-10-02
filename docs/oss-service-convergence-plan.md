@@ -2437,3 +2437,76 @@ unchanged by this private service slice. The private backend final coverage targ
 live provider delivery, shared managed apply, remote ownership ledgers and
 coordinated package publication/production migration/rollout/rollback remain
 required; the full goal stays active.
+
+### Indexed silence detection and durable notification delivery
+
+The original exception's cron path no longer loads full deployment payloads or
+performs a separate owner lookup for every stale deployment. Migration 0026 adds
+a partial heartbeat index and a private notification outbox. Each tick captures
+at most 100 oldest eligible running deployments with their owner email. One D1
+batch inserts/upserts the heartbeat episode and marks its deployment crashed,
+stamping the alert cooldown without changing desired configuration versions.
+Overlapping ticks cannot independently capture/send the same episode. A native
+`EXPLAIN QUERY PLAN` assertion verifies the partial index is used; a failing SQL
+trigger verifies both notification creation and status change roll back together.
+[Cloudflare documents D1 batch rollback guarantees](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch).
+
+Delivery attempts at most ten notices per tick, acquires each row with an atomic
+60-second lease, and acknowledges only that lease token. Failed transport and
+non-success responses retain a durable retry, with exponential delay capped at
+one hour. An abandoned lease becomes eligible again. Before sending, the worker
+checks the current heartbeat/status and cancels warnings for recovered, stopped
+or removed deployments; it never marks a deployment crashed after sending email.
+Thus a heartbeat arriving during transport remains authoritative. An email
+already in flight can still arrive after recovery. Delivery is at least once:
+Postmark acceptance followed by a lost D1 acknowledgement can result in a duplicate.
+No exactly-once transport guarantee is claimed.
+
+Absent email configuration leaves delivery pending; an owner without an email
+address is completed without transport. Only completed records older than seven
+days are pruned, in batches of at most 100; failed pending notices remain durable.
+Deployment/account deletion cascades private outbox data. The existing one-hour
+alert cooldown and ten-minute silence threshold remain, including exact boundary
+behavior. Resuming an identical heartbeat manually re-marks its stale deployment
+without duplicating an already completed notification. New heartbeat epochs can
+create fresh episodes after the cooldown.
+
+The Postmark helper now returns acceptance/failure, bounds requests to 20 seconds,
+uses manual redirects without forwarding credentials, and cancels response bodies.
+Failure logs contain status/deployment identity rather than provider response
+bodies, tokens, recipient emails or exception contents. Native workerd rejected
+`redirect: "error"`; the direct request regression verifies the supported manual
+redirect mode and redirect refusal.
+
+Twenty-five new native D1/workerd cases cover eligibility/boundaries, real capture
+and delivery races, query planning, durable retries, abandoned/replaced leases,
+heartbeat/stop cancellation, heartbeat during email, missing email/configuration,
+private deletion, bounded capture/drain, pruning, rollback and Postmark request
+contracts. A separate schema-25 migration case compares all existing user,
+connection, deployment and configuration-version rows unchanged after migration
+0026, with an empty outbox and the new index. Email helper coverage is 100% in all
+four measures; the alerter is 100 statements/functions/lines and 91.30 branches.
+New enforced file floors are 100/100/100/100 and 100/90/100/100 respectively.
+Private aggregate floors rise to 84/82/87/81.5, retaining every prior strict gate.
+The final raised-gate run passes all 998 cases across 94 files at
+84.18 statements / 82.20 branches / 87.21 functions / 81.69 lines.
+
+Service/E2E types and package/Vite builds pass. All 280 website/native API tests
+pass at 93.21/90.12/95.36/94.48, retaining 93/90/95/94 gates. The rebuilt full
+browser/installed CLI/native workerd/Docker journey passes with a fresh schema-26
+D1, configuration synchronization, applied reporting, current metrics, restart,
+graceful shutdown and owned-resource cleanup. Public package source and npm
+versions are unchanged by this private slice.
+The preceding ingestion head fb4c6fb completes every code/runtime/coverage step
+in private CI run 37006179628; only the enforced Codecov upload fails. Scoped app
+permission approval remains pending.
+
+Migration 0026 is not applied to production; migrations 0018–0026 and the new
+worker must be staged and verified together before rollout. Worker rollback must
+retain this additive table/index and account for pending notices; an older worker
+will not drain the outbox, so pause the cron and reconcile pending delivery before
+reverting its notification implementation. The original isolated production queue
+timeout is still not proven to be sustained D1 capacity exhaustion. Production
+query/load verification, remaining provider/managed-apply capabilities, the final
+private coverage target and coordinated publication/rollout/rollback remain part
+of the active full shipping goal.

@@ -53,6 +53,8 @@ export default defineConfig({
       // Baseline floor; raise these as the planned coverage slices land.
       // Final scope targets are 95% lines/statements/functions and 90% branches.
       thresholds: {
+        "src/silence-alerter.ts": { statements: 100, branches: 90, functions: 100, lines: 100 },
+        "src/email.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/deployment-ingest.ts": { statements: 99, branches: 95, functions: 100, lines: 100 },
         "src/deployment-instances.ts": { statements: 97, branches: 95, functions: 100, lines: 100 },
         "src/deployment-state-routes.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
@@ -67,7 +69,7 @@ export default defineConfig({
         "src/graph-reconciliation.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/config-version.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/cli-auth.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
-        statements: 83.5, branches: 81.8, functions: 86.5, lines: 81,
+        statements: 84, branches: 82, functions: 87, lines: 81.5,
         "packages/core/src/reconcile.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/graph.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/provider-connectors.ts": { statements: 100, branches: 97, functions: 100, lines: 100 },

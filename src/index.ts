@@ -100,14 +100,7 @@ import {
   staleRunningJobMessage,
 } from "./jobs/driver";
 import { processQueueBatch } from "./jobs/queue";
-import {
-  deploymentSilenceEmail,
-  sendEmail,
-} from "./email";
-import {
-  listStaleDeployments,
-  markDeploymentSilenceAlerted,
-} from "./db";
+import { runSilenceAlerter } from "./silence-alerter";
 import {
   type JobRecord,
   lockKeyForDiscovery,
@@ -2514,40 +2507,6 @@ export default {
     ctx.waitUntil(runSilenceAlerter(env));
   },
 };
-
-/**
- * Silence-alert cron tick. Finds running deployments whose last
- * heartbeat is older than 10 minutes and that we haven't alerted on
- * in the last hour, marks them crashed, and emails the user.
- */
-async function runSilenceAlerter(env: Env): Promise<void> {
-  const SILENCE_MS = 10 * 60 * 1000;
-  const RECENT_ALERT_MS = 60 * 60 * 1000;
-  const stale = await listStaleDeployments(
-    env.DB,
-    SILENCE_MS,
-    RECENT_ALERT_MS,
-  );
-  if (stale.length === 0) return;
-  console.log("silence_alerter_found", stale.length);
-  for (const d of stale) {
-    const user = await env.DB.prepare(
-      "SELECT email FROM users WHERE id = ?",
-    )
-      .bind(d.user_id)
-      .first<{ email: string | null }>();
-    if (user?.email) {
-      const { subject, textBody } = deploymentSilenceEmail({
-        deploymentId: d.id,
-        displayName: d.display_name,
-        lastSeenAt: d.last_seen_at,
-        appUrl: env.APP_URL,
-      });
-      await sendEmail(env, { to: user.email, subject, textBody });
-    }
-    await markDeploymentSilenceAlerted(env.DB, d.id);
-  }
-}
 
 // --- API response shapers -------------------------------------------------
 
