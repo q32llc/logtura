@@ -13,3 +13,10 @@ coverage
 
 .logtura-push.json*
 .logtura-push.lock/
+
+# Private activation, apply and rollback records
+.logtura-activation.json*
+.logtura-apply.json*
+.logtura-apply.lock/
+.logtura-applied-*.json
+.logtura-abandoned-*.json

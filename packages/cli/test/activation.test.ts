@@ -173,7 +173,7 @@ it("refuses mismatched recovery receipts and propagates filesystem access errors
   const wrongReceipt = f.client(async (url, init) => String(url).includes("/instances/") ? Response.json({...f.receipt!, configurationVersion: 4}) : f.fetcher(url, init));
   await expect(activateLinkedDeployment(wrongReceipt, f.config, {resume: true})).rejects.toThrow("does not match");
   expect((await readPendingActivation(f.config))!.receipt).toBeNull();
-  vi.mocked(fs.lstatSync).mockImplementationOnce(() => {throw Object.assign(new Error("permission"), {code: "EPERM"});});
+  vi.mocked(fs.lstatSync).mockImplementationOnce(native.lstatSync).mockImplementationOnce(() => {throw Object.assign(new Error("permission"), {code: "EPERM"});});
   expect(() => assertNoPendingPush(f.config)).toThrow("permission");
   vi.mocked(fs.lstatSync).mockRestore();
   expect(() => commitFileTransaction(pendingActivationPath(f.config), [])).toThrow("reserved");

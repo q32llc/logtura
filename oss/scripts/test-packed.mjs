@@ -28,13 +28,15 @@ try {
   const typesFile = join(consumer, "consumer.mts");
   writeFileSync(typesFile, packages.map((name, index) => `import * as package${index} from '@logtura/${name}';`).join("\n") + `
     import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient} from '@logtura/core';
-    import {type PendingActivation, activateLinkedDeployment} from '@logtura/cli';
+    import {type PendingActivation, type PendingFlyApply, activateLinkedDeployment} from '@logtura/cli';
     const typedActivation: (client:LogturaServiceClient,config:string,options?:{resume?:boolean})=>Promise<DeploymentInstanceReceipt> = activateLinkedDeployment;
     // @ts-expect-error Config fields remain required; these exports must not become any.
     const invalidInput:GenerateInput = {};
     // @ts-expect-error Private journal fields remain required.
     const invalidPending:PendingActivation = {schemaVersion:1};
-    void typedActivation;void invalidInput;void invalidPending;
+    // @ts-expect-error Apply intent retains its required private fields.
+    const invalidApply:PendingFlyApply = {schemaVersion:1};
+    void invalidApply;void typedActivation;void invalidInput;void invalidPending;
   `);
   for (const [module, resolution] of [["NodeNext", "NodeNext"], ["Node16", "Node16"], ["ESNext", "Bundler"]]) {
     run(process.execPath, [join(root, "node_modules/typescript/bin/tsc"), "--noEmit", "--strict", "--module", module,
@@ -77,9 +79,9 @@ monitors: []
   assert.ok(!yaml.includes("/api/heartbeat/"), "standalone bundle must not require hosted heartbeat");
   assert.ok(!yaml.includes("/api/metrics/"), "standalone bundle must not require hosted metrics");
   const script = `import assert from 'node:assert/strict';
-    import {GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit} from '@logtura/core';
+    import {GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,FlyMachinesClient,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit} from '@logtura/core';
     import {writeFileSync,readFileSync,statSync} from 'node:fs';
-    import {main,activateLinkedDeployment,readPendingActivation,finishLinkedActivation,reportLoadedForwarderFile,runForwarderReporting} from '@logtura/cli';
+    import {main,applyLinkedFlyDeployment,readPendingFlyApply,activateLinkedDeployment,readPendingActivation,finishLinkedActivation,reportLoadedForwarderFile,runForwarderReporting} from '@logtura/cli';
     import {cloudflareWorkerTailDriver} from '@logtura/driver-cloudflare-worker-tail';
     const input={providers:[cloudflareWorkerTailDriver],destinations:[],monitors:[],
       connections:[{connection:{id:'fixture',provider:cloudflareWorkerTailDriver.id,displayName:'Fixture',externalAccountId:'fixture-account'},
@@ -152,6 +154,35 @@ monitors: []
     }});
     await finishLinkedActivation(issuer,'linked/logt.yaml');assert.equal(await readPendingActivation('linked/logt.yaml'),null);
 
+    // Installed-shape linked apply exercises the same public backend operations.
+    const applyExport=await exportDeploymentManifest({...input,heartbeat:{kind:'logtura',deploymentId:'dep_apply',appUrl:'https://apply.test'},runtimeEnv:{LOGTURA_HEARTBEAT_TOKEN:'private-report-fixture'}},await createSecretVersioner('apply-private'));
+    const applyRevision=await hashConfigDocument(applyExport.document),applyResult={...applyExport,revision:applyRevision,configurationVersion:3,desiredSequence:1,deployment:{id:'dep_apply',displayName:'Apply'},target:{kind:'fly',managed:false,imageDigest:null,fly:{appName:'packed-app',region:'ord'}}};
+    let applyReceipt=null,applyUpdates=0,applyIssues=0,loseUpdate=true;
+    const applyState={desired:{sequence:1,revision:applyRevision,document:applyExport.document,configurationVersion:3},activeInstanceId:null,lastReportSequence:0,stale:true,applied:null};
+    const accountFetch=async(url,init)=>{
+      if(url.endsWith('/me'))return Response.json({user:{id:'usr_apply',githubLogin:'apply'}});
+      if(url.endsWith('/state'))return Response.json({state:applyState});
+      if(init.method==='POST'){applyIssues++;const request=JSON.parse(init.body);applyReceipt={requestId:request.requestId,instanceId:'00000000-0000-4000-8000-000000000004',sequence:1,configurationVersion:3,revision:applyRevision};applyState.activeInstanceId=applyReceipt.instanceId;return Response.json(applyReceipt);}
+      if(url.includes('/instances/'))return applyReceipt?Response.json(applyReceipt):Response.json({error:'receipt_not_found'},{status:404});
+      return Response.json(applyResult);
+    };
+    globalThis.fetch=accountFetch;process.env.LOGT_SERVICE_TOKEN='lt_cli_'+'T'.repeat(43);
+    try{assert.equal(await main(['pull','dep_apply','--service','https://apply.test','-o','packed-apply/logt.yaml']),0);}finally{globalThis.fetch=savedFetch;process.env.LOGT_SERVICE_TOKEN=savedToken;}
+    const applyImage='registry.test/forwarder@sha256:'+'a'.repeat(64);
+    let applyMachine={id:'machine123',instance_id:'version1',state:'started',region:'ord',config:{image:'registry.test/old:latest',env:{OLD:'private-old-fixture'}},image_ref:{registry:'registry.test',repository:'old',digest:'sha256:'+'b'.repeat(64)}};
+    const fly=new FlyMachinesClient({token:'fly-fixture',fetch:async(url,init)=>{
+      if(url.endsWith('/lease'))return init.method==='DELETE'?new Response(null,{status:204}):Response.json({data:{nonce:'lease-fixture'}});
+      if(init.method==='POST'){applyUpdates++;const intent=await readPendingFlyApply('packed-apply/logt.yaml'),request=JSON.parse(init.body);assert.deepEqual(request.config,intent.plan.after);assert.equal(request.current_version,'version1');applyMachine={...applyMachine,instance_id:'version2',config:request.config,image_ref:{registry:'registry.test',repository:'forwarder',digest:'sha256:'+'a'.repeat(64)}};applyState.lastReportSequence=1;applyState.stale=false;applyState.applied={sequence:1,revision:applyRevision,at:Date.now()};if(loseUpdate)throw new TypeError('packed provider acknowledgement lost');return Response.json(applyMachine);}
+      if(url.endsWith('/machines'))return Response.json([applyMachine]);
+      if(url.endsWith('/volumes'))return Response.json([{id:'vol_checkpoint',region:'ord',state:'created',encrypted:true,attached_machine_id:applyUpdates?applyMachine.id:null}]);
+      if(url.endsWith('/machine123'))return Response.json(applyMachine);
+      return Response.json({name:'packed-app',organization:{slug:'personal'}});
+    }});
+    const applyAccount=new LogturaServiceClient({url:'https://apply.test',token:'lt_cli_'+'T'.repeat(43),fetch:accountFetch});
+    await assert.rejects(applyLinkedFlyDeployment(applyAccount,'packed-apply/logt.yaml',{fly,image:applyImage,volume:'vol_checkpoint'}),/provider acknowledgement lost/);
+    const applyIntent=await readPendingFlyApply('packed-apply/logt.yaml');assert.equal(statSync('packed-apply/.logtura-apply.json').mode&0o777,0o600);loseUpdate=false;
+    const applied=await applyLinkedFlyDeployment(applyAccount,'packed-apply/logt.yaml',{fly,resume:true});assert.equal(applyUpdates,1);assert.equal(applyIssues,1);assert.equal(applied.instanceId,applyReceipt.instanceId);assert.equal(await readPendingFlyApply('packed-apply/logt.yaml'),null);assert.deepEqual(JSON.parse(readFileSync(applied.rollbackFile,'utf8')),applyIntent);
+
     assert.equal(manifestSecretName('CREDENTIALS','fixture'),exported.document.connections[0].credentials.env);
     const requestId='00000000-0000-4000-8000-000000000001';assert.equal(isDeploymentPushRequestId(requestId),true);
     const commit={configurationVersion:1,sequence:1,revision:await hashConfigDocument(exported.document),document:exported.document,sourceAliases:{}};
@@ -220,17 +251,8 @@ monitors: []
   const linkedPath=join(consumer,"linked","logt.yaml"),linkedState=readFileSync(`${linkedPath}.logtura-link.json`,"utf8");
   assert.equal(JSON.parse(bin("logt",["-c",linkedPath,"config","status"])).linked,true);
   assert.equal(JSON.parse(linkedState).target.fly.appName,"existing-packed-forwarder");
-  const fakeBin=join(consumer,"fake-bin"),flyCalls=join(consumer,"fly-calls.jsonl");mkdirSync(fakeBin);
-  writeFileSync(join(fakeBin,"flyctl"),`#!${process.execPath}
-import {appendFileSync} from 'node:fs';
-appendFileSync(${JSON.stringify(flyCalls)},JSON.stringify(process.argv.slice(2))+'\\n');
-process.stdin.resume();
-`,{mode:0o755});
-  run(join(consumer,"node_modules",".bin","logt"),["-c",linkedPath,"deploy","fly","--output",join(consumer,"linked-fly")],consumer,{...offline,PATH:fakeBin+":"+process.env.PATH});
-  const commands=readFileSync(flyCalls,"utf8").trim().split("\n").map(line=>JSON.parse(line));
-  assert.ok(commands.some(args=>args[0]==="deploy" && args.includes("existing-packed-forwarder")));
-  assert.ok(!commands.some(args=>args[0]==="apps"));
-  assert.match(readFileSync(join(consumer,"linked-fly","fly.toml"),"utf8"),/primary_region = "ord"/);
+  const legacyLinked = spawnSync(join(consumer,"node_modules",".bin","logt"),["-c",linkedPath,"deploy","fly","--output",join(consumer,"linked-fly")],{cwd:consumer,encoding:"utf8",env:{...process.env,...offline}});
+  assert.equal(legacyLinked.status,1);assert.match(legacyLinked.stderr,/Unsupported linked deploy option/);
   bin("logtura",["-c",linkedPath,"source","select","fixture","linked-new-site","--id","src_linked_new"]);
   assert.equal(readFileSync(`${linkedPath}.logtura-link.json`,"utf8"),linkedState);
   const linkedStatus=JSON.parse(bin("logt",["-c",linkedPath,"config","status","--json"]));

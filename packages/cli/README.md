@@ -492,9 +492,7 @@ process group; unresponsive children are killed after the configured grace perio
 Allow at least 35 seconds for container shutdown with default SDK/process timeouts.
 Failed process cleanup retains the snapshot. Container runtimes should own the whole
 process tree; a host-level SIGKILL can leave an orphan child that needs operator
-cleanup before the fixed Vector API port can bind again. Existing standalone bundle
-and deployment commands retain their current entrypoint until runtime artifact/apply
-wiring is added. This executable does not activate a service instance or create/update
+cleanup before the fixed Vector API port can bind again. Standalone bundle and deployment commands retain direct Vector startup. Linked Fly deployment uses the issued runtime described below. This executable does not activate a service instance or create/update
 a deployment itself.
 
 
@@ -504,7 +502,7 @@ README. The service's generated kitchen-sink image now includes that runtime.
 Its default entrypoint detects `/etc/vector/logtura-runtime.json`: absent descriptors
 preserve direct Vector startup; present descriptors require validation and the bound
 config before supervision. Descriptor files, credentials and checkpoints are runtime
-mounts, not image layers. CLI activation/apply wiring remains separate.
+mounts, not image layers. Linked Fly apply uses this descriptor path and persistent checkpoint mount.
 
 
 ### Durable linked instance activation
@@ -534,4 +532,67 @@ unissued request can be cancelled after checking for a server receipt. Explicitl
 abandoning an obsolete issued instance (or an owned deployment's verified deletion)
 releases the local journal, without stopping any runtime or changing server activation.
 Uncertain requests require resume. Current issued instances retain their intent for
-apply recovery. CLI deploy integration and managed service apply are separate work.
+apply recovery. Linked Fly deploy integrates this issuance/completion lifecycle; managed service apply remains separate work.
+
+
+### Applying a linked Fly forwarder
+
+After `login` and `pull`, edit the portable configuration, then `push` it. Changes to
+referenced private payloads require `push --upload-secrets`. `deploy fly` installs
+that unchanged linked desired revision into its existing self-managed Fly app:
+
+```sh
+logt push
+logt deploy fly --image "$LOGTURA_RUNTIME_IMAGE" --volume "$LOGTURA_CHECKPOINT_VOLUME"
+logt config status
+# Recover an interrupted or uncertain installation:
+logt deploy fly --resume
+```
+
+`FLY_API_TOKEN` authenticates to the Machines API. The initial `--image` is a complete
+registry/repository reference pinned with `@sha256:<64 lowercase hex digits>`. It must
+contain this CLI version's packaged supervisor, its supported Vector/runtime
+prerequisites and the generated assets. Apply installs exact generated assets through
+machine files, outside image layers, including their modes. An older/incompatible
+image cannot acknowledge this issued artifact. Images/releases are still being
+validated for the complete convergence rollout; this command does not implicitly
+upgrade a production image or choose `latest`.
+
+`--volume` selects an existing encrypted volume in the machine's region, either
+unattached or already attached to that machine. It mounts `/var/lib/logtura` for
+restart-safe per-instance report counters. Subsequent applies reuse that mount.
+Conflicting mounts and volumes attached elsewhere are rejected. Volume provisioning
+is currently external to this command. The linked app must already contain exactly
+one forwarder machine; this path does not create apps or implement a fleet rollout.
+Optional `--app`, `--region`, `--org`, and `--machine` must match the linked target.
+Managed deployments use the hosted deployment path.
+
+Read-only preflight renders the configuration and checks image syntax, target,
+credentials, descriptor size and storage before instance issuance. The private
+`.logtura-apply.json` records the exact descriptor, resolved machine payload, previous
+complete machine config and its actual immutable image digest before provider writes.
+A machine lease and version check reject competing changes. Lost responses recover
+by reading installed configuration; resume reuses the descriptor and checkpoint
+volume instead of issuing again or blindly repeating the update. Unrelated machine
+settings are retained; startup uses the supervisor with 35 seconds of shutdown grace.
+Loader/preload and conflicting Vector launch settings cannot override that startup.
+
+Success requires the service's accepted report from the still-current issued revision
+and a started machine with the planned configuration/image. `--wait-seconds` changes
+the default 300-second wait (maximum 600). Cancellation/timeout leaves recovery
+state. Config writes, push and pull remain fenced while intent exists; offline
+`config status` exposes apply identities without resolved payloads. Completion archives
+mode-0600 `.logtura-applied-<instance>.json` with private rollback material. Keep these
+files outside version control/public artifacts. Restoring a prior machine config
+alone does not revert desired configuration or reactivate an old server instance;
+converging a rollback requires a new desired revision and issued apply.
+
+`deploy fly --cancel-rejected` clears a definitively rejected, unissued activation
+only after receipt lookup. `deploy fly --abandon` archives an owned apply only after
+verifying its instance/revision is obsolete or its owned deployment was deleted.
+Unknown outcomes require resume; current issued applies cannot be abandoned. These
+recovery actions do not stop a machine or change server activation.
+
+Unlinked `deploy fly` still builds and deploys through `flyctl` without Logtura login.
+The CLI library also exports `applyLinkedFlyDeployment`, `readPendingFlyApply` and
+`abandonObsoleteFlyApply` for adapters.

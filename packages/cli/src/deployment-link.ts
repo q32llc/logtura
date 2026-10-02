@@ -50,8 +50,11 @@ export async function readDeploymentLink(path:string):Promise<DeploymentLink|nul
  return validateDeploymentLink(value);
 }
 export async function deploymentStatus(path:string){
+ const apply=await (await import("./fly-apply")).readPendingFlyApply(path);
+ const appliedRecovery=apply?{pendingApply:{app:apply.plan.app,machineId:apply.machine.id,instanceId:apply.artifact.instance.instanceId,revision:apply.link.revision,image:apply.plan.after.image}}:{};
  const pending=await (await import("./activation")).readPendingActivation(path);
- const recovery=pending?{pendingActivation:{phase:pending.receipt?"issued" as const:pending.rejected?"rejected" as const:"pending" as const,requestId:pending.request.requestId,instanceId:pending.receipt?.instanceId??null,sequence:pending.request.expectedSequence,revision:pending.request.revision}}:{};
+ const activationRecovery=pending?{pendingActivation:{phase:pending.receipt?"issued" as const:pending.rejected?"rejected" as const:"pending" as const,requestId:pending.request.requestId,instanceId:pending.receipt?.instanceId??null,sequence:pending.request.expectedSequence,revision:pending.request.revision}}:{};
+ const recovery={...activationRecovery,...appliedRecovery};
  const link=await readDeploymentLink(path);if(!link)return {linked:false as const,...recovery};
  const document=normalizeDeploymentManifest(readConfigDoc(path)) as unknown as DeploymentManifest;
  const refs=manifestReferences(document),baseline=manifestReferences(link.document),env=readConfigEnvironment(path);

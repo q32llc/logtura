@@ -410,3 +410,22 @@ Default standalone Dockerfiles remain Node-free. Their `CMD` now contains only
 Package builds emit ESM declarations that resolve in TypeScript NodeNext/Node16 and
 Bundler projects. Packed consumer CI imports every package root and checks strict
 NodeNext, Node16 and Bundler consumers without `skipLibCheck`; input shapes remain typed.
+
+
+### Portable Fly apply backend
+
+`FlyMachinesClient` provides bounded Machines API transport using manual redirects,
+explicit bearer/FlyV1 authentication and lease nonce/version headers. Errors include
+HTTP status without provider response bodies or tokens. `validateFlyRuntimeVolume`
+checks encrypted persistent storage for one machine. `planFlyRuntime` turns an issued
+artifact and its exact generated bundle into private machine files/environment,
+retaining unrelated settings and mounting `/var/lib/logtura`. `flyRollbackConfig`
+pins the captured previous image to its actual digest.
+
+Persist the returned `FlyMachinePlan` before invoking `applyFlyMachine`. Under a
+machine lease, the operation checks the original version/configuration or recognizes
+the exact already-installed plan after acknowledgement loss. It starts a stopped
+installation and releases the lease. This provider operation does not claim applied
+state: the owning CLI/service adapter must observe the runtime's accepted report.
+The CLI's linked apply adapter supplies private durable storage and recovery. These
+public operations themselves do not require a hosted Logtura service.

@@ -7,7 +7,9 @@ export function transactionPath(config:string):string {return resolve(dirname(re
 export function deploymentLinkPath(config:string):string {return `${resolve(config)}.logtura-link.json`;}
 export function pendingPushPath(config:string):string{return resolve(dirname(resolve(config)),".logtura-push.json");}
 export function pendingActivationPath(config:string):string{return resolve(dirname(resolve(config)),".logtura-activation.json");}
+export function pendingFlyApplyPath(config:string):string{return resolve(dirname(resolve(config)),".logtura-apply.json");}
 export function assertNoPendingActivation(config:string):void {
+ try{lstatSync(pendingFlyApplyPath(config));throw new Error("Pending apply; run deploy fly --resume before writing configuration");}catch(error){if((error as NodeJS.ErrnoException).code!=="ENOENT")throw error;}
  try{lstatSync(pendingActivationPath(config));}catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return;throw error;}
  throw new Error("Pending activation; resume or recover it before writing configuration");
 }
@@ -22,7 +24,7 @@ export function assertTransactionClear(config:string):void {
 }
 function assertConfigDestination(config:string):void {
   const journal=transactionPath(config);
-  if([resolve(dirname(config),".env"),journal,`${journal}.commit`,pendingPushPath(config),pendingActivationPath(config),resolve(dirname(config),".logtura-push.lock")].includes(resolve(config)))throw new Error("Configuration destination is reserved for private transaction state");
+  if([resolve(dirname(config),".env"),journal,`${journal}.commit`,pendingPushPath(config),pendingActivationPath(config),pendingFlyApplyPath(config),resolve(dirname(config),".logtura-push.lock"),resolve(dirname(config),".logtura-apply.lock")].includes(resolve(config)))throw new Error("Configuration destination is reserved for private transaction state");
 }
 function syncFile(path:string):void {const fd=openSync(path,"r");try{fsyncSync(fd);}finally{closeSync(fd);}}
 function syncDirectory(path:string):void {

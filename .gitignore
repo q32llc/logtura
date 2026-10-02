@@ -20,3 +20,10 @@ containers/forwarder/assets/
 .logtura-push.lock/
 
 containers/forwarder/runtime/
+
+# Private activation, apply and rollback records
+.logtura-activation.json*
+.logtura-apply.json*
+.logtura-apply.lock/
+.logtura-applied-*.json
+.logtura-abandoned-*.json

@@ -17,12 +17,11 @@ async function fixture(linked=true){
  return {path,out,result,root};
 }
 function mock(status=0){return vi.mocked(cp.spawnSync).mockReset().mockImplementation((command,args,options)=>({status:command==="flyctl" && args?.[0]==="status" && options?.stdio==="ignore"?status:0,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0),pid:1,output:[],signal:null}));}
-it("deploys a clean linked graph into its existing Fly app without creating a replacement",async()=>{
- const f=await fixture(),spawn=mock();expect(await main(["-c",f.path,"deploy","fly","--output",f.out])).toBe(0);
- const calls=spawn.mock.calls.filter(([c])=>c==="flyctl");expect(calls.map(([,args])=>args?.[0])).toEqual(["version","status","secrets","deploy","status"]);
- expect(calls.slice(1).every(([,args])=>args?.includes("existing-forwarder"))).toBe(true);expect(readFileSync(join(f.out,"fly.toml"),"utf8")).toContain('primary_region = "ord"');
+it("refuses the legacy flyctl artifact path for linked configurations",async()=>{
+ const f=await fixture(),spawn=mock();expect(await main(["-c",f.path,"deploy","fly","--output",f.out])).toBe(1);
+ expect(spawn).not.toHaveBeenCalled();expect(existsSync(f.out)).toBe(false);
 });
-it("refuses creation when a linked app is missing or inaccessible",async()=>{
+it("never creates a linked app through the standalone flyctl path",async()=>{
  const f=await fixture(),spawn=mock(1);expect(await main(["-c",f.path,"deploy","fly","--output",f.out])).toBe(1);expect(spawn.mock.calls.some(([,args])=>args?.[0]==="apps" || args?.[0]==="deploy")).toBe(false);
 });
 it("rejects conflicting targets and unsynchronized local edits before deployment artifacts or credentials change",async()=>{

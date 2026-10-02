@@ -79,3 +79,7 @@ export { DeploymentReportingClient } from "./deployment-reporting";
 export { GENERATOR_VERSION, VECTOR_VERSION, validateForwarderRuntimeArtifact, compileForwarderRuntime, verifyLoadedForwarder, reportLoadedForwarder } from "./runtime";
 export type { ForwarderRuntimeArtifact, LoadedForwarderObservation, ForwarderReportCheckpoint, ForwarderReportStore } from "./runtime";
 export { FORWARDER_NODE_IMAGE, runtimeImageFiles, runtimeImageEntrypoint } from "./runtime-image";
+
+export { FlyMachinesClient, FlyMachineError, validateFlyMachine, immutableFlyImage, flyRollbackConfig, matchesFlyConfig, applyFlyMachine } from "./fly";
+export type { FlyMachine, FlyVolume, FlyMachineConfig, FlyMachinePlan } from "./fly";
+export { FLY_RUNTIME_DIRECTORY, validateFlyRuntimeVolume, planFlyRuntime } from "./fly-runtime";

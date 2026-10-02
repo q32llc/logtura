@@ -2,7 +2,7 @@
 
 This plan makes the published CLI and libraries fully usable without the hosted service, makes the service consume the same public backend operations, and lets users move between the website and CLI while updating the same forwarder. A thorough compatibility baseline and enforced CI coverage come first. Dependency major upgrades have a separate decision process.
 
-Status: proposed implementation plan, based on repository and production inspection on October 1, 2026. This document does not implement the changes or authorize destructive tests against existing production resources.
+Status: implementation in progress. The starting inventory records repository and production inspection on October 1, 2026; implemented milestones and remaining work are tracked below. Completion still requires all outcome/validation gates. This plan does not authorize destructive tests against existing production resources.
 
 ## Outcomes and completion criteria
 
@@ -1542,3 +1542,81 @@ volumes, exact image/version apply and rollback, complete local/workerd/remote/b
 journeys, high final coverage floors, provider/telemetry hardening, dependency updates,
 npm publication, migrations 0018–0025 and staged production rollout remain required.
 The complete shipping goal remains active.
+
+
+### Durable linked Fly runtime apply (implemented)
+
+Linked `deploy fly` now uses the public core Machines HTTP transport, runtime planner
+and guarded update operation, through a public CLI filesystem adapter. Unlinked
+standalone deployment retains flyctl and has no hosted-service login dependency.
+A linked desired revision must first be pushed; referenced private changes require
+explicit secret upload. Initial apply requires an explicit immutable image reference
+and an existing encrypted Fly checkpoint volume. It targets exactly one existing
+self-managed forwarder machine and never creates a replacement app. Volume provisioning,
+fleet rollout and managed-service apply are not implemented by this slice.
+
+Read-only preflight checks ownership/origin, target options, provider app/org/machine,
+volume availability/mount conflicts, complete generated private environment,
+reporting identity and descriptor size before issuance. Apply installs the issued
+YAML, descriptor and exact driver assets through private machine files with their
+modes; private descriptors and payloads stay outside image layers. Persistent
+`/var/lib/logtura` storage preserves counters across restarts, and supervised startup
+allows 35 seconds for graceful stop. Unrelated machine settings are preserved;
+preload/loader and conflicting Vector launch overrides are rejected or removed.
+
+The mode-0600 `.logtura-apply.json` journal captures the linked baseline, exact
+installation descriptor/request, complete prior machine configuration and actual
+immutable rollback image before any Fly write. File/parent fsync precede dispatch.
+Lease and current-version checks fence competing provider changes. An uncertain
+update resumes by recognizing every planned installed field rather than issuing
+another instance or blindly repeating a machine update. The adapter checks current
+server issuance and local/private baselines across asynchronous operations, then
+requires a started planned machine/image and the server's accepted current runtime
+report before completion. Timeouts, cancellation, superseded instances, malformed
+state and failed filesystem operations retain recovery material.
+
+Completion publishes `.logtura-applied-<instance>.json` without overwriting another
+record, flushes its directory and only then removes pending apply intent. The record
+contains resolved private rollback material; both repository layouts ignore these
+records plus activation/apply journals and locks. A prior machine restoration alone
+cannot revert desired state or reactivate an old server instance. A converged rollback
+requires a new desired revision and issued apply; automatic rollback orchestration
+remains outstanding. Explicit `--cancel-rejected` checks for an unissued rejected
+activation. `--abandon` archives only an owned apply proved obsolete or associated
+with a verified deleted deployment, preserving any uncertain provider outcome and
+without stopping machines/changing activation. Offline status shows apply identities
+without resolved payloads. Resume handles a crash after activation cleanup as well
+as after archive publication.
+
+Four actual compiled CLI children are killed at intent-file, intent-parent,
+activation-cleared and archive-parent fsync boundaries. A real local HTTP fixture
+retains remote state; recovery issues one server instance and updates one machine,
+reusing the exact descriptor where installation intent was published. These are
+HTTP provider/service fixtures with controlled accepted observations, not real Fly
+or workerd runtime deployment claims. Separate actual Docker/Vector checks pass
+packaged image startup, event delivery/filter/context/retry, report acknowledgement
+loss recovery and graceful PID-1 supervision. Full installed CLI → workerd → real
+runtime → browser and owned remote Fly journeys remain required.
+
+Private validation passes 837 tests in 83 files; public validation passes 586 tests
+in 51 files. Private coverage is 78.56/75.37/81.31/75.56 and public coverage is
+85.61/83.19/84.39/83.59 (statements/branches/functions/lines). Floors rise to
+78.5/75.3/81.3/75.5 privately and 85.5/83/84/83.5 publicly. New core transport and
+runtime planning both enforce 100% in every coverage dimension. CLI apply enforces
+95% statements, 90% branches and 100% functions/lines (measured
+96.02/91.51/100/100). Existing activation, transaction and link 100% gates remain.
+Both layouts pass builds/types and all 15 isolated packed-package checks, including
+linked apply recovery and strict installed declarations. The private service builds,
+and all 27 UI tests pass. Overall final coverage targets remain unfulfilled.
+
+Prior activation heads bc358e2 (private CI run 36968700330) and 5650bab (public
+CI run 36968697805) passed all code/type/packed/image-flow/test gates and failed only
+Codecov with `Repository not found`; image publication run 36968700334 succeeded.
+Codecov activation/access remains unresolved and its upload gate remains enforced.
+New-head CI must independently verify this slice.
+
+Managed apply integration, external provisioning/lease/disclosure decisions, automatic
+rollback, complete local/workerd/remote/browser journeys, final high coverage floors,
+D1/telemetry hardening, dependency/workflow upgrades, coordinated npm versions and
+publication, migrations 0018–0025 and staged production rollout remain outstanding.
+The existing production forwarder is unchanged and the full shipping goal stays active.

@@ -1,4 +1,3 @@
-import { linkedFlyTarget } from "./fly-target";
 import { pushDeploymentConfig,readPendingPush } from "./push";
 import { readDeploymentLink } from "./deployment-link";
 import { assertNoPendingPush } from "./file-transaction";
@@ -54,7 +53,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       console.log(help());
       return 0;
     }
-    const readOnly=["login","whoami","logout","stats","diff","validate","bundle","push"].includes(command) || (command==="config" && ["status","recover","hash","diff"].includes(args[0]??""));
+    const readOnly=["login","whoami","logout","stats","diff","validate","bundle","push","deploy"].includes(command) || (command==="config" && ["status","recover","hash","diff"].includes(args[0]??""));
     if(!readOnly)assertNoPendingPush(findConfigPath(global.config).path);
     if(command==="push")return await cmdPush(global,args);
     if (command === "init") return cmdInit(global, args);
@@ -363,8 +362,27 @@ async function cmdDeploy(global: GlobalArgs, args: string[]): Promise<number> {
   const ref = findConfigPath(global.config);
   if (!ref.existed) throw new Error(`config not found; run logt init`);
   const link=await readDeploymentLink(ref.path);
-  if(link){const status=await deploymentStatus(ref.path);if(status.linked && (status.changes.length || status.privateChanges.length))throw new Error("Push local changes before updating a linked forwarder");}
-  const linked=link?linkedFlyTarget(link,{app:stringFlag(flags,"app"),region:stringFlag(flags,"region"),org:stringFlag(flags,"org")}):null;
+  if(link){
+    for(const flag of Object.keys(flags))if(!["app","org","region","image","volume","machine","resume","waitSeconds","abandon","cancelRejected"].includes(flag))throw new Error(`Unsupported linked deploy option: ${flag}`);
+    if(process.env.LOGT_SERVICE_URL && normalizeServiceUrl(process.env.LOGT_SERVICE_URL)!==link.service)throw new Error("Configured service does not match the linked origin");
+    if(flags.abandon || flags.cancelRejected){
+      for(const flag of Object.keys(flags))if(!["abandon","cancelRejected"].includes(flag))throw new Error("Apply recovery cannot be combined with deployment options");
+      if(flags.abandon && flags.cancelRejected)throw new Error("Choose one apply recovery operation");
+      const client=accountClient(link.service);
+      if(flags.abandon){const {abandonObsoleteFlyApply}=await import("./fly-apply");const archive=await abandonObsoleteFlyApply(client,ref.path);console.log(global.json?JSON.stringify({abandoned:true,archive}):`Archived obsolete apply state: ${archive}`);}
+      else{const {cancelRejectedLinkedActivation}=await import("./activation");await cancelRejectedLinkedActivation(client,ref.path);console.log(global.json?JSON.stringify({cancelled:true}):"Cancelled rejected activation");}return 0;
+    }
+    const {applyLinkedFlyDeployment}=await import("./fly-apply");
+    const {FlyMachinesClient}=await import("@logtura/core");
+    const seconds=stringFlag(flags,"waitSeconds"),stop=new AbortController(),interrupt=()=>stop.abort();
+    process.on("SIGINT",interrupt);process.on("SIGTERM",interrupt);
+    try{
+      const result=await applyLinkedFlyDeployment(accountClient(link.service),ref.path,{fly:new FlyMachinesClient({token:process.env.FLY_API_TOKEN??""}),app:stringFlag(flags,"app"),org:stringFlag(flags,"org"),region:stringFlag(flags,"region"),image:stringFlag(flags,"image"),volume:stringFlag(flags,"volume"),machine:stringFlag(flags,"machine"),resume:booleanFlag(flags,"resume"),waitMs:seconds===undefined?undefined:Number(seconds)*1000,signal:stop.signal});
+      console.log(global.json?JSON.stringify(result):`Applied ${result.revision} to ${result.app}; private rollback record: ${result.rollbackFile}`);return 0;
+    }finally{process.off("SIGINT",interrupt);process.off("SIGTERM",interrupt);}
+  }
+  assertNoPendingPush(ref.path);
+  for(const flag of ["image","volume","machine","resume","waitSeconds","abandon","cancelRejected"])if(flags[flag]!==undefined)throw new Error(`${flag} requires a linked deployment`);
   if (flags.writeEnv) {
     const code = cmdEnv(global, ["--write"]);
     if (code !== 0) return code;
@@ -375,16 +393,15 @@ async function cmdDeploy(global: GlobalArgs, args: string[]): Promise<number> {
   if (missing.length > 0) {
     throw new Error(`missing env: ${missing.join(", ")}; run logt env --write`);
   }
-  const appName = linked?.appName ?? stringFlag(flags, "app") ?? defaultFlyAppName(ref.path);
-  const region = linked?.region ?? stringFlag(flags, "region") ?? "iad";
-  const org = linked?.org ?? stringFlag(flags, "org");
+  const appName = stringFlag(flags, "app") ?? defaultFlyAppName(ref.path);
+  const region = stringFlag(flags, "region") ?? "iad";
+  const org = stringFlag(flags, "org");
   const outDir = resolve(stringFlag(flags, "output") ?? "dist/logt-fly");
   writeForwarderBundle(outDir, bundle);
   writeFileSync(resolve(outDir, "fly.toml"), renderFlyToml(appName, region));
   deployWithFlyctl({
     appName,
     org,
-    existingOnly:linked?.existingOnly,
     workdir: outDir,
     envVars: bundle.envVars,
   });
@@ -535,6 +552,12 @@ function parseFlags(argv: string[]): Record<string, string | boolean> {
     else if (a === "--provider") flags.provider = needValue(argv, ++i, a);
     else if (a === "--account-id") flags.accountId = needValue(argv, ++i, a);
     else if (a === "--display-name") flags.displayName = needValue(argv, ++i, a);
+    else if (a === "--abandon") flags.abandon = true;
+    else if (a === "--cancel-rejected") flags.cancelRejected = true;
+    else if (a === "--image") flags.image = needValue(argv, ++i, a);
+    else if (a === "--volume") flags.volume = needValue(argv, ++i, a);
+    else if (a === "--machine") flags.machine = needValue(argv, ++i, a);
+    else if (a === "--wait-seconds") flags.waitSeconds = needValue(argv, ++i, a);
     else if (a === "--app") flags.app = needValue(argv, ++i, a);
     else if (a === "--region") flags.region = needValue(argv, ++i, a);
     else if (a === "--org") flags.org = needValue(argv, ++i, a);
@@ -759,7 +782,11 @@ Commands:
   env [--write [file]|--check]      Print, write, or check required env vars
   validate                          Parse config and render a bundle
   bundle [-o dir]                   Write Dockerfile, vector.yaml, manifest, .env
-  deploy fly [-W|--write-env]       Deploy locally through flyctl
+  deploy fly [-W|--write-env]       Standalone deploy through flyctl
+  deploy fly --image <digest-ref> --volume <id>  Apply a linked revision
+  deploy fly --resume              Recover a linked apply; wait for reporting
+  deploy fly --abandon             Archive an obsolete owned apply
+  deploy fly --cancel-rejected     Cancel an unissued rejected activation
   stats --metrics <file>            Print a table from Vector internal_metrics JSON/NDJSON
 
 Global options:
@@ -787,4 +814,5 @@ export { withForwarderReportFile, reportLoadedForwarderFile, runForwarderReporti
 export { runForwarderProcess } from "./runtime-process";
 export { forwarderRuntimeMain } from "./runtime-main";
 
+export { applyLinkedFlyDeployment, readPendingFlyApply, abandonObsoleteFlyApply, type PendingFlyApply } from "./fly-apply";
 export { activateLinkedDeployment, readPendingActivation, finishLinkedActivation, cancelRejectedLinkedActivation, abandonObsoleteLinkedActivation, type PendingActivation } from "./activation";
