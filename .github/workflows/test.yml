@@ -59,7 +59,7 @@ jobs:
           pnpm typecheck:e2e
           pnpm test:e2e:local
           LOGT_E2E_INJECT_FAILURE=after-create pnpm test:e2e:local
-          LOGT_E2E_INJECT_FAILURE=after-runtime pnpm test:e2e:local
+          LOGT_E2E_INJECT_FAILURE=after-managed-runtime pnpm test:e2e:local
 
       - name: test
         # Runs every vitest project: workerd integration tests (real

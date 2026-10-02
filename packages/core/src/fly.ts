@@ -49,7 +49,7 @@ export class FlyMachinesClient {
   private async request(path:string,method="GET",body?:unknown,nonce?:string):Promise<unknown> {
     this.signal?.throwIfAborted();
     if(nonce!==undefined && (!nonce || /[\s\x00-\x1f\x7f]/.test(nonce)))throw new Error("Invalid Fly lease nonce");
-    const response=await this.fetcher(`https://api.machines.dev/v1/apps/${path}`,{method,redirect:"manual",credentials:"omit",signal:this.signal?AbortSignal.any([this.signal,AbortSignal.timeout(this.timeoutMs)]):AbortSignal.timeout(this.timeoutMs),headers:{authorization:this.authorization,accept:"application/json",...(body===undefined?{}:{"content-type":"application/json"}),...(nonce===undefined?{}:{"fly-machine-lease-nonce":nonce})},...(body===undefined?{}:{body:JSON.stringify(body)})});
+    const response=await this.fetcher.call(globalThis,`https://api.machines.dev/v1/apps/${path}`,{method,redirect:"manual",credentials:"omit",signal:this.signal?AbortSignal.any([this.signal,AbortSignal.timeout(this.timeoutMs)]):AbortSignal.timeout(this.timeoutMs),headers:{authorization:this.authorization,accept:"application/json",...(body===undefined?{}:{"content-type":"application/json"}),...(nonce===undefined?{}:{"fly-machine-lease-nonce":nonce})},...(body===undefined?{}:{body:JSON.stringify(body)})});
     if(!response.ok){await response.body?.cancel();throw new FlyMachineError(response.status);}
     if(response.status===204)return null;
     const reader=response.body?.getReader();if(!reader)throw new Error("Invalid Fly response");

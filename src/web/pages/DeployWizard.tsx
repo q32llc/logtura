@@ -177,7 +177,7 @@ export function DeployWizard() {
         sourceIds,
         monitorIds,
       });
-      navigate(`/app/deployments/${r.deployment.id}`);
+      navigate(`/app/deployments/${r.deployment.id}${managed ? "?tab=run" : ""}`);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed");
     } finally {
@@ -280,9 +280,6 @@ export function DeployWizard() {
                       <Group gap="xs" mb={4}>
                         <Switch checked={managed} readOnly size="xs" />
                         <Text fw={600}>Let logtura manage it</Text>
-                        <Badge size="xs" variant="light">
-                          coming next
-                        </Badge>
                       </Group>
                       <Text c="dimmed" size="sm">
                         We deploy it to your {driver.displayName} account
@@ -366,10 +363,10 @@ export function DeployWizard() {
             <Button
               onClick={submit}
               loading={submitting}
-              disabled={!canDeploy || managed}
+              disabled={!canDeploy}
             >
               {managed
-                ? "Managed coming soon"
+                ? "Create deployment"
                 : driver.id === "other"
                   ? "Create & show bundle"
                   : `Create & generate ${driver.displayName} bundle`}

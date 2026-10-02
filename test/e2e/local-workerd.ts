@@ -13,6 +13,7 @@ export async function startLocalService(optionsForFixture: { flyAuthorization?: 
   let providerToken = "fixture-private-provider-token";
   let rotatedVerifications = 0;
   let discoveryHold: Promise<void> | undefined;
+  let providerFixture: ((request: Request) => Promise<Response | undefined>) | undefined;
   function holdDiscovery() {
     if (discoveryHold) throw new Error("Discovery fixture is already held");
     let release!: () => void;
@@ -33,6 +34,8 @@ export async function startLocalService(optionsForFixture: { flyAuthorization?: 
     bindings: { APP_URL: "http://localhost", SESSION_SECRET: secret,
       CREDENTIAL_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
     async outboundService(request: Request) {
+      const fixtureResponse = await providerFixture?.(request);
+      if (fixtureResponse) return fixtureResponse;
       const url = new URL(request.url);
       if (optionsForFixture.flyAuthorization && url.origin === "https://api.fly.io" && url.pathname === "/api/v1/cli_sessions" && request.method === "POST" && !request.headers.has("authorization")) {
         return Response.json({ id: "fixture-fly-session", auth_url: "https://fly.io/authorize/fixture-fly-session" });
@@ -72,6 +75,7 @@ export async function startLocalService(optionsForFixture: { flyAuthorization?: 
       .bind(userId, userId, "local-e2e", "Local E2E", now, now).run();
     const cookie = `logtura_session=${await signCookie(userId, secret)}`;
     return { service, url: (await service.ready).origin, userId, cookie, unexpected, holdDiscovery,
+      setProviderFixture(handler: typeof providerFixture) { providerFixture = handler; },
       rotateProviderFixtureCredential() { providerToken = "fixture-private-provider-token-rotated"; return providerToken; },
       rotatedVerificationCount() { return rotatedVerifications; },
     };

@@ -8,10 +8,11 @@ import { createServer } from "node:http";
 import { randomUUID, createHash } from "node:crypto";
 import { startBrowser } from "../test/e2e/browser";
 import { startLocalService } from "../test/e2e/local-workerd";
+import { managedRuntimeJourney } from "../test/e2e/managed-runtime";
 
 if (process.platform !== "linux") throw new Error("Local runtime E2E requires Linux Docker host networking");
 const injectedFailure = process.env.LOGT_E2E_INJECT_FAILURE;
-if (injectedFailure && !["after-create", "after-push", "after-runtime"].includes(injectedFailure)) throw new Error("Unsupported local E2E failure phase");
+if (injectedFailure && !["after-create", "after-push", "after-runtime", "after-managed-runtime"].includes(injectedFailure)) throw new Error("Unsupported local E2E failure phase");
 class InjectedFailure extends Error {}
 function injectFailure(phase: string) { if (injectedFailure === phase) throw new InjectedFailure(`Injected local E2E failure: ${phase}`); }
 const root = process.cwd(), temporary = mkdtempSync(join(tmpdir(), "logtura-local-e2e-"));
@@ -267,6 +268,9 @@ try {
   injectFailure("after-runtime");
   await run("docker", ["stop", "--time", "35", container]);
   assert.equal(await run("docker", ["inspect", "--format", "{{.State.ExitCode}}", container]), "0");
+  await managedRuntimeJourney({ service, website, request, run, connectionId, temporary, runId,
+    afterApplied: () => injectFailure("after-managed-runtime"),
+    image: { tag: imageTag, dockerId: dockerImageId, platformDigest, platformManifest, indexDigest, index: imageIndex } });
   await run(bin, ["logout"]);
   await request(`/api/deployments/${deploymentId}`, undefined, "DELETE"); deploymentId = undefined;
   for (const id of monitorIds) await request(`/api/monitors/${id}`, undefined, "DELETE");

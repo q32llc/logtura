@@ -10,9 +10,17 @@ export async function startBrowser(service: { url: string; cookie: string }) {
   const errors: string[] = [];
   let context: BrowserContext | undefined;
   let page: Page;
+  function responseFor(predicate: Parameters<Page["waitForResponse"]>[0]) {
+    const pending = page.waitForResponse(predicate);
+    // A preceding UI action can fail first. Keep this rejection handled while
+    // retaining it for the awaiting caller, so its resource cleanup still runs.
+    void pending.catch(() => {});
+    return pending;
+  }
   async function signedIn() {
     if (context) await context.close();
     context = await browser.newContext();
+    await context.route("https://fly.io/authorize/fixture-fly-session", route => route.fulfill({ contentType: "text/html", body: "Fixture Fly authorization" }));
     await context.addCookies([{ name: "logtura_session", value: service.cookie.slice("logtura_session=".length), url: service.url, httpOnly: true, sameSite: "Lax" }]);
     page = await context.newPage(); page.setDefaultTimeout(15_000);
     page.on("pageerror", error => errors.push(error.message));
@@ -40,7 +48,7 @@ export async function startBrowser(service: { url: string; cookie: string }) {
         await page.getByRole("textbox", { name: "Connection name", exact: true }).fill(displayName);
         await page.getByRole("button", { name: "Or create the token manually", exact: true }).click();
         await page.getByLabel(/^Paste the token Cloudflare gave you/).fill("fixture-private-provider-token");
-        const created = page.waitForResponse(response => response.url() === service.url + "/api/connections" && response.request().method() === "POST");
+        const created = responseFor(response => response.url() === service.url + "/api/connections" && response.request().method() === "POST");
         await page.getByRole("button", { name: "Verify & continue", exact: true }).click();
         const response = await created;
         assert.equal(response.status(), 200, "website connection creation must succeed");
@@ -51,20 +59,36 @@ export async function startBrowser(service: { url: string; cookie: string }) {
         await page.getByRole("heading", { name: displayName, exact: true }).waitFor();
         return body.connection.id as string;
       },
-      async createDeployment(connectionId: string, onCreated: (id: string) => void) {
+      async createDeployment(connectionId: string, onCreated: (id: string) => void, options: { managed?: boolean; name?: string } = {}) {
         await page.goto(`${service.url}/app/connections/${connectionId}/deploy?target=fly`);
-        await page.getByRole("textbox", { name: "Deployment name", exact: true }).fill("Existing fixture forwarder");
-        const created = page.waitForResponse(response => response.url() === service.url + "/api/deployments" && response.request().method() === "POST");
-        await page.getByRole("button", { name: "Create & generate Fly.io bundle", exact: true }).click();
+        const name = options.name ?? "Existing fixture forwarder";
+        await page.getByRole("textbox", { name: "Deployment name", exact: true }).fill(name);
+        if (options.managed) await page.getByText("Let logtura manage it", { exact: true }).click();
+        const created = responseFor(response => response.url() === service.url + "/api/deployments" && response.request().method() === "POST");
+        await page.getByRole("button", { name: options.managed ? "Create deployment" : "Create & generate Fly.io bundle", exact: true }).click();
         const response = await created; assert.equal(response.status(), 200, "website deployment creation must succeed");
         const body = await response.json(); assert.equal(typeof body.deployment?.id, "string");
-        assert.equal(body.deployment.connectionId, connectionId); assert.equal(body.deployment.targetKind, "fly"); assert.equal(body.deployment.managed, false);
+        assert.equal(body.deployment.connectionId, connectionId); assert.equal(body.deployment.targetKind, "fly"); assert.equal(body.deployment.managed, options.managed ?? false);
         onCreated(body.deployment.id);
-        await page.waitForURL(`${service.url}/app/deployments/${body.deployment.id}`);
-        await page.getByRole("heading", { name: "Existing fixture forwarder", exact: true }).waitFor();
+        await page.waitForURL(`${service.url}/app/deployments/${body.deployment.id}${options.managed ? "?tab=run" : ""}`);
+        await page.getByRole("heading", { name, exact: true }).waitFor();
         await page.reload();
-        await page.getByRole("heading", { name: "Existing fixture forwarder", exact: true }).waitFor();
+        await page.getByRole("heading", { name, exact: true }).waitFor();
         return body.deployment.id as string;
+      },
+      async connectAndDeployManaged(id: string, onTarget: (id: string) => void) {
+        await page.goto(`${service.url}/app/deployments/${id}?tab=run`);
+        const connected = responseFor(response => response.url().startsWith(`${service.url}/api/deploy-targets/fly/poll?`) && response.status() === 200);
+        await page.getByRole("button", { name: "Connect Fly", exact: true }).click();
+        const target = await (await connected).json(); assert.equal(target.status, "connected"); onTarget(target.deployTargetId);
+        const started = responseFor(response => response.url() === `${service.url}/api/deployments/${id}/deploy` && response.request().method() === "POST");
+        await page.getByRole("button", { name: "Deploy now", exact: true }).click();
+        const response = await started; assert.equal(response.status(), 200); const body = await response.json();
+        assert.equal(typeof body.job.id, "string");
+        const rehydrated = responseFor(response => response.url() === `${service.url}/api/deployments/${id}` && response.request().method() === "GET");
+        await page.reload(); const detail = await (await rehydrated).json();
+        assert.equal(detail.latestDeployJob?.id, body.job.id, "reload must retain the actual managed parent job");
+        return body.job.id as string;
       },
       async approve(code: string) {
         await page.goto(`${service.url}/app/cli?code=${encodeURIComponent(code)}`);
@@ -85,7 +109,7 @@ export async function startBrowser(service: { url: string; cookie: string }) {
       async changedConnection(id: string) {
         await page.goto(`${service.url}/app/connections/${id}`);
         await page.getByRole("heading", { name: "CLI-updated account", exact: true }).waitFor();
-        const logout = page.waitForResponse(response => new URL(response.url()).pathname === "/logout");
+        const logout = responseFor(response => new URL(response.url()).pathname === "/logout");
         await page.getByRole("link", { name: "Sign out", exact: true }).click();
         assert.equal((await logout).status(), 303);
         assert.ok(!(await context!.cookies()).some(cookie => cookie.name === "logtura_session"), "sign-out must clear the browser session cookie");
@@ -99,11 +123,11 @@ export async function startBrowser(service: { url: string; cookie: string }) {
       },
       async rediscover(id: string, resume: () => void) {
         await page.goto(`${service.url}/app/connections/${id}`);
-        const queued = page.waitForResponse(response => response.url() === `${service.url}/api/connections/${id}/discover` && response.request().method() === "POST");
+        const queued = responseFor(response => response.url() === `${service.url}/api/connections/${id}/discover` && response.request().method() === "POST");
         await page.getByRole("button", { name: "Re-discover", exact: true }).click();
         const response = await queued; assert.equal(response.status(), 200);
         const body = await response.json(); assert.equal(typeof body.job?.id, "string");
-        const rehydrated = page.waitForResponse(response => response.url() === `${service.url}/api/connections/${id}` && response.request().method() === "GET");
+        const rehydrated = responseFor(response => response.url() === `${service.url}/api/connections/${id}` && response.request().method() === "GET");
         await page.reload();
         const resourceResponse = await rehydrated; assert.equal(resourceResponse.status(), 200);
         const resource = await resourceResponse.json();
@@ -123,21 +147,22 @@ export async function startBrowser(service: { url: string; cookie: string }) {
         const dialog = page.getByRole("dialog", { name: "Reconnect", exact: true });
         await dialog.getByRole("button", { name: "Or create the token manually", exact: true }).click();
         await dialog.getByLabel(/^Paste the token Cloudflare gave you/).fill(token);
-        const reconnected = page.waitForResponse(response => response.url() === `${service.url}/api/connections/${id}/reconnect` && response.request().method() === "POST");
+        const reconnected = responseFor(response => response.url() === `${service.url}/api/connections/${id}/reconnect` && response.request().method() === "POST");
         await dialog.getByRole("button", { name: "Reconnect", exact: true }).click();
         const response = await reconnected; assert.equal(response.status(), 200, "website reconnection must succeed");
         const body = await response.json(); assert.equal(body.connection.id, id);
         await dialog.waitFor({ state: "hidden" }); await page.reload();
         await page.getByRole("heading", { name: "CLI-updated account", exact: true }).waitFor();
       },
-      async enableMetrics(id: string) {
+      async enableMetrics(id: string, revisionStatus = "Configuration changed") {
         await page.goto(`${service.url}/app/deployments/${id}?tab=configure`);
         await page.getByRole("textbox", { name: "Metrics target", exact: true }).click();
         await page.getByRole("option", { name: "logtura (last-received only)", exact: true }).click();
-        const saved = page.waitForResponse(response => response.url() === `${service.url}/api/deployments/${id}` && response.request().method() === "PUT");
+        const saved = responseFor(response => response.url() === `${service.url}/api/deployments/${id}` && response.request().method() === "PUT");
         await page.getByRole("button", { name: "Save changes", exact: true }).click();
-        assert.equal((await saved).status(), 200);
-        await page.getByRole("region", { name: "Configuration revisions" }).getByText("Configuration changed", { exact: true }).waitFor();
+        const response = await saved; assert.equal(response.status(), 200);
+        const body = await response.json(); assert.equal(body.deployment.id, id); assert.equal(body.deployment.metricsTarget, "logtura");
+        await page.getByRole("region", { name: "Configuration revisions" }).getByText(revisionStatus, { exact: true }).waitFor();
         await page.reload();
         await page.getByRole("textbox", { name: "Metrics target", exact: true }).waitFor();
         assert.equal(await page.getByRole("textbox", { name: "Metrics target", exact: true }).inputValue(), "logtura (last-received only)");
@@ -159,7 +184,7 @@ export async function startBrowser(service: { url: string; cookie: string }) {
         await fields.fill(""); await fields.pressSequentially("script, message");
         await filter.getByRole("button", { name: "Add", exact: true }).click();
         await filter.waitFor({ state: "hidden" });
-        const created = page.waitForResponse(response => response.url() === service.url + "/api/monitors" && response.request().method() === "POST");
+        const created = responseFor(response => response.url() === service.url + "/api/monitors" && response.request().method() === "POST");
         await dialog.getByRole("button", { name: "Create", exact: true }).click();
         const response = await created;
         assert.equal(response.status(), 200, "website monitor creation must succeed");
@@ -181,7 +206,7 @@ export async function startBrowser(service: { url: string; cookie: string }) {
         const dialog = page.getByRole("dialog", { name: "Add HTTPS webhook destination", exact: true });
         await dialog.getByRole("textbox", { name: "Display name", exact: true }).fill("Website routing");
         await dialog.getByRole("textbox", { name: "Webhook URL", exact: true }).fill(url);
-        const created = page.waitForResponse(response => response.url() === service.url + "/api/destinations" && response.request().method() === "POST");
+        const created = responseFor(response => response.url() === service.url + "/api/destinations" && response.request().method() === "POST");
         await dialog.getByRole("button", { name: "Add destination", exact: true }).click();
         const response = await created; assert.equal(response.status(), 200, "website destination creation must succeed");
         const body = await response.json(); assert.equal(typeof body.destination?.id, "string"); onCreated(body.destination.id);
@@ -195,7 +220,7 @@ export async function startBrowser(service: { url: string; cookie: string }) {
         await card.getByRole("button", { name: "Add sink", exact: true }).click();
         const dialog = page.getByRole("dialog", { name: "Add sink to Website alert", exact: true });
         assert.equal(await dialog.getByRole("textbox", { name: "Destination", exact: true }).inputValue(), "Website routing (webhook)");
-        const created = page.waitForResponse(response => response.url() === `${service.url}/api/monitors/${monitorId}/sinks` && response.request().method() === "POST");
+        const created = responseFor(response => response.url() === `${service.url}/api/monitors/${monitorId}/sinks` && response.request().method() === "POST");
         await dialog.getByRole("button", { name: "Add sink", exact: true }).click();
         const response = await created; assert.equal(response.status(), 200, "website sink creation must succeed");
         const body = await response.json(); assert.equal(typeof body.sink?.id, "string");

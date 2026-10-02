@@ -15,7 +15,7 @@ const monitors: ApiMonitor[] = [
 ];
 const fly: ApiDeployTargetDriver = { id: "fly", displayName: "Fly", description: "Deploy a Fly machine", supportsManaged: true, connectFlow: null, formFields: [] };
 const other: ApiDeployTargetDriver = { ...fly, id: "other", displayName: "Your own host", supportsManaged: false };
-function Location() { return <output aria-label="Current route">{useLocation().pathname}</output>; }
+function Location() { const location = useLocation(); return <output aria-label="Current route">{location.pathname}{location.search}</output>; }
 function page(query = "", missingId = false) {
   render(<MantineProvider env="test"><MemoryRouter initialEntries={[missingId ? "/wizard" : `/app/connections/${connection.id}/deploy${query}`]}><Routes>
     <Route path={missingId ? "/wizard" : "/app/connections/:id/deploy"} element={<DeployWizard />} /><Route path="*" element={<Location />} />
@@ -77,12 +77,20 @@ it("requires a nonblank deployment name and trims the saved label", async () => 
 });
 it("clears unsupported managed mode when switching targets and keeps unavailable targets disabled", async () => {
   const user = page(); await configure(user); await user.click(screen.getByText("Let logtura manage it"));
-  expect((screen.getByRole("button", { name: "Managed coming soon" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "Create deployment" }) as HTMLButtonElement).disabled).toBe(false);
   await user.click(screen.getByText("I'll handle it")); expect(screen.getByRole("button", { name: "Create & generate Fly bundle" })).toBeTruthy();
   await user.click(screen.getByText("Let logtura manage it")); await user.click(screen.getByRole("button", { name: "← Switch target" }));
   expect((screen.getByRole("button", { name: "Deploy to AWS" }) as HTMLButtonElement).disabled).toBe(true);
   await configure(user, "Your own host"); expect(screen.queryByText("Let logtura manage it")).toBeNull();
   await user.click(screen.getByRole("button", { name: "Create & show bundle" })); await waitFor(() => expect(api.createDeployment).toHaveBeenCalledWith(expect.objectContaining({ managed: false, targetKind: "other" })));
+});
+it("creates a managed deployment with its selected sources and opens the Run tab", async () => {
+  const user = page(); await configure(user); await customize(user);
+  await user.click(screen.getByRole("switch", { name: "Site one" }));
+  await user.click(screen.getByText("Let logtura manage it"));
+  await user.click(screen.getByRole("button", { name: "Create deployment" }));
+  await waitFor(() => expect(api.createDeployment).toHaveBeenCalledWith({ connectionId: connection.id, displayName: "Production-forwarder", targetKind: "fly", managed: true, sourceIds: ["src_two"], monitorIds: null }));
+  await waitFor(() => expect(screen.getByLabelText("Current route").textContent).toBe("/app/deployments/dep_created?tab=run"));
 });
 it("recovers invalid target deep links with a usable target picker", async () => {
   const user = page("?target=missing"); expect((await screen.findByRole("alert")).textContent).toContain("This deployment target is unavailable");

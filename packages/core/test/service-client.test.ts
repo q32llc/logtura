@@ -125,3 +125,13 @@ it("reads desired/applied state, activates once, and looks up the durable instan
  for(const body of [{}, {...receipt,requestId:instanceId}])await expect(client([Response.json(body)]).client.getDeploymentInstanceReceipt("dep",requestId)).rejects.toMatchObject({code:"invalid_instance_receipt"});
  for(const [status,error] of [[404,"not_found"],[401,"auth_required"],[503,"configuration_unavailable"]] as const)await expect(client([Response.json({error},{status})]).client.getDeploymentInstanceReceipt("dep",requestId)).rejects.toMatchObject({status,code:error});
 });
+
+it("binds supplied native fetch to the global receiver required by workerd", async () => {
+ const transport = vi.fn<typeof fetch>(async function(this: unknown) {
+  expect(this).toBe(globalThis);
+  return Response.json({user: {id: "usr_fixture", githubLogin: "fixture"}});
+ });
+ const service = new LogturaServiceClient({url: "https://fixture.test", fetch: transport});
+ await expect(service.whoami()).resolves.toMatchObject({id: "usr_fixture"});
+ expect(transport).toHaveBeenCalledOnce();
+});

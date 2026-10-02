@@ -84,3 +84,16 @@ it("creates an encrypted checkpoint volume once with explicit placement and vali
  fetcher.mockRejectedValueOnce(new TypeError("lost volume response"));await expect(client.createVolume("app",options)).rejects.toThrow("lost volume response");expect(fetcher).toHaveBeenCalledTimes(12);
  expect(await new FlyMachinesClient({token:"token",fetch:async()=>Response.json([volume,volume])}).volumes("app")).toEqual([volume,volume]); // Names are not unique; callers must reject ambiguous recovery candidates.
 });
+
+it.each(["injected", "native"])("binds %s fetch to the global receiver required by workerd", async mode => {
+ const transport = vi.fn<typeof fetch>(async function(this: unknown) {
+  expect(this).toBe(globalThis);
+  return Response.json({name: "app", organization: {slug: "personal"}});
+ });
+ try {
+  if (mode === "native") vi.stubGlobal("fetch", transport);
+  const client = new FlyMachinesClient({token: "token", ...(mode === "injected" ? {fetch: transport} : {})});
+  await expect(client.app("app")).resolves.toMatchObject({name: "app"});
+  expect(transport).toHaveBeenCalledOnce();
+ } finally { vi.unstubAllGlobals(); }
+});

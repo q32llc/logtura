@@ -3185,3 +3185,47 @@ tarball consumers, and the actual browser/CLI/workerd/Docker Vector compatibilit
 journey passed. The verified queue race is fixed; future uncaught diagnostics will
 now fail CI. Final backend coverage, managed runtime E2E/replacement, provider
 delivery matrix, dependency/release/rollout gates remain open.
+
+### Website-managed queue to actual packaged Vector (implemented)
+
+The website wizard now creates managed deployments and opens their Run tab.
+The local E2E suite creates this second deployment through the real browser,
+enables metrics through its Configure tab, completes the Fly authorization
+protocol fixture, starts deployment through the website, and reloads to verify
+that the actual parent job is retained. Real workerd queue delivery executes the
+app/checkpoint/issued-installation chain against an owned Fly/registry transport.
+
+That transport executes the generated provider plan using the same actual Docker
+image built from the 15 installed public tarballs. It checks immutable platform
+image identity, supervised entrypoint, mounted durable checkpoint, private files,
+and the 35-second shutdown envelope. One app, one volume and one machine are
+created. The real runtime sends its applied report to workerd/D1; the completed
+installation, saved physical identity and image digest, desired/applied revision,
+instance identity, website reload, heartbeat and metrics are verified. Restart
+requires an accepted report emitted after the new process started, with a higher
+persisted report sequence and the same issued instance. Graceful stop exits zero.
+
+This real Worker run caught a shared client defect: invoking a saved native fetch
+as an object method uses the wrong receiver in workerd. Both public Fly and
+optional service transports now bind fetch to the global receiver. Regression
+cases cover default and supplied Fly transports and the service transport.
+Public `main` commit `af5a196` passed its exact
+[CI run](https://github.com/logtura/logtura/actions/runs/37039796166), including
+owned report publication and the 95% changed-line gate. Standalone validation
+passed 726 package assertions, build/types and all 15 installed tarball checks.
+Private validation passed 1,128 native/package assertions, 281 UI assertions,
+17 harness/report guards, build/types and 100% measured changed-line coverage.
+
+The managed helper inspects only exact run-owned daemon names during teardown,
+including resources created before a lost response. The intentional
+failure after managed runtime and website convergence passed and verified cleanup
+of all run-owned resources; CI now exercises that boundary.
+Pending browser-response rejections remain handled while the caller awaits its
+UI action, so an earlier action failure can reach resource cleanup.
+
+This is actual runtime/queue/browser proof with fixture provider transport, not
+live Fly storage encryption or a production rollout. Compatible managed reapply,
+legacy replacement/rollback, live provider delivery and canary tests, durable
+remote interruption cleanup, target disconnection, final private backend coverage,
+coordinated npm release and staged production rollout remain required. Existing
+production machines, credentials, migrations and published versions are unchanged.

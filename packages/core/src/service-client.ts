@@ -46,7 +46,7 @@ export class LogturaServiceClient {
     const headers=new Headers(init.headers);headers.set("accept","application/json");
     if(init.body)headers.set("content-type","application/json");
     if(this.options.token)headers.set("authorization",`Bearer ${this.options.token}`);
-    return this.options.fetch(url.toString(),{...init,headers,redirect:"manual",credentials:"omit",signal:init.signal??AbortSignal.timeout(20_000)});
+    return this.options.fetch.call(globalThis,url.toString(),{...init,headers,redirect:"manual",credentials:"omit",signal:init.signal??AbortSignal.timeout(20_000)});
   }
   async request<T>(path:string,init:RequestInit={}):Promise<T>{
     const response=await this.response(path,init);const body=await response.json().catch(()=>null) as {error?:unknown}|null;
