@@ -378,7 +378,7 @@ async function cmdDeploy(global: GlobalArgs, args: string[]): Promise<number> {
     const seconds=stringFlag(flags,"waitSeconds"),stop=new AbortController(),interrupt=()=>stop.abort();
     process.on("SIGINT",interrupt);process.on("SIGTERM",interrupt);
     try{
-      const result=await applyLinkedFlyDeployment(accountClient(link.service),ref.path,{fly:new FlyMachinesClient({token:process.env.FLY_API_TOKEN??""}),app:stringFlag(flags,"app"),org:stringFlag(flags,"org"),region:stringFlag(flags,"region"),image:stringFlag(flags,"image"),volume:stringFlag(flags,"volume"),machine:stringFlag(flags,"machine"),resume:booleanFlag(flags,"resume"),waitMs:seconds===undefined?undefined:Number(seconds)*1000,signal:stop.signal});
+      const result=await applyLinkedFlyDeployment(accountClient(link.service),ref.path,{fly:new FlyMachinesClient({token:process.env.FLY_API_TOKEN??""}),app:stringFlag(flags,"app"),org:stringFlag(flags,"org"),region:stringFlag(flags,"region"),image:stringFlag(flags,"image"),registryToken:process.env.LOGT_REGISTRY_TOKEN||undefined,volume:stringFlag(flags,"volume"),machine:stringFlag(flags,"machine"),resume:booleanFlag(flags,"resume"),waitMs:seconds===undefined?undefined:Number(seconds)*1000,signal:stop.signal});
       console.log(global.json?JSON.stringify(result):`Applied ${result.revision} to ${result.app}; private rollback record: ${result.rollbackFile}`);return 0;
     }finally{process.off("SIGINT",interrupt);process.off("SIGTERM",interrupt);}
   }

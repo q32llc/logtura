@@ -1,6 +1,6 @@
 import {
   FlyMachinesClient, applyFlyMachine, compileForwarderRuntime, generateBundle, parseDeploymentManifest,
-  planFlyRuntime, matchesFlyConfig, validateFlyRuntimeVolume, immutableFlyImage, flyRollbackConfig, validateFlyMachine,
+  planFlyRuntime, matchesFlyConfig, validateFlyRuntimeVolume, immutableFlyImage, resolveFlyImage, flyRollbackConfig, validateFlyMachine,
   validateForwarderRuntimeArtifact, canonicalConfigJson, GENERATOR_VERSION, VECTOR_VERSION,
   ServiceError, type LogturaServiceClient, type FlyMachine, type FlyMachinePlan, type FlyMachineConfig, type ForwarderRuntimeArtifact,
 } from "@logtura/core";
@@ -69,7 +69,7 @@ async function current(client:LogturaServiceClient,pending:PendingFlyApply) {
  * rollback image/config, is flushed before any Fly write. Resume reuses the exact
  * descriptor and checkpoint volume and observes an accepted report before success.
  * Caller may cancel waiting; it never discards an uncertain installation. */
-export async function applyLinkedFlyDeployment(client:LogturaServiceClient,config:string,options:FlyTargetOptions & {fly:FlyMachinesClient;image?:string;volume?:string;machine?:string;resume?:boolean;waitMs?:number;pollMs?:number;signal?:AbortSignal}):Promise<{app:string;machineId:string;instanceId:string;revision:string;image:string;rollbackFile:string}> {
+export async function applyLinkedFlyDeployment(client:LogturaServiceClient,config:string,options:FlyTargetOptions & {fly:FlyMachinesClient;image?:string;imageFetch?:typeof fetch;registryToken?:string;volume?:string;machine?:string;resume?:boolean;waitMs?:number;pollMs?:number;signal?:AbortSignal}):Promise<{app:string;machineId:string;instanceId:string;revision:string;image:string;rollbackFile:string}> {
   return withPrivateDirectoryLock(resolve(dirname(resolve(config)),".logtura-apply.lock"),async()=>{
     assertTransactionClear(config);
     const waitMs=options.waitMs??300_000,pollMs=options.pollMs??2_000;
@@ -81,19 +81,21 @@ export async function applyLinkedFlyDeployment(client:LogturaServiceClient,confi
     if(options.signal?.aborted)throw new Error("Apply interrupted; resume when ready");
     if(!pending){
       if(!activation)assertNoPendingPush(config);
-      const image=immutableFlyImage(options.image??"");
+      const {image}=await resolveFlyImage(options.image??"",{fetch:options.imageFetch,token:options.registryToken});
       const inspected=await inspect(options.fly,link,options);
       // Render/size/credential/target checks before retiring the previous instance.
       const dry={requestId:randomUUID(),instanceId:randomUUID(),configurationVersion:link.configurationVersion,sequence:link.desiredSequence,revision:link.revision};
       const compiled=await compileForwarderRuntime({service:link.service,deploymentId:link.deployment.id,document:link.document,instance:dry,env:readConfigEnvironment(config),providers:listProviders(),destinations:listDestinations()});
       await planFlyRuntime({app:inspected.target.appName,machine:inspected.machine,volume:inspected.volume,image,...compiled});
+      if(options.signal?.aborted)throw new Error("Apply interrupted; resume when ready");
       const receipt=await activateLinkedDeployment(client,config,{resume:!!activation});
       const issued=await compileForwarderRuntime({service:link.service,deploymentId:link.deployment.id,document:link.document,instance:receipt,env:readConfigEnvironment(config),providers:listProviders(),destinations:listDestinations()});
       const plan=await planFlyRuntime({app:inspected.target.appName,machine:inspected.machine,volume:inspected.volume,image,...issued});
       pending={schemaVersion:1,config:resolve(config),link,machine:inspected.machine,volume:inspected.volume,artifact:issued.artifact,plan,rollback:flyRollbackConfig(inspected.machine)};
       await unchanged(config,link,client);save(pendingFlyApplyPath(config),pending);
     } else {
-      if((options.image!==undefined && options.image!==pending.plan.after.image) || (options.volume!==undefined && options.volume!==pending.volume) || (options.machine!==undefined && options.machine!==pending.machine.id))throw new Error("Resume options conflict with the saved apply intent");
+      const image=options.image===undefined?pending.plan.after.image:(await resolveFlyImage(options.image,{fetch:options.imageFetch,token:options.registryToken})).image;
+      if((image!==pending.plan.after.image) || (options.volume!==undefined && options.volume!==pending.volume) || (options.machine!==undefined && options.machine!==pending.machine.id))throw new Error("Resume options conflict with the saved apply intent");
       await inspect(options.fly,link,{...options,app:options.app??pending.plan.app,volume:pending.volume,machine:pending.machine.id});
       const expected=await planFlyRuntime({app:pending.plan.app,machine:pending.machine,volume:pending.volume,image:pending.plan.after.image,artifact:pending.artifact,bundle:bundle(config,link)});
       if(canonicalConfigJson(expected)!==canonicalConfigJson(pending.plan))throw new Error("Private installation plan differs from its issued artifact");

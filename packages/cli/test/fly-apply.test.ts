@@ -15,7 +15,7 @@ import {main} from "../src/main";
 vi.mock("node:fs",{spy:true});
 const native=await vi.importActual<typeof fs>("node:fs"),roots:string[]=[];
 afterEach(()=>{vi.restoreAllMocks();vi.mocked(fs.linkSync).mockImplementation(native.linkSync);vi.mocked(fs.fsyncSync).mockImplementation(native.fsyncSync);vi.mocked(fs.lstatSync).mockImplementation(native.lstatSync);vi.mocked(fs.openSync).mockImplementation(native.openSync);vi.unstubAllEnvs();for(const root of roots.splice(0))native.rmSync(root,{recursive:true,force:true});});
-const image=`registry.test/forwarder@sha256:${"a".repeat(64)}`;
+import {image,indexImage,platformDigest,configDigest,registryBody} from "./oci-fixture";
 async function fixture(){
  const root=fs.mkdtempSync(join(tmpdir(),"logt-fly-apply-"));roots.push(root);const config=join(root,"logt.yaml");
  const exported=await exportDeploymentManifest({providers:[],destinations:[],connections:[{connection:{id:"con_site",provider:"cloudflare-worker-tail",displayName:"Site",externalAccountId:"account"},credentials:{apiToken:"private-source-token"},selectedSources:[]}],monitors:[],heartbeat:{kind:"logtura",deploymentId:"dep_site",appUrl:"https://service.test"},runtimeEnv:{LOGTURA_HEARTBEAT_TOKEN:"private-report-token"}},await createSecretVersioner("service-private"));
@@ -26,6 +26,7 @@ async function fixture(){
  let lost=false,activationLost=false,acknowledge=true,updates=0,issuances=0,leaseFailure=false,releaseFailure=false,org="personal",extraMachine=false,volumeRegion="ord",mutateOnWait=false,wrongAccount=false;
  const fetcher=vi.fn<typeof fetch>(async(url,init)=>{
   const path=new URL(String(url)).pathname;
+  if(new URL(String(url)).origin==="https://registry.test"){expect(new Headers(init?.headers).has("authorization")).toBe(false);const body=registryBody(path);return body===null?new Response(null,{status:404}):new Response(body);}
   if(String(url).startsWith("https://service.test")){
    if(path.endsWith("/me"))return Response.json({user:{id:wrongAccount?"usr_other":"usr_site",githubLogin:"site"}});
    if(path.endsWith("/state")){if(acknowledge && updates && receipt){state.lastReportSequence=1;state.applied={sequence:1,revision,at:Date.now()};state.stale=false;if(mutateOnWait)machine.config.env={changed:"outside"};}return Response.json({state});}
@@ -38,7 +39,7 @@ async function fixture(){
   if(init?.method==="POST"){
    updates++;const pending=await readPendingFlyApply(config);expect(pending).not.toBeNull();expect(fs.statSync(pendingFlyApplyPath(config)).mode&0o777).toBe(0o600);
    const body=JSON.parse(init.body as string);expect(body.current_version).toBe("version1");expect(body.config).toEqual(pending!.plan.after);expect(init.headers).toMatchObject({"fly-machine-lease-nonce":"lease-secret"});
-   machine={...machine,instance_id:"version2",config:body.config,image_ref:{registry:"registry.test",repository:"forwarder",digest:`sha256:${"a".repeat(64)}`}};
+   machine={...machine,instance_id:"version2",config:body.config,image_ref:{registry:"registry.test",repository:"forwarder",digest:platformDigest}};
    if(lost)throw new TypeError("machine update acknowledgement lost");return Response.json(machine);
   }
   if(path.endsWith("/machines"))return Response.json(extraMachine?[machine,{...machine,id:"other"}]:[machine]);
@@ -46,7 +47,7 @@ async function fixture(){
   if(path.endsWith("/machine123"))return Response.json(machine);
   return Response.json({name:"app",organization:{slug:org}});
  });
- const client=new LogturaServiceClient({url:"https://service.test",token:`lt_cli_${"a".repeat(43)}`,fetch:fetcher}),fly=new FlyMachinesClient({token:"private-fly-token",fetch:fetcher}),options={fly,image,volume:"vol_checkpoint",waitMs:20,pollMs:1};
+ const client=new LogturaServiceClient({url:"https://service.test",token:`lt_cli_${"a".repeat(43)}`,fetch:fetcher}),fly=new FlyMachinesClient({token:"private-fly-token",fetch:fetcher}),options={fly,image,imageFetch:fetcher,volume:"vol_checkpoint",waitMs:20,pollMs:1};
  return {root,config,link,result,client,fly,options,fetcher,get state(){return state;},get machine(){return machine;},set machine(value){machine=value;},get updates(){return updates;},get issuances(){return issuances;},set lost(value:boolean){lost=value;},set activationLost(value:boolean){activationLost=value;},set acknowledge(value:boolean){acknowledge=value;},set leaseFailure(value:boolean){leaseFailure=value;},set releaseFailure(value:boolean){releaseFailure=value;},set org(value:string){org=value;},set extraMachine(value:boolean){extraMachine=value;},set volumeRegion(value:string){volumeRegion=value;},set mutateOnWait(value:boolean){mutateOnWait=value;},set wrongAccount(value:boolean){wrongAccount=value;}};
 }
 it("applies the issued runtime and archives exact private rollback material only after acknowledgement",async()=>{
@@ -74,7 +75,7 @@ it("validates account, target, storage, image and wait settings before instance 
 });
 it("retains issued state across provider failure, competing updates and changed resume options",async()=>{
  const f=await fixture();f.leaseFailure=true;await expect(applyLinkedFlyDeployment(f.client,f.config,f.options)).rejects.toThrow("HTTP 409");expect(f.updates).toBe(0);
- for(const overrides of [{image:image.replace("a".repeat(64),"c".repeat(64))},{volume:"vol_other"},{machine:"other"},{app:"other"}])await expect(applyLinkedFlyDeployment(f.client,f.config,{...f.options,resume:true,...overrides})).rejects.toThrow();
+ for(const overrides of [{image:image.replace(platformDigest,`sha256:${"c".repeat(64)}`)},{volume:"vol_other"},{machine:"other"},{app:"other"}])await expect(applyLinkedFlyDeployment(f.client,f.config,{...f.options,resume:true,...overrides})).rejects.toThrow();
  f.leaseFailure=false;f.machine.instance_id="external-version";await expect(applyLinkedFlyDeployment(f.client,f.config,{...f.options,resume:true})).rejects.toThrow("changed after planning");expect(f.updates).toBe(0);expect(await readPendingFlyApply(f.config)).not.toBeNull();
 });
 it("never finishes an obsolete instance or a machine edited while waiting",async()=>{
@@ -148,4 +149,45 @@ it("recovers interrupted obsolete-state archive publication and exposes explicit
  let failed=false;vi.spyOn(fs,"fsyncSync").mockImplementation(fd=>{if(!failed && !fs.existsSync(pendingActivationPath(f.config))){failed=true;throw new Error("abandon flush failed");}return native.fsyncSync(fd);});await expect(abandonObsoleteFlyApply(f.client,f.config)).rejects.toThrow("flush failed");vi.mocked(fs.fsyncSync).mockImplementation(native.fsyncSync);
  vi.stubEnv("LOGT_AUTH_FILE",join(f.root,"missing-account.json"));vi.stubEnv("LOGT_SERVICE_TOKEN",`lt_cli_${"a".repeat(43)}`);vi.spyOn(globalThis,"fetch").mockImplementation(f.fetcher);const output=vi.spyOn(console,"log").mockImplementation(()=>{}),error=vi.spyOn(console,"error").mockImplementation(()=>{});
  expect(await main(["-c",f.config,"deploy","fly","--abandon","--resume"])).toBe(1);expect(error.mock.calls.at(-1)![0]).toContain("combined");expect(await main(["-c",f.config,"deploy","fly","--abandon","--cancel-rejected"])).toBe(1);expect(error.mock.calls.at(-1)![0]).toContain("Choose one");expect(await main(["-c",f.config,"deploy","fly","--abandon","--json"])).toBe(0);expect(JSON.parse(output.mock.calls.at(-1)![0])).toMatchObject({abandoned:true});
+});
+
+it("resolves an OCI index before issuance and resumes its exact platform pin",async()=>{
+ const f=await fixture();f.lost=true;
+ await expect(applyLinkedFlyDeployment(f.client,f.config,{...f.options,image:indexImage})).rejects.toThrow("acknowledgement lost");
+ const saved=(await readPendingFlyApply(f.config))!;expect(saved.plan.after.image).toBe(image);expect(saved.plan.after.image).not.toContain(configDigest);
+ f.lost=false;const applied=await applyLinkedFlyDeployment(f.client,f.config,{...f.options,image:indexImage,resume:true});
+ expect(applied.image).toBe(image);expect(f.issuances).toBe(1);expect(f.updates).toBe(1);expect(JSON.parse(fs.readFileSync(applied.rollbackFile,"utf8"))).toEqual(saved);
+});
+it("refuses unverifiable registry bytes before retiring the previous runtime",async()=>{
+ const f=await fixture();const original=f.fetcher.getMockImplementation()!;
+ f.fetcher.mockImplementation(async(url,init)=>String(url).startsWith("https://registry.test/")?new Response("private-registry-body",{status:503}):original(url,init));
+ await expect(applyLinkedFlyDeployment(f.client,f.config,f.options)).rejects.toThrow("HTTP 503");
+ expect(f.issuances).toBe(0);expect(f.updates).toBe(0);expect(await readPendingActivation(f.config)).toBeNull();expect(await readPendingFlyApply(f.config)).toBeNull();
+});
+it("recovers the saved platform pin without registry access and requires Fly's manifest identity",async()=>{
+ const f=await fixture();f.acknowledge=false;
+ await expect(applyLinkedFlyDeployment(f.client,f.config,{...f.options,image:indexImage})).rejects.toThrow("pending");
+ const original=f.fetcher.getMockImplementation()!;
+ f.fetcher.mockImplementation(async(url,init)=>{if(String(url).startsWith("https://registry.test/"))throw new Error("registry offline");return original(url,init);});
+ f.acknowledge=true;f.machine.image_ref.digest=configDigest;
+ await expect(applyLinkedFlyDeployment(f.client,f.config,{fly:f.fly,resume:true,waitMs:5,pollMs:1})).rejects.toThrow("pending");
+ expect(await readPendingFlyApply(f.config)).not.toBeNull();f.machine.image_ref.digest=platformDigest;
+ expect((await applyLinkedFlyDeployment(f.client,f.config,{fly:f.fly,resume:true,waitMs:20,pollMs:1})).image).toBe(image);expect(f.updates).toBe(1);
+});
+
+it("passes explicit CLI pull credentials only to the registry",async()=>{
+ const f=await fixture(),original=f.fetcher.getMockImplementation()!;
+ f.fetcher.mockImplementation(async(url,init)=>{if(String(url).startsWith("https://registry.test/")){expect(new Headers(init?.headers).get("authorization")).toBe("Bearer private-registry-token");return new Response(registryBody(new URL(String(url)).pathname));}expect(new Headers(init?.headers).get("authorization")).not.toBe("Bearer private-registry-token");return original(url,init);});
+ vi.stubEnv("LOGT_REGISTRY_TOKEN","private-registry-token");vi.stubEnv("FLY_API_TOKEN","private-fly-token");vi.stubEnv("LOGT_AUTH_FILE",join(f.root,"missing-profile"));vi.stubEnv("LOGT_SERVICE_TOKEN",`lt_cli_${"a".repeat(43)}`);vi.stubEnv("LOGT_SERVICE_URL","");
+ vi.spyOn(globalThis,"fetch").mockImplementation(f.fetcher);const output=vi.spyOn(console,"log").mockImplementation(()=>{}),error=vi.spyOn(console,"error").mockImplementation(()=>{});
+ expect(await main(["-c",f.config,"deploy","fly","--image",indexImage,"--volume","vol_checkpoint","--json"])).toBe(0);
+ expect(JSON.parse(output.mock.calls.at(-1)![0]).image).toBe(image);expect(JSON.stringify(output.mock.calls)+JSON.stringify(error.mock.calls)).not.toContain("private-registry-token");
+ const archive=JSON.parse(fs.readFileSync(JSON.parse(output.mock.calls.at(-1)![0]).rollbackFile,"utf8"));expect(JSON.stringify(archive)).not.toContain("private-registry-token");
+});
+
+it("cancels read-only image preflight without issuing a replacement runtime",async()=>{
+ const f=await fixture(),stop=new AbortController(),original=f.fetcher.getMockImplementation()!;
+ f.fetcher.mockImplementation(async(url,init)=>{const result=await original(url,init);if(String(url).startsWith("https://registry.test/"))stop.abort();return result;});
+ await expect(applyLinkedFlyDeployment(f.client,f.config,{...f.options,signal:stop.signal})).rejects.toThrow("interrupted");
+ expect(f.issuances).toBe(0);expect(f.updates).toBe(0);expect(await readPendingActivation(f.config)).toBeNull();expect(await readPendingFlyApply(f.config)).toBeNull();
 });

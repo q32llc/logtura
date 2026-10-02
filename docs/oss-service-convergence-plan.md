@@ -1712,9 +1712,11 @@ same container with its named checkpoint volume must advance the service report
 counter; graceful stop must exit zero. No handcrafted accepted observation or
 simulated service state completes this journey.
 
-The local fixture maps an immutable-looking registry reference to that verified
-Docker configuration ID, not a real registry manifest/index digest. Its Fly API
-is a controlled provider boundary, not actual Fly infrastructure. The topology
+The local fixture now serves actual hash-verified OCI index/platform bytes and
+requires the installed CLI to resolve the platform before the Fly write (see the
+linked CLI platform-identity slice below). The running Docker configuration ID
+is verified separately. Its Fly API remains a controlled provider boundary,
+not actual Fly infrastructure. The topology
 has an explicitly empty provider-source selection and real heartbeat/metrics.
 This proves connection-label synchronization and installed runtime convergence;
 source/site update delivery, complete provider event flows, browser rendering,
@@ -2659,3 +2661,67 @@ and its fixture must stop representing a Docker config ID as an OCI manifest.
 Managed issued descriptors/storage/durable recovery, final private coverage and
 coordinated release/migrations/live rollout/rollback remain required; the full
 shipping goal stays active.
+
+
+### Linked CLI platform identity and offline recovery (implemented)
+
+Linked self-managed Fly apply now calls the packaged `resolveFlyImage` during
+read-only preflight, before activation retires the previous instance or any Fly
+write. The dry plan, issued plan, private install intent and machine payload all
+use the verified Linux/amd64 manifest pin. The acknowledgement still requires
+Fly's exact reported platform manifest digest; neither an index digest nor a
+Docker config digest can satisfy it. Cancellation during read-only preflight
+also prevents activation and provider writes.
+
+The eight-field schema-1 private journal is retained. Resume without `--image`
+uses its exact saved platform pin without registry access, preserving recovery
+when the registry is unavailable. An explicit resume image is verified again and
+must resolve to the same platform pin. Index and direct-manifest references may
+therefore name the same intended installation. Changed images/options, unknown
+outcomes and strict instance/configuration fencing keep their existing refusal
+and recovery behavior.
+
+The CLI accepts an explicit bearer pull credential through the process environment
+`LOGT_REGISTRY_TOKEN`; library callers may pass `registryToken` and an `imageFetch`
+transport. The pull token is scoped only to the registry, never service/Fly API
+requests, public output, runtime environment or private installation journal.
+Acquiring private registry credentials remains external; this is not a Fly token
+exchange or an automatic private registry authorization flow.
+
+Deployment fixtures now use real SHA-256 hashes of served OCI manifest/index
+bytes, with separate config-blob identities. New cases cover index install and
+explicit-index recovery, registry failure before issuance, offline no-image
+recovery, refusal of a config-blob acknowledgement, CLI credential isolation and
+cancellation during read-only verification. Four compiled CLI SIGKILL recovery
+boundaries also use an actual local HTTP registry index/manifest chain, retaining
+one activation, one provider update and the exact private archive.
+
+The complete installed CLI/browser/workerd/Docker journey serves the same kind of
+hash-verified registry chain. The initial `--image` is an index; the Fly payload
+and report must identify the child manifest. Separately inspecting Docker proves
+the running container's config ID. The fixture checks both registry reads and
+refuses leaking Fly credentials to the registry. This remains fixture provider
+infrastructure, not a live new-runtime Fly rollout. Actual production read-only
+platform identity evidence is recorded in the previous slice.
+
+All 1,044 private cases across 97 files pass at 87.17/84.64/90.40/85.46
+(statement/branch/function/line), retaining every aggregate and module gate.
+All 718 public cases across 61 files pass at 95.19/92.80/96.87/95.76, retaining
+final public aggregate gates. Linked apply measures 96.08/91.66/100/100 and its
+module floors rise to 96/91/100/100 in both layouts. Installed checks for all 15
+packages, both CLI aliases and the runtime binary pass in both repositories;
+the network-denied consumer uses an explicit bounded registry fixture for initial
+verification and confirms resume makes no additional registry requests.
+Package/service builds, private/E2E types and public package types pass. The full
+browser/runtime journey, standalone real Vector/runtime flow and injected
+post-runtime owned-resource cleanup all pass. Website source and its previously
+verified coverage artifacts are unchanged.
+
+Previous private/public heads 7069e95 and 0bc854a complete all code/coverage/runtime
+steps in terminal CI runs 37012191435 and 37012217059; only enforced Codecov upload
+fails. Private image run 37012191436 succeeds. Scoped Codecov app permission
+approval remains pending. No npm package version, production schema or deployed
+machine is changed by this slice. Managed issued runtime installation/durable
+recovery, final private coverage, broader provider/remote baselines and coordinated
+release, migrations, live rollout and rollback remain required. The full shipping
+goal remains active.

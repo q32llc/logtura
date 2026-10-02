@@ -550,8 +550,15 @@ logt deploy fly --resume
 ```
 
 `FLY_API_TOKEN` authenticates to the Machines API. The initial `--image` is a complete
-registry/repository reference pinned with `@sha256:<64 lowercase hex digits>`. It must
-contain this CLI version's packaged supervisor, its supported Vector/runtime
+registry/repository reference pinned with `@sha256:<64 lowercase hex digits>`.
+Read-only preflight verifies registry response hashes and resolves an OCI/Docker
+index to its unique Linux/amd64 platform manifest before issuance. Fly receives that
+platform pin; a Docker config blob digest cannot acknowledge installation.
+Anonymous public registry pulls use scoped bearer challenges. For a registry that
+requires an explicit bearer pull token, set `LOGT_REGISTRY_TOKEN` in the CLI process
+environment. This token goes only to that registry and is never saved in the apply
+journal or forwarded to Fly/the service. Credential acquisition is external.
+The image must contain this CLI version's packaged supervisor, its supported Vector/runtime
 prerequisites and the generated assets. Apply installs exact generated assets through
 machine files, outside image layers, including their modes. An older/incompatible
 image cannot acknowledge this issued artifact. Images/releases are still being
@@ -567,13 +574,15 @@ one forwarder machine; this path does not create apps or implement a fleet rollo
 Optional `--app`, `--region`, `--org`, and `--machine` must match the linked target.
 Managed deployments use the hosted deployment path.
 
-Read-only preflight renders the configuration and checks image syntax, target,
+Read-only preflight renders the configuration and checks verified image identity, target,
 credentials, descriptor size and storage before instance issuance. The private
 `.logtura-apply.json` records the exact descriptor, resolved machine payload, previous
 complete machine config and its actual immutable image digest before provider writes.
 A machine lease and version check reject competing changes. Lost responses recover
 by reading installed configuration; resume reuses the descriptor and checkpoint
-volume instead of issuing again or blindly repeating the update. Unrelated machine
+volume instead of issuing again or blindly repeating the update. With no `--image`,
+resume uses the saved platform pin without registry access. An explicit `--image`
+is verified again and must resolve to that same platform pin. Unrelated machine
 settings are retained; startup uses the supervisor with 35 seconds of shutdown grace.
 Loader/preload and conflicting Vector launch settings cannot override that startup.
 

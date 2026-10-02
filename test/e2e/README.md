@@ -107,7 +107,7 @@ fail the scenario. Only identity/session establishment is seeded; GitHub OAuth a
 other provider login flows are separate requirements.
 
 An installed CLI applies the synchronized self-managed Fly forwarder. A Fly HTTP
-fixture installs the actual planned files into a packaged Docker runtime image. The CLI-only fetch interceptor redirects Machines API requests;
+fixture installs the actual planned files into a packaged Docker runtime image. The CLI-only fetch interceptor redirects Machines API and registry requests;
 it does not replace service responses or runtime observations. The supervisor is
 the image's PID 1 and owns real Vector, which sends heartbeat/metrics to real
 workerd. Assertions require accepted applied state, matching desired revision,
@@ -117,9 +117,13 @@ executable comes from the installed CLI tarball, with no host Node/package mount
 This case enables discovery against an empty provider catalog. It proves heartbeat/
 metrics, connection-label/metrics-target/discovery-policy synchronization and the browser flows above. Provider event delivery, source/site update behavior,
 complete browser/provider flows and actual Fly resources remain required.
-The fixture maps an immutable-looking image reference to a verified Docker image
-configuration ID; real Fly registry/index/platform digest behavior remains a
-separate required check. The existing standalone Vector flow tests exercise actual
+The fixture serves actual hash-verified OCI index and platform manifest bytes.
+The installed CLI must resolve the index to the platform pin before the Fly write;
+Fly's reported manifest digest differs from the separately verified Docker config
+ID of the running container. These registry/provider responses remain local
+fixtures; a live new-runtime Fly rollout remains a separate requirement. Read-only
+existing-production Fly inspection and independently hashed public registry bytes
+also establish the platform identity for the existing deployment. The existing standalone Vector flow tests exercise actual
 custom-source event delivery separately.
 
 Cleanup deletes and verifies HTTP resources, stops/removes child processes,

@@ -5,7 +5,7 @@ import { join, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { randomUUID } from "node:crypto";
+import { randomUUID, createHash } from "node:crypto";
 import { startBrowser } from "../test/e2e/browser";
 import { startLocalService } from "../test/e2e/local-workerd";
 
@@ -18,7 +18,7 @@ const root = process.cwd(), temporary = mkdtempSync(join(tmpdir(), "logtura-loca
 const consumer = join(temporary, "consumer"), artifacts = join(temporary, "packages");
 mkdirSync(consumer); mkdirSync(artifacts);
 const config = join(consumer, "forwarder config.yaml"), account = join(consumer, "account.json");
-const environment: NodeJS.ProcessEnv = { ...process.env, NODE_OPTIONS: "", LOGT_AUTH_FILE: account, LOGT_SERVICE_TOKEN: "", LOGT_SERVICE_URL: "", FLY_API_TOKEN: "fixture-fly-token" };
+const environment: NodeJS.ProcessEnv = { ...process.env, NODE_OPTIONS: "", LOGT_AUTH_FILE: account, LOGT_SERVICE_TOKEN: "", LOGT_SERVICE_URL: "", LOGT_REGISTRY_TOKEN: "", FLY_API_TOKEN: "fixture-fly-token" };
 delete environment.LOGT_SERVICE_URL;
 delete environment.LOGT_SERVICE_TOKEN;
 const children = new Set<ReturnType<typeof spawn>>();
@@ -176,22 +176,35 @@ try {
   }
   await run("docker", ["build", "--quiet", "--tag", imageTag, imageContext]); imageBuilt = true;
   const dockerImageId = await run("docker", ["image", "inspect", "--format", "{{.Id}}", imageTag]);
-  const image = `registry.fixture/forwarder@${dockerImageId}`;
+  const digest = (bytes: string) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+  const platformManifest = JSON.stringify({ schemaVersion: 2, mediaType: "application/vnd.oci.image.manifest.v1+json", config: { mediaType: "application/vnd.oci.image.config.v1+json", digest: dockerImageId, size: 12 }, layers: [] });
+  const platformDigest = digest(platformManifest), platformImage = `registry.fixture/forwarder@${platformDigest}`;
+  const imageIndex = JSON.stringify({ schemaVersion: 2, mediaType: "application/vnd.oci.image.index.v1+json", manifests: [{ mediaType: "application/vnd.oci.image.manifest.v1+json", digest: platformDigest, size: Buffer.byteLength(platformManifest), platform: { os: "linux", architecture: "amd64" } }] });
+  const indexDigest = digest(imageIndex), image = `registry.fixture/forwarder@${indexDigest}`;
+  assert.notEqual(platformDigest, dockerImageId); assert.notEqual(indexDigest, platformDigest);
+  let registryReads = 0;
   const installed = join(temporary, "installed"); mkdirSync(installed);
   await run("docker", ["volume", "create", volume]); volumeCreated = true;
   let updates = 0;
   let machine: any = { id: "abc123", instance_id: "original", state: "started", region: "ord", config: { image: "registry.fixture/old:latest", env: {} }, image_ref: { registry: "registry.fixture", repository: "old", digest: `sha256:${"b".repeat(64)}` } };
   provider = createServer(async (request, response) => {
     try {
-      assert.equal(request.headers.authorization, "Bearer fixture-fly-token");
       const path = new URL(request.url!, "http://fixture").pathname;
+      if (path.startsWith("/registry/")) {
+        assert.equal(request.headers.authorization, undefined);
+        const registryPath = path.slice("/registry".length);
+        const bytes = registryPath === `/v2/forwarder/manifests/${indexDigest}` ? imageIndex : registryPath === `/v2/forwarder/manifests/${platformDigest}` ? platformManifest : null;
+        assert.ok(bytes, "registry request must identify an owned immutable manifest"); registryReads++;
+        response.writeHead(200, { "content-type": "application/json" }); response.end(bytes); return;
+      }
+      assert.equal(request.headers.authorization, "Bearer fixture-fly-token");
       let result: any;
       if (path.endsWith("/lease")) result = request.method === "DELETE" ? null : { data: { nonce: "fixture-lease" } };
       else if (request.method === "POST" && path.endsWith("/machines/abc123")) {
         let body = ""; for await (const chunk of request) body += chunk;
         const update = JSON.parse(body); assert.equal(update.current_version, machine.instance_id);
         assert.equal(request.headers["fly-machine-lease-nonce"], "fixture-lease");
-        assert.equal(update.config.image, image);
+        assert.equal(update.config.image, platformImage);
         for (const file of update.config.files) {
           assert.ok(file.guest_path.startsWith("/etc/vector/") || file.guest_path.startsWith("/opt/logtura/assets/"));
           const path = join(installed, file.guest_path.slice(1)); mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, Buffer.from(file.raw_value, "base64")); chmodSync(path, file.mode);
@@ -203,7 +216,7 @@ try {
         await run("docker", args); deployed = true;
         assert.equal(await run("docker", ["inspect", "--format", "{{.Image}}", container]), dockerImageId);
         updates++;
-        machine = { ...machine, instance_id: `updated-${updates}`, config: update.config, image_ref: { registry: "registry.fixture", repository: "forwarder", digest: dockerImageId } };
+        machine = { ...machine, instance_id: `updated-${updates}`, config: update.config, image_ref: { registry: "registry.fixture", repository: "forwarder", digest: platformDigest } };
         result = machine;
       } else if (path.endsWith("/machines")) result = [machine];
       else if (path.endsWith("/volumes")) result = [{ id: "vol_fixture", region: "ord", state: "created", encrypted: true, attached_machine_id: updates ? machine.id : null }];
@@ -217,11 +230,13 @@ try {
   await new Promise<void>(resolve => provider!.listen(0, "127.0.0.1", resolve));
   const providerUrl = `http://127.0.0.1:${(provider.address() as { port: number }).port}`;
   const interceptor = join(consumer, "provider-fixture.mjs");
-  writeFileSync(interceptor, `const native=fetch;globalThis.fetch=(input,init)=>{const url=String(input);return native(url.startsWith('https://api.machines.dev/')?${JSON.stringify(providerUrl)}+'/'+url.slice('https://api.machines.dev/'.length):input,init)};`);
+  writeFileSync(interceptor, `const native=fetch;globalThis.fetch=(input,init)=>{const url=String(input);return native(url.startsWith('https://api.machines.dev/')?${JSON.stringify(providerUrl)}+'/'+url.slice('https://api.machines.dev/'.length):url.startsWith('https://registry.fixture/')?${JSON.stringify(providerUrl)}+'/registry/'+url.slice('https://registry.fixture/'.length):input,init)};`);
   const applied = start(bin, ["--config", config, "deploy", "fly", "--image", image, "--volume", "vol_fixture", "--region", "ord", "--wait-seconds", "120"], consumer,
     { ...environment, NODE_OPTIONS: `--import=${pathToFileURL(interceptor)}` }, 180_000);
   await applied.result;
   assert.equal(updates, 1);
+  assert.equal(registryReads, 2, "installed CLI verifies both OCI index and platform manifest");
+  assert.equal(machine.config.image, platformImage);
   const state = (await request(`/api/deployments/${deploymentId}/config/state`)).state;
   assert.equal(state.stale, false); assert.ok(state.lastReportSequence >= 1);
   assert.equal(state.applied.revision, desired.desired.revision); assert.equal(state.applied.sequence, desired.desired.sequence);
