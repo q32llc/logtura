@@ -112,6 +112,8 @@ export interface ApiBundleFile {
   name: string;
   content: string;
   language?: string;
+  encoding?: "base64";
+  mode?: number;
 }
 
 export interface ApiTargetBundle {

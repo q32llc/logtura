@@ -508,3 +508,11 @@ const script = renderFlyLaunchScript({
 });
 // Save privately, then run with CLOUDFLARE_API_TOKEN in the environment.
 ```
+
+`flySelfDeployFiles({bundle, appName, region?})` composes the complete Fly build
+context: Dockerfile, Vector config, Fly settings, the private launch script and
+every runtime asset under `assets/<driver>/<path>`. It preserves binary content
+and POSIX modes as `TarFile` values, validates runtime assets using the same
+rules as linked Fly installation, and can be passed directly to `buildTar`.
+Callers exposing these files as JSON must encode binary content explicitly;
+writing a byte array as JSON or decoding it as UTF-8 would corrupt the asset.

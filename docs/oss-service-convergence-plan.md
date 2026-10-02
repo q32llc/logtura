@@ -3355,3 +3355,44 @@ replacement/rollback, the full provider matrix, remote interruption cleanup,
 final backend coverage, coordinated package release and staged production
 rollout remain open. No production resource, migration or published npm version
 changed in this slice.
+
+### Complete hosted Fly assets and binary downloads (implemented)
+
+The Fly target now uses public `@logtura/core.flySelfDeployFiles` for its complete
+build context. In addition to the existing four files, it includes every runtime
+asset at its nested `assets/<driver>/<path>` location, preserving raw bytes and
+POSIX modes. Composition uses the linked-runtime asset validation rules. The
+launch script is marked private (0600), and unspecified asset modes default to
+0644. The public result can also be archived with the shared tar writer.
+
+The hosted JSON contract retains string content for text files and adds explicit
+base64 encoding for binary files. The website Run tab exposes downloads that
+decode to original bytes, shows relative paths and optional permission modes,
+and retains copy/preview for text. Binary content is not presented as copyable
+text. Tests inspect exact archive bodies, provider-adapter JSON round trips,
+Unicode text and arbitrary binary browser Blob bytes, copy feedback and actual
+Run-tab integration. The shared Fly renderer and adapter remain at 100% in all
+coverage dimensions; the new file-view component has its own 100% gate.
+
+Validation passed 1,171 native/package assertions and 762 standalone public
+assertions, service/public builds and types, E2E types and all 15 installed
+package consumers. The actual browser/CLI/workerd/Vector journey through managed
+creation, durable restart and CLI-edited leased reapply passed. The full UI suite passed 285 assertions with 93.56% statements, 90.52% branches,
+96.38% functions and 94.81% lines, including the new 100% component gate.
+Private aggregate coverage is 88.22% statements, 85.94% branches, 91.25% functions and 86.75% lines.
+Owned coverage reports remain the CI artifact and changed-line gate mechanism.
+
+The preceding public launch-script head `ecbe076` completed its exact
+[CI run](https://github.com/logtura/logtura/actions/runs/37046966675), and private
+head `0b251db` completed its
+[image build](https://github.com/q32llc/logtura/actions/runs/37046977029). Its
+[test run](https://github.com/q32llc/logtura/actions/runs/37046976786) also
+completed successfully before this slice was pushed.
+
+The Other target still needs the same complete-asset composition treatment.
+This slice preserves modes as archive/file metadata; individual browser
+downloads require saving the shown relative paths and setting the shown modes.
+Final backend coverage, full provider delivery/reconnect baseline, durable remote
+cleanup, legacy managed replacement/rollback, coordinated npm release and staged
+production rollout remain required. No production resource, migration or npm
+version changed.

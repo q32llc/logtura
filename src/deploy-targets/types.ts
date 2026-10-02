@@ -21,6 +21,9 @@ import type { GeneratedBundle } from "../generator";
 export interface BundleFile {
   name: string;
   content: string;
+  /** Binary files use base64; absent encoding retains the existing text contract. */
+  encoding?: "base64";
+  mode?: number;
   /** Optional language hint for syntax highlighting in the UI. */
   language?: string;
 }

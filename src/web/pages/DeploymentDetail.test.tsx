@@ -44,3 +44,8 @@ it("keeps the other wildcard monitors when one monitor is deselected in Configur
  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
  await vi.waitFor(() => expect(api.updateDeployment).toHaveBeenCalledWith("dep_fixture", expect.objectContaining({ monitorIds: ["mon_two"] })));
 });
+it("presents binary bundle files as downloadable assets in the actual deployment Run tab", async () => {
+ vi.mocked(api.getDeploymentBundle).mockResolvedValue({...bundle, files: [{name: "assets/custom/helper.bin", content: "AP8=", encoding: "base64", mode: 0o700}]});
+ page(); await screen.findByRole("heading", {name: "Existing forwarder"}); fireEvent.click(screen.getByRole("tab", {name: "Run"}));
+ expect(await screen.findByText("Binary file. Download it and save it at the path shown above.")).toBeTruthy(); expect(screen.getByRole("button", {name: "Download"})).toBeTruthy(); expect(screen.getByText("File mode: 700")).toBeTruthy();
+});

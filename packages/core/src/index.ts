@@ -88,4 +88,4 @@ export { resolveFlyImage, type ResolvedFlyImage } from "./oci-image";
 export {parseMetricsBody, emptySnapshot, applyMetricsToSnapshot, rateFor} from "./metrics";
 export type {ComponentKind, ComponentMetrics, MetricsSnapshot, ParsedMetric} from "./metrics";
 
-export { renderFlyToml, renderFlyLaunchScript } from "./fly-install";
+export { renderFlyToml, renderFlyLaunchScript, flySelfDeployFiles } from "./fly-install";

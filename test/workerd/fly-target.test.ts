@@ -54,3 +54,13 @@ it("refuses unsupported providers, empty inventory and a missing explicit org be
  mockFetch("https://api.fly.io/graphql",()=>Response.json({data:{organizations:{nodes:[]}}}));
  await expect(flyDriver.mintConnectionCredentials!({bootstrapCredentials:{apiToken:"fo1_fixture"},providerId:"fly-log-tail"})).rejects.toMatchObject({status:400});
 });
+it("preserves text and binary runtime assets in the JSON self-deploy response", () => {
+ const result = flyDriver.generateTargetBundle({sourceBundle: {...bundle, runtimeAssets: [
+  {driverId: "custom", path: "nested/helper.bin", content: new Uint8Array([0, 255, 128, 10, 13]), mode: 0o700},
+  {driverId: "custom", path: "helper.js", content: "console.log('café')"},
+ ]}, deploymentName: "Test", connectionId: "fixture"});
+ const json = JSON.parse(JSON.stringify(result));
+ expect(json.files[4]).toEqual({name: "assets/custom/nested/helper.bin", content: "AP+ACg0=", encoding: "base64", mode: 0o700});
+ expect(json.files[5]).toEqual({name: "assets/custom/helper.js", content: "console.log('café')", mode: 0o644});
+ expect(json.selfDeployInstructions).toContain("assets/ subdirectories");
+});

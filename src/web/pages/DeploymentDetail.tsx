@@ -1,3 +1,4 @@
+import { BundleFileView } from "../components/BundleFileView";
 import { rateFor } from "@logtura/core";
 import { DeploymentRevisionStatus } from "../components/DeploymentRevisionStatus";
 import { deploymentSourceSummary } from "../deployment-selection";
@@ -2160,7 +2161,7 @@ function BundleView({ bundle }: { bundle: ApiTargetBundle }) {
           </Tabs.List>
           {tabs.map((t) => (
             <Tabs.Panel key={t.value} value={t.value} p="md">
-              <FileBlock filename={t.file.name} content={t.file.content} />
+              <BundleFileView file={t.file} />
             </Tabs.Panel>
           ))}
         </Tabs>
@@ -2295,50 +2296,4 @@ function expiryColor(ms: number): string {
   if (days <= 7) return "red.4";
   if (days <= 30) return "yellow.6";
   return "dimmed";
-}
-
-function FileBlock({
-  filename,
-  content,
-}: {
-  filename: string;
-  content: string;
-}) {
-  return (
-    <Stack gap="xs">
-      <Group justify="space-between">
-        <Code>{filename}</Code>
-        <CopyButton value={content}>
-          {({ copied, copy }) => (
-            <Button
-              size="xs"
-              variant="subtle"
-              leftSection={
-                copied ? <IconCheck size={14} /> : <IconCopy size={14} />
-              }
-              onClick={copy}
-            >
-              {copied ? "Copied" : "Copy"}
-            </Button>
-          )}
-        </CopyButton>
-      </Group>
-      <ScrollArea.Autosize mah={500}>
-        <pre
-          style={{
-            margin: 0,
-            padding: "12px",
-            border: "1px solid var(--mantine-color-default-border)",
-            borderRadius: 6,
-            fontSize: 13,
-            lineHeight: 1.5,
-            fontFamily:
-              "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-          }}
-        >
-          <code>{content}</code>
-        </pre>
-      </ScrollArea.Autosize>
-    </Stack>
-  );
 }

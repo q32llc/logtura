@@ -1,4 +1,4 @@
-import { renderFlyToml, renderFlyLaunchScript } from "@logtura/core";
+import { flySelfDeployFiles } from "@logtura/core";
 import {
   createLimitedAccessToken,
   flyAuthHeader,
@@ -99,27 +99,21 @@ export const flyDriver: DeployTargetDriver<FlyCredentials> = {
     connectionId,
   }): TargetBundle {
     const appName = sanitizeAppName(deploymentName, connectionId);
-    const flyToml = renderFlyToml({
-      appName,
-      region: region ?? "iad",
-      envVars: sourceBundle.envVars.map((v) => v.name),
+    const language: Record<string, string> = {Dockerfile: "dockerfile", "vector.yaml": "yaml", "fly.toml": "toml", "deploy.sh": "bash"};
+    const files = flySelfDeployFiles({bundle: sourceBundle, appName, region}).map(file => {
+      if (typeof file.content === "string") return {...file, content: file.content, language: language[file.name]};
+      let binary = "";
+      for (const byte of file.content) binary += String.fromCharCode(byte);
+      return {...file, content: btoa(binary), encoding: "base64" as const};
     });
 
-    const launchScript = renderFlyLaunchScript({appName, region, envVars: sourceBundle.envVars});
-
-    const files = [
-      { name: "Dockerfile", content: sourceBundle.dockerfile, language: "dockerfile" },
-      { name: "vector.yaml", content: sourceBundle.vectorYaml, language: "yaml" },
-      { name: "fly.toml", content: flyToml, language: "toml" },
-      { name: "deploy.sh", content: launchScript, language: "bash" },
-    ];
-
     const instructions = [
-      "1. Save these files to an empty directory.",
+      "1. Save these files to an empty directory, preserving the shown assets/ subdirectories.",
       "2. Install flyctl if you haven't:  brew install flyctl   (or see fly.io/docs/flyctl/install)",
       "3. Sign in:                         flyctl auth login",
       "   Set any missing credential environment variables listed in fly.toml before running.",
       `4. Run the deploy script:           bash deploy.sh`,
+      "   Preserve runtime asset permission modes when saving files.",
       "",
       "deploy.sh creates a Fly app named " +
         appName +
