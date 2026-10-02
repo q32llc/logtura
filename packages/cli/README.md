@@ -505,3 +505,33 @@ Its default entrypoint detects `/etc/vector/logtura-runtime.json`: absent descri
 preserve direct Vector startup; present descriptors require validation and the bound
 config before supervision. Descriptor files, credentials and checkpoints are runtime
 mounts, not image layers. CLI activation/apply wiring remains separate.
+
+
+### Durable linked instance activation
+
+The library exports `activateLinkedDeployment(client, config, {resume?})`,
+`readPendingActivation(config)`, `finishLinkedActivation(client, config)`,
+`cancelRejectedLinkedActivation(client, config)` and
+`abandonObsoleteLinkedActivation(client, config)`. Activation requires a linked,
+unchanged local manifest and private payloads, a matching authenticated account/origin
+and an already issued desired revision. It records a private intent before the server
+call, with compare-and-swap on the previous active instance. A lost response resumes
+with the same request ID and recovers the server receipt, rather than issuing twice.
+
+The mode-0600 `.logtura-activation.json` journal contains the linked baseline and
+request/receipt metadata, with no resolved payloads or account/reporting tokens.
+Configuration mutations, pull and push are blocked while it exists. Read-only
+inspection and account login remain available. Offline `config status` shows the
+locally recorded pending/issued/rejected phase and instance/request identity, without
+contacting the service or exposing private state. Activations share the push lock;
+file and parent-directory flushes precede network dispatch and completion.
+
+The caller installs the receipt's issued runtime. Activation does not itself deploy
+or acknowledge configuration. `finishLinkedActivation` clears intent only after the
+service reports that the same still-current instance has acknowledged its revision.
+Retired instances and old applied history cannot complete it. A definitive rejected,
+unissued request can be cancelled after checking for a server receipt. Explicitly
+abandoning an obsolete issued instance (or an owned deployment's verified deletion)
+releases the local journal, without stopping any runtime or changing server activation.
+Uncertain requests require resume. Current issued instances retain their intent for
+apply recovery. CLI deploy integration and managed service apply are separate work.

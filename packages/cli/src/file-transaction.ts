@@ -6,7 +6,13 @@ interface Journal {schemaVersion:1;pid:number;committed:boolean;files:Entry[];}
 export function transactionPath(config:string):string {return resolve(dirname(resolve(config)),".logtura-transaction.json");}
 export function deploymentLinkPath(config:string):string {return `${resolve(config)}.logtura-link.json`;}
 export function pendingPushPath(config:string):string{return resolve(dirname(resolve(config)),".logtura-push.json");}
+export function pendingActivationPath(config:string):string{return resolve(dirname(resolve(config)),".logtura-activation.json");}
+export function assertNoPendingActivation(config:string):void {
+ try{lstatSync(pendingActivationPath(config));}catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return;throw error;}
+ throw new Error("Pending activation; resume or recover it before writing configuration");
+}
 export function assertNoPendingPush(config:string,permit?:string):void {
+ assertNoPendingActivation(config);
  const path=pendingPushPath(config);if(!existsSync(path))return;
  if(permit && lstatSync(path).isFile())try{if(JSON.parse(readFileSync(path,"utf8")).request?.requestId===permit)return;}catch{}
  throw new Error("Pending push; run logt push --resume before writing configuration");
@@ -16,7 +22,7 @@ export function assertTransactionClear(config:string):void {
 }
 function assertConfigDestination(config:string):void {
   const journal=transactionPath(config);
-  if([resolve(dirname(config),".env"),journal,`${journal}.commit`,pendingPushPath(config),resolve(dirname(config),".logtura-push.lock")].includes(resolve(config)))throw new Error("Configuration destination is reserved for private transaction state");
+  if([resolve(dirname(config),".env"),journal,`${journal}.commit`,pendingPushPath(config),pendingActivationPath(config),resolve(dirname(config),".logtura-push.lock")].includes(resolve(config)))throw new Error("Configuration destination is reserved for private transaction state");
 }
 function syncFile(path:string):void {const fd=openSync(path,"r");try{fsyncSync(fd);}finally{closeSync(fd);}}
 function syncDirectory(path:string):void {

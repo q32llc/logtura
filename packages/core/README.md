@@ -405,3 +405,8 @@ orchestration are separate steps.
 
 Default standalone Dockerfiles remain Node-free. Their `CMD` now contains only
 `--config /etc/vector/vector.yaml`, matching the inherited Vector `ENTRYPOINT`.
+
+
+Package builds emit ESM declarations that resolve in TypeScript NodeNext/Node16 and
+Bundler projects. Packed consumer CI imports every package root and checks strict
+NodeNext, Node16 and Bundler consumers without `skipLibCheck`; input shapes remain typed.

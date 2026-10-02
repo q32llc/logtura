@@ -1,3 +1,4 @@
+import { assertNoPendingActivation } from "./file-transaction";
 import { existsSync,lstatSync,readFileSync,writeFileSync,renameSync,linkSync,rmSync,openSync,fsyncSync,closeSync } from "node:fs";
 import { dirname,resolve } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -63,6 +64,7 @@ function clearPending(path:string):void{rmSync(pendingPushPath(path));syncParent
 export async function pushDeploymentConfig(client:LogturaServiceClient,path:string,options:{resume?:boolean;uploadSecrets?:boolean;acceptRemote?:boolean;force?:boolean}={}):Promise<{requestId:string;result:DeploymentConfigCommit;acceptedRemote:boolean}>{
  assertTransactionClear(path);
  return withPushLock(path,async()=>{
+  assertNoPendingActivation(path);
   let pending=await readPendingPush(path);
   if((options.resume===true)!==!!pending)throw new Error(pending?"Pending push; pass --resume":"No pending push to resume");
   const link=pending?.link??await readDeploymentLink(path);if(!link)throw new Error("Pull a hosted deployment before pushing");

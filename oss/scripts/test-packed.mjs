@@ -24,6 +24,22 @@ try {
   assert.equal(archives.length, packages.length, "every package must produce a tarball");
   writeFileSync(join(consumer, "package.json"), JSON.stringify({ private: true, type: "module" }));
   run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", ...archives], consumer);
+  // Typecheck the installed tarballs with their declarations, without skipLibCheck.
+  const typesFile = join(consumer, "consumer.mts");
+  writeFileSync(typesFile, packages.map((name, index) => `import * as package${index} from '@logtura/${name}';`).join("\n") + `
+    import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient} from '@logtura/core';
+    import {type PendingActivation, activateLinkedDeployment} from '@logtura/cli';
+    const typedActivation: (client:LogturaServiceClient,config:string,options?:{resume?:boolean})=>Promise<DeploymentInstanceReceipt> = activateLinkedDeployment;
+    // @ts-expect-error Config fields remain required; these exports must not become any.
+    const invalidInput:GenerateInput = {};
+    // @ts-expect-error Private journal fields remain required.
+    const invalidPending:PendingActivation = {schemaVersion:1};
+    void typedActivation;void invalidInput;void invalidPending;
+  `);
+  for (const [module, resolution] of [["NodeNext", "NodeNext"], ["Node16", "Node16"], ["ESNext", "Bundler"]]) {
+    run(process.execPath, [join(root, "node_modules/typescript/bin/tsc"), "--noEmit", "--strict", "--module", module,
+      "--moduleResolution", resolution, "--target", "ES2022", typesFile], consumer);
+  }
   const guard = join(consumer, "deny-network.mjs");
   writeFileSync(guard, "globalThis.fetch = () => { throw new Error('Network access denied in standalone consumer smoke'); };\n");
   const offline = { NODE_OPTIONS: `--import=${pathToFileURL(guard)}`, LOGT_AUTH_FILE: join(consumer, "account.json"), LOGT_SERVICE_TOKEN: "", LOGT_SERVICE_URL: "https://fixture.test" };
@@ -63,7 +79,7 @@ monitors: []
   const script = `import assert from 'node:assert/strict';
     import {GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit} from '@logtura/core';
     import {writeFileSync,readFileSync,statSync} from 'node:fs';
-    import {main,reportLoadedForwarderFile,runForwarderReporting} from '@logtura/cli';
+    import {main,activateLinkedDeployment,readPendingActivation,finishLinkedActivation,reportLoadedForwarderFile,runForwarderReporting} from '@logtura/cli';
     import {cloudflareWorkerTailDriver} from '@logtura/driver-cloudflare-worker-tail';
     const input={providers:[cloudflareWorkerTailDriver],destinations:[],monitors:[],
       connections:[{connection:{id:'fixture',provider:cloudflareWorkerTailDriver.id,displayName:'Fixture',externalAccountId:'fixture-account'},
@@ -107,6 +123,34 @@ monitors: []
     assert.equal(linked.accountId,'usr_fixture');assert.equal(linked.configurationVersion,4);assert.equal(linked.desiredSequence,1);
     assert.equal(statSync('linked/logt.yaml.logtura-link.json').mode&0o777,0o600);
     assert.ok(!JSON.stringify(linked).includes('fixture-token'));
+
+    let issuedReceipt=null,instanceWrites=0;
+    const issuedState={desired:{sequence:linked.desiredSequence,revision:linked.revision,document:linked.document,configurationVersion:linked.configurationVersion},applied:null,activeInstanceId:null,lastReportSequence:0,stale:true};
+    const issuer=new LogturaServiceClient({url:linked.service,token:'lt_cli_'+'T'.repeat(43),fetch:async(url,init)=>{
+      if(url.endsWith('/me'))return Response.json({user:{id:linked.accountId,githubLogin:'fixture'}});
+      if(url.endsWith('/state'))return Response.json({state:issuedState});
+      if(init.method==='POST'){
+        instanceWrites++;const request=JSON.parse(init.body);
+        issuedReceipt={requestId:request.requestId,instanceId:'00000000-0000-4000-8000-000000000003',configurationVersion:linked.configurationVersion,sequence:linked.desiredSequence,revision:linked.revision};
+        issuedState.activeInstanceId=issuedReceipt.instanceId;
+        throw new TypeError('packed fixture lost activation acknowledgement');
+      }
+      return issuedReceipt?Response.json(issuedReceipt):Response.json({error:'receipt_not_found'},{status:404});
+    }});
+    await assert.rejects(activateLinkedDeployment(issuer,'linked/logt.yaml'),/lost activation/);
+    assert.equal((await readPendingActivation('linked/logt.yaml')).receipt,null);
+    const recoveredInstance=await activateLinkedDeployment(issuer,'linked/logt.yaml',{resume:true});
+    assert.deepEqual(recoveredInstance,issuedReceipt);assert.equal(instanceWrites,1);
+    assert.equal(statSync('linked/.logtura-activation.json').mode&0o777,0o600);
+    assert.ok(!readFileSync('linked/.logtura-activation.json','utf8').includes('fixture-token'));
+    await assert.rejects(finishLinkedActivation(issuer,'linked/logt.yaml'),/not acknowledged/);
+    const linkedRuntime=await compileForwarderRuntime({service:linked.service,deploymentId:linked.deployment.id,document:linked.document,instance:recoveredInstance,env:exported.secretValues,providers:input.providers,destinations:input.destinations});
+    const linkedObservation={files:{'vector.yaml':linkedRuntime.bundle.vectorYaml,...Object.fromEntries(linkedRuntime.bundle.runtimeAssets.map(asset=>['assets/'+asset.driverId+'/'+asset.path,asset.content]))},environment:Object.fromEntries(linkedRuntime.bundle.envVars.map(v=>[v.name,v.value])),generatorVersion:GENERATOR_VERSION,vectorVersion:'0.55.0',ready:true};
+    await reportLoadedForwarderFile({checkpoint:'linked/runtime-checkpoint.json',artifact:linkedRuntime.artifact,observed:linkedObservation,report:async(report)=>{
+      assert.equal(report.instanceId,recoveredInstance.instanceId);assert.equal(report.reportSequence,1);
+      issuedState.applied={sequence:report.sequence,revision:report.revision,at:Date.now()};issuedState.lastReportSequence=1;issuedState.stale=false;return true;
+    }});
+    await finishLinkedActivation(issuer,'linked/logt.yaml');assert.equal(await readPendingActivation('linked/logt.yaml'),null);
 
     assert.equal(manifestSecretName('CREDENTIALS','fixture'),exported.document.connections[0].credentials.env);
     const requestId='00000000-0000-4000-8000-000000000001';assert.equal(isDeploymentPushRequestId(requestId),true);

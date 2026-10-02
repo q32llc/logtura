@@ -1469,3 +1469,76 @@ Durable activation/apply, persistent-volume installation, managed orchestration,
 complete local/workerd/remote/browser journeys, high final coverage floors,
 provider/telemetry hardening, dependency updates, npm publication, migrations 0018–0025
 and staged production rollout remain required. The full shipping goal remains active.
+
+
+### Durable linked activation and recovery (implemented)
+
+The public CLI library now persists `.logtura-activation.json` before requesting an
+instance from the shared service SDK. It binds the request to the linked account,
+origin, configuration version, desired sequence/revision and prior active instance.
+The local manifest, link and referenced private fingerprints must remain unchanged;
+checks repeat across asynchronous server calls. Metadata is private mode 0600 and
+contains no resolved payloads or account/reporting tokens. Regular-file, no-follow,
+nonblocking opens and size/schema validation reject unsafe journals. Private POSIX
+mode bits are checked; Windows storage relies on its filesystem ACL, since Node
+does not implement the group/owner/other mode distinction there. Nonregular paths
+are checked before opening as well as through the descriptor, including on Windows.
+See [Node 22 filesystem documentation](https://nodejs.org/docs/latest-v22.x/api/fs.html#fschmodpath-mode-callback).
+
+Activation and push share their serialized directory lock and cannot own one config
+simultaneously. Config writes, pull and push are fenced while an activation is pending.
+Read-only inspection and account login remain available. Offline CLI `config status`
+now exposes locally recorded pending/issued/rejected phase and instance/request IDs,
+without network calls or private payloads; an issued receipt is not an application
+claim. Intent and receipt writes
+flush the file before atomic publication and the parent directory before proceeding.
+Lost acknowledgements recover immutable receipts and reuse the original request ID;
+retired instances and advanced desired revisions cannot be returned for new apply.
+
+Completion requires an accepted runtime report from the same current instance/revision;
+old applied history and stale or zero-counter reports cannot clear intent. Explicit
+recovery can cancel definitively rejected unissued requests only after receipt lookup,
+or abandon remotely obsolete instances and verified owned-deployment deletions. These
+local recovery operations do not stop runtimes, claim application or alter server
+activation. Unknown outcomes and still-current issued instances retain their journal.
+
+Seventeen focused scenarios cover baseline/private edits before and during transport,
+wrong account/origin, missing state/link, lost and uncommitted responses, conflicting
+and corrupt receipts, server replacement/deletion, old history, rejection recovery,
+competing writers, filesystem failures and private permissions/types. Four actual
+compiled child processes are killed after each intent/receipt file/parent fsync; a
+real HTTP fixture survives the writer, and recovery issues exactly one server instance.
+This fixture exercises the SDK and filesystem, not a real D1 server; complete hosted
+workerd/browser/apply journeys remain required. The Windows directory-flush branch is
+simulated; this is not a native Windows validation claim.
+
+A strict NodeNext consumer exposed an older declaration-packaging defect:
+compiler output retained extensionless relative imports and failed with TS2834.
+The canonical build now rewrites generated declaration module nodes to resolved
+`.js` paths, preserving comments and unrelated string literals. Installed tarballs
+are typechecked in strict NodeNext, Node16 and Bundler modes without `skipLibCheck`, across
+all 15 package roots. Negative type assertions ensure input/journal types do not
+silently degrade to `any`. All three strict consumer modes pass.
+
+The packed consumer now imports the published-shape library APIs, performs linked
+activation with committed-response loss, compiles the recovered issued manifest,
+exercises the filesystem reporting adapter, then verifies acknowledgement-gated
+completion. This validates package exports and recovery without substituting a
+handwritten observation for the separate real owned-process image fixture.
+
+Private validation passes 806 tests in 79 files with coverage
+77.58/74.05/80.65/74.77. Public validation passes 555 tests in 47 files with coverage
+84.50/81.85/83.44/82.52. Private floors rise to 77.5/73.9/80.5/74.5, and public
+floors rise to 84/81/83/82. New activation logic and existing configuration transaction
+logic both enforce 100% statements/branches/functions/lines. Builds/types and all 15
+packed-package checks pass. The preceding packaged-runtime heads a11d462 (private
+run 36963406156) and 86b23c4 (public run 36963408491) pass all code/coverage/delivery
+steps in clean CI; both fail only Codecov with `Repository not found`. Image
+publication run 36963406159 succeeds. Codecov access remains unresolved and enforced.
+
+This is durable issuance/completion support for the apply adapter, not a newly wired
+CLI deploy command or managed apply workflow. Pinned artifact installation, persistent
+volumes, exact image/version apply and rollback, complete local/workerd/remote/browser
+journeys, high final coverage floors, provider/telemetry hardening, dependency updates,
+npm publication, migrations 0018–0025 and staged production rollout remain required.
+The complete shipping goal remains active.

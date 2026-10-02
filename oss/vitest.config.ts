@@ -27,7 +27,7 @@ export default defineConfig({
       reporter: ["text", "html", "lcov", "json-summary"],
       // Initial measured floor; the convergence plan requires 95/90 targets.
       thresholds: {
-        statements: 83, branches: 80, functions: 82, lines: 81,
+        statements: 84, branches: 81, functions: 83, lines: 82,
         "packages/core/src/reconcile.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/graph.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/graph.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
@@ -38,6 +38,7 @@ export default defineConfig({
         "packages/core/src/deployment-target.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/fly-target.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/deployment-link.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/cli/src/activation.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/push.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/runtime-process.ts": { statements: 98, branches: 92, functions: 100, lines: 100 },
         "packages/cli/src/runtime-main.ts": { statements: 100, branches: 92, functions: 100, lines: 100 },

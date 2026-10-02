@@ -786,3 +786,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 export { withForwarderReportFile, reportLoadedForwarderFile, runForwarderReporting } from "./runtime-report";
 export { runForwarderProcess } from "./runtime-process";
 export { forwarderRuntimeMain } from "./runtime-main";
+
+export { activateLinkedDeployment, readPendingActivation, finishLinkedActivation, cancelRejectedLinkedActivation, abandonObsoleteLinkedActivation, type PendingActivation } from "./activation";

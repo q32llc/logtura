@@ -50,7 +50,9 @@ export async function readDeploymentLink(path:string):Promise<DeploymentLink|nul
  return validateDeploymentLink(value);
 }
 export async function deploymentStatus(path:string){
- const link=await readDeploymentLink(path);if(!link)return {linked:false as const};
+ const pending=await (await import("./activation")).readPendingActivation(path);
+ const recovery=pending?{pendingActivation:{phase:pending.receipt?"issued" as const:pending.rejected?"rejected" as const:"pending" as const,requestId:pending.request.requestId,instanceId:pending.receipt?.instanceId??null,sequence:pending.request.expectedSequence,revision:pending.request.revision}}:{};
+ const link=await readDeploymentLink(path);if(!link)return {linked:false as const,...recovery};
  const document=normalizeDeploymentManifest(readConfigDoc(path)) as unknown as DeploymentManifest;
  const refs=manifestReferences(document),baseline=manifestReferences(link.document),env=readConfigEnvironment(path);
  const privateChanges:Array<{env:string;kind:"added"|"removed"|"changed"|"missing";requiresVersionUpdate:boolean}>=[];
@@ -60,5 +62,5 @@ export async function deploymentStatus(path:string){
  if(!prior || privateFingerprint(link.privateKey,name,value)!==link.fingerprints[name])privateChanges.push({env:name,kind:prior?"changed":"added",requiresVersionUpdate:prior?.version===ref.version});
  }
  for(const name of baseline.keys())if(!refs.has(name))privateChanges.push({env:name,kind:"removed",requiresVersionUpdate:false});
- return {linked:true as const,service:link.service,accountId:link.accountId,deployment:link.deployment,configurationVersion:link.configurationVersion,desiredSequence:link.desiredSequence,target:link.target,baselineRevision:link.revision,revision:await hashConfigDocument(document),changes:(await diffDeploymentManifests(link.document,document)).changes,privateChanges};
+ return {linked:true as const,...recovery,service:link.service,accountId:link.accountId,deployment:link.deployment,configurationVersion:link.configurationVersion,desiredSequence:link.desiredSequence,target:link.target,baselineRevision:link.revision,revision:await hashConfigDocument(document),changes:(await diffDeploymentManifests(link.document,document)).changes,privateChanges};
 }
