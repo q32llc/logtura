@@ -417,10 +417,14 @@ NodeNext, Node16 and Bundler consumers without `skipLibCheck`; input shapes rema
 `FlyMachinesClient` provides bounded Machines API transport using manual redirects,
 explicit bearer/FlyV1 authentication and lease nonce/version headers. Errors include
 HTTP status without provider response bodies or tokens. `validateFlyRuntimeVolume`
-checks encrypted persistent storage for one machine. `planFlyRuntime` turns an issued
+checks encrypted persistent storage for one machine. `buildFlyRuntimeConfig` turns an issued
 artifact and its exact generated bundle into private machine files/environment,
 retaining unrelated settings and mounting `/var/lib/logtura`. `flyRollbackConfig`
-pins the captured previous image to its actual digest.
+pins the captured previous image to its actual digest. `planFlyRuntime` wraps the same
+configuration builder in a versioned update plan from an actual machine snapshot.
+For a new machine, pass its intended base configuration to `buildFlyRuntimeConfig`;
+no fictitious provider identity or version is needed. Both paths verify the artifact
+and reject conflicting checkpoint mounts and reserved launch settings.
 
 Persist the returned `FlyMachinePlan` before invoking `applyFlyMachine`. Under a
 machine lease, the operation checks the original version/configuration or recognizes
@@ -460,3 +464,15 @@ or `null` before a usable prior sample, for invalid counters/clocks, or when the
 result cannot be represented as a finite number. Large representable rates avoid
 intermediate multiplication overflow. A counter reset returns zero. The hosted service and standalone CLI stats
 use these same public operations; persistence/checkpoint scheduling stays in adapters.
+
+`FlyMachinesClient.createVolume(app, { name, region, sizeGb, compute })` creates
+an encrypted Machines-only checkpoint volume with explicit region, size and compute
+placement. It validates the returned volume ID, name, size, region, created state
+and lack of attachment. Persist a reservation before calling it. It makes one
+request without retrying; volume names are not unique, so recovery must refuse
+ambiguous candidates and persist the adopted stable volume ID.
+
+Provision storage before issuing an instance and attaching it to a newly created
+machine. Adding storage to an existing unmanaged machine requires a separately
+planned replacement and rollback path; these public operations do not migrate a
+running machine or claim that attaching a new volume in place is supported.

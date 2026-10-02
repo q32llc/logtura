@@ -1,5 +1,5 @@
 import {expect,it} from "vitest";
-import {planFlyRuntime,validateFlyRuntimeVolume} from "../src/fly-runtime";
+import {buildFlyRuntimeConfig,planFlyRuntime,validateFlyRuntimeVolume} from "../src/fly-runtime";
 import {compileForwarderRuntime} from "../src/runtime";
 import {exportDeploymentManifest,createSecretVersioner} from "../src/manifest";
 import {hashConfigDocument} from "../src/config";
@@ -62,4 +62,17 @@ it("shares exact binary/Unicode asset bytes and modes between hosted and issued 
  for(const change of [{driverId:"../escape"},{path:""},{path:"/absolute"},{path:"a/../b"},{path:"a/./b"},{path:"a\\b"},{path:"a\u0000b"},{mode:-1},{mode:0o1000},{mode:1.5},{content:[] as unknown as Uint8Array}])expect(()=>flyBundleFiles({...f.bundle,runtimeAssets:[{...asset,...change}]})).toThrow("Invalid Fly runtime asset");
  expect(()=>flyBundleFiles({...f.bundle,runtimeAssets:[asset,asset]})).toThrow("Invalid Fly runtime asset");
  expect(flyBundleFiles({...f.bundle,runtimeAssets:[]})).toHaveLength(1);
+});
+
+it("builds the same issued launch for new machines without a fictitious provider identity",async()=>{
+ const f=await fixture(),base={image,guest:{cpu_kind:"shared",cpus:2,memory_mb:4096}},before=structuredClone(base);
+ const created=await buildFlyRuntimeConfig({...f,base});
+ expect(base).toEqual(before);expect(created).toEqual((await planFlyRuntime({...f,machine:{...f.machine,config:base}})).after);
+ expect(created).toMatchObject({image,guest:base.guest,mounts:[{path:"/var/lib/logtura",volume:f.volume}],metadata:{"logtura.instance":f.artifact.instance.instanceId,"logtura.revision":f.artifact.instance.revision}});
+});
+it("refuses conflicting checkpoint mounts even when adapters call the builder directly",async()=>{
+ const f=await fixture();
+ for(const mounts of [[{}],[{path:"relative",volume:"vol_other"}],[{path:"/var/",volume:"vol_other"}],[{path:"/var//lib",volume:"vol_other"}],[{path:"/var/../var",volume:"vol_other"}],[{path:"/var/./lib",volume:"vol_other"}],[{path:"/",volume:"vol_other"}],[{path:"/var",volume:"vol_other"}],[{path:"/var/lib/logtura/sub",volume:"vol_other"}],[{path:"/var/lib/logtura",volume:"vol_other"}],[{path:"/other",volume:f.volume}],[{path:"/var/lib/logtura",volume:f.volume},{path:"/var/lib/logtura",volume:f.volume}]]){
+  await expect(buildFlyRuntimeConfig({...f,base:{image,mounts}})).rejects.toThrow("mount conflicts");
+ }
 });

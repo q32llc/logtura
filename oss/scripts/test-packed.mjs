@@ -27,7 +27,7 @@ try {
   // Typecheck the installed tarballs with their declarations, without skipLibCheck.
   const typesFile = join(consumer, "consumer.mts");
   writeFileSync(typesFile, packages.map((name, index) => `import * as package${index} from '@logtura/${name}';`).join("\n") + `
-    import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient, FlyMachinesClient, flyBundleFiles, resolveFlyImage} from '@logtura/core';
+    import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient, FlyMachinesClient, buildFlyRuntimeConfig, flyBundleFiles, resolveFlyImage} from '@logtura/core';
     import {type PendingActivation, type PendingFlyApply, activateLinkedDeployment} from '@logtura/cli';
     const typedActivation: (client:LogturaServiceClient,config:string,options?:{resume?:boolean})=>Promise<DeploymentInstanceReceipt> = activateLinkedDeployment;
     // @ts-expect-error Config fields remain required; these exports must not become any.
@@ -44,6 +44,10 @@ try {
     new FlyMachinesClient({token:'fixture',authorizationScheme:'Basic'});
     // @ts-expect-error Machine creation retains its required immutable configuration.
     new FlyMachinesClient({token:'fixture'}).create('app',{name:'forwarder',region:'ord'});
+    // @ts-expect-error Volume provisioning requires explicit compute placement.
+    new FlyMachinesClient({token:'fixture'}).createVolume('app',{name:'checkpoint',region:'ord',sizeGb:1});
+    // @ts-expect-error Creation configuration still requires a verified runtime artifact.
+    buildFlyRuntimeConfig({base:{image:'fixture'},volume:'vol_checkpoint',image:'fixture'});
     void invalidApply;void typedActivation;void invalidInput;void invalidPending;
   `);
   for (const [module, resolution] of [["NodeNext", "NodeNext"], ["Node16", "Node16"], ["ESNext", "Bundler"]]) {
@@ -93,7 +97,7 @@ monitors: []
   assert.equal(bin("logtura",["stats","metrics file.ndjson"]),stats);
   assert.match(stats,/packed_sink\tsink\thttp\t-\t7\t-/);
   const script = `import assert from 'node:assert/strict';
-    import {parseMetricsBody,applyMetricsToSnapshot,rateFor,flyBundleFiles,resolveFlyImage,GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,FlyMachinesClient,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit} from '@logtura/core';
+    import {parseMetricsBody,applyMetricsToSnapshot,rateFor,buildFlyRuntimeConfig,flyBundleFiles,resolveFlyImage,GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,FlyMachinesClient,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit} from '@logtura/core';
     import {writeFileSync,readFileSync,statSync} from 'node:fs';
     import {main,applyLinkedFlyDeployment,readPendingFlyApply,activateLinkedDeployment,readPendingActivation,finishLinkedActivation,reportLoadedForwarderFile,runForwarderReporting} from '@logtura/cli';
     import {cloudflareWorkerTailDriver} from '@logtura/driver-cloudflare-worker-tail';
@@ -206,9 +210,12 @@ monitors: []
     const creationConfig={image:applyImage,env:{PRIVATE:'packed-create-private'}};
     let creations=0;const creating=new FlyMachinesClient({token:'fo1_scoped',authorizationScheme:'FlyV1',fetch:async(url,init)=>{creations++;assert.equal(url,'https://api.machines.dev/v1/apps/packed-app/machines');assert.equal(init.redirect,'manual');assert.equal(new Headers(init.headers).get('authorization'),'FlyV1 fo1_scoped');assert.deepEqual(JSON.parse(init.body),{name:'forwarder',region:'ord',config:creationConfig});return Response.json({...applyMachine,name:'forwarder',config:creationConfig});}});
     assert.equal((await creating.create('packed-app',{name:'forwarder',region:'ord',config:creationConfig})).id,'machine123');assert.equal(creations,1);
+    const volumeOptions={name:'packed_checkpoint',region:'ord',sizeGb:1,compute:{cpu_kind:'shared',cpus:2,memory_mb:4096}};
+    const provisioning=new FlyMachinesClient({token:'fly-fixture',fetch:async(url,init)=>{assert.equal(url,'https://api.machines.dev/v1/apps/packed-app/volumes');assert.equal(init.redirect,'manual');assert.equal(init.credentials,'omit');assert.deepEqual(JSON.parse(init.body),{name:volumeOptions.name,region:volumeOptions.region,size_gb:1,compute:volumeOptions.compute,encrypted:true,machines_only:true,require_unique_zone:true});return Response.json({id:'vol_checkpoint',name:volumeOptions.name,region:'ord',size_gb:1,state:'created',encrypted:true,attached_machine_id:null});}});
+    assert.equal((await provisioning.createVolume('packed-app',volumeOptions)).id,'vol_checkpoint');
     const applyAccount=new LogturaServiceClient({url:'https://apply.test',token:'lt_cli_'+'T'.repeat(43),fetch:accountFetch});
     await assert.rejects(applyLinkedFlyDeployment(applyAccount,'packed-apply/logt.yaml',{fly,image:'registry.test/forwarder@'+applyRoot,imageFetch,volume:'vol_checkpoint'}),/provider acknowledgement lost/);
-    const applyIntent=await readPendingFlyApply('packed-apply/logt.yaml');assert.equal(registryReads,2);assert.equal(applyIntent.plan.after.image,applyImage);assert.equal(statSync('packed-apply/.logtura-apply.json').mode&0o777,0o600);loseUpdate=false;
+    const applyIntent=await readPendingFlyApply('packed-apply/logt.yaml');assert.equal(registryReads,2);assert.equal(applyIntent.plan.after.image,applyImage);const creationArtifact=JSON.parse(Buffer.from(applyIntent.plan.after.files.find(file=>file.guest_path==='/etc/vector/logtura-runtime.json').raw_value,'base64').toString());const creationCompiled=await compileForwarderRuntime({service:creationArtifact.service,deploymentId:creationArtifact.deploymentId,document:creationArtifact.document,instance:creationArtifact.instance,env:applyExport.secretValues,providers:input.providers,destinations:input.destinations});const creationRuntime=await buildFlyRuntimeConfig({base:{image:applyImage},image:applyImage,volume:'vol_checkpoint',artifact:creationArtifact,bundle:creationCompiled.bundle});assert.deepEqual(creationRuntime.init,applyIntent.plan.after.init);assert.deepEqual(creationRuntime.files,applyIntent.plan.after.files);assert.equal(statSync('packed-apply/.logtura-apply.json').mode&0o777,0o600);loseUpdate=false;
     const applied=await applyLinkedFlyDeployment(applyAccount,'packed-apply/logt.yaml',{fly,resume:true});assert.equal(applied.image,applyImage);assert.equal(registryReads,2);assert.equal(applyUpdates,1);assert.equal(applyIssues,1);assert.equal(applied.instanceId,applyReceipt.instanceId);assert.equal(await readPendingFlyApply('packed-apply/logt.yaml'),null);assert.deepEqual(JSON.parse(readFileSync(applied.rollbackFile,'utf8')),applyIntent);
 
     assert.equal(manifestSecretName('CREDENTIALS','fixture'),exported.document.connections[0].credentials.env);

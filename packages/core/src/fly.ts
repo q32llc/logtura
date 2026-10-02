@@ -2,7 +2,9 @@ import { canonicalConfigJson } from "./config";
 
 export type FlyMachineConfig = Record<string, unknown> & {image: string};
 export interface FlyMachine {id:string;instance_id:string;state:string;region:string;config:FlyMachineConfig;image_ref:{registry:string;repository:string;digest:string};}
-export interface FlyVolume {id:string;region:string;state:string;encrypted:boolean;attached_machine_id:string|null;}
+export interface FlyVolume {id:string;region:string;state:string;encrypted:boolean;attached_machine_id:string|null;name?:string;size_gb?:number;}
+export interface FlyVolumeCreateOptions {name:string;region:string;sizeGb:number;compute:{cpu_kind:"shared"|"performance";cpus:number;memory_mb:number};}
+export type FlyCreatedVolume = FlyVolume & {name:string;size_gb:number};
 export interface FlyMachinePlan {app:string;machineId:string;version:string;before:FlyMachineConfig;after:FlyMachineConfig;}
 export class FlyMachineError extends Error {
   constructor(public readonly status:number) {super(`Fly Machines request failed (HTTP ${status})`);this.name="FlyMachineError";}
@@ -20,6 +22,10 @@ export function immutableFlyImage(image:string):string {
 export function flyRollbackConfig(machine:FlyMachine):FlyMachineConfig {
   const checked=validateFlyMachine(machine);
   return {...checked.config,image:immutableFlyImage(`${checked.image_ref.registry}/${checked.image_ref.repository}@${checked.image_ref.digest}`)};
+}
+function validateFlyVolume(value:unknown):FlyVolume {
+  if(!object(value) || typeof value.id!=="string" || !/^vol_[a-z0-9]+$/.test(value.id) || typeof value.region!=="string" || !/^[a-z]{3}$/.test(value.region) || typeof value.state!=="string" || typeof value.encrypted!=="boolean" || (value.attached_machine_id!==null && typeof value.attached_machine_id!=="string") || (value.name!==undefined && typeof value.name!=="string") || (value.size_gb!==undefined && (!Number.isSafeInteger(value.size_gb) || (value.size_gb as number)<1)))throw new Error("Invalid Fly volume inventory");
+  return structuredClone(value) as unknown as FlyVolume;
 }
 /** Matches every planned field, allowing only new server-populated top-level defaults.
  * Existing defaults/settings were captured in the original complete configuration. */
@@ -62,7 +68,16 @@ export class FlyMachinesClient {
   async machine(app:string,id:string):Promise<FlyMachine> {const result=validateFlyMachine(await this.request(`${identifier(app)}/machines/${identifier(id)}`));if(result.id!==id)throw new Error("Fly machine identity mismatch");return result;}
   async volumes(app:string):Promise<FlyVolume[]> {
     const result=await this.request(`${identifier(app)}/volumes`);
-    if(!Array.isArray(result) || result.some(volume=>!object(volume) || typeof volume.id!=="string" || !/^vol_[a-z0-9]+$/.test(volume.id) || typeof volume.region!=="string" || !/^[a-z]{3}$/.test(volume.region) || typeof volume.state!=="string" || typeof volume.encrypted!=="boolean" || (volume.attached_machine_id!==null && typeof volume.attached_machine_id!=="string")))throw new Error("Invalid Fly volume inventory");return result as FlyVolume[];
+    if(!Array.isArray(result))throw new Error("Invalid Fly volume inventory");return result.map(validateFlyVolume);
+  }
+  /** Persist a reservation before dispatch. Volume names are not unique, and a
+   * lost response must be reconciled by the caller rather than retried here. */
+  async createVolume(app:string,options:FlyVolumeCreateOptions):Promise<FlyCreatedVolume> {
+    if(!/^[a-z][a-z0-9_]{0,63}$/.test(options.name) || !/^[a-z]{3}$/.test(options.region) || !Number.isSafeInteger(options.sizeGb) || options.sizeGb<1 || !object(options.compute) || !["shared","performance"].includes(options.compute.cpu_kind) || !Number.isSafeInteger(options.compute.cpus) || options.compute.cpus<1 || !Number.isSafeInteger(options.compute.memory_mb) || options.compute.memory_mb<1)throw new Error("Invalid Fly checkpoint volume request");
+    const body={name:options.name,region:options.region,size_gb:options.sizeGb,compute:{cpu_kind:options.compute.cpu_kind,cpus:options.compute.cpus,memory_mb:options.compute.memory_mb},encrypted:true,machines_only:true,require_unique_zone:true};
+    const result=validateFlyVolume(await this.request(`${identifier(app)}/volumes`,"POST",body));
+    if(result.name!==options.name || result.region!==options.region || result.size_gb!==options.sizeGb || !result.encrypted || result.state!=="created" || result.attached_machine_id!==null)throw new Error("Fly created a different checkpoint volume");
+    return result as FlyCreatedVolume;
   }
   /** Caller persists intent before dispatch. Never automatically retries creation. */
   async create(app:string,options:{name:string;region:string;config:FlyMachineConfig}):Promise<FlyMachine> {

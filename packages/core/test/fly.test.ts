@@ -71,3 +71,16 @@ it("combines caller cancellation with the bounded provider request budget",async
  const stop=new AbortController(),fetcher=vi.fn<typeof fetch>(async(_,init)=>{expect(init!.signal!.aborted).toBe(false);stop.abort(new Error("cancelled"));expect(init!.signal!.aborted).toBe(true);return Response.json({name:"app",organization:{slug:"personal"}});});
  const client=new FlyMachinesClient({token:"token",signal:stop.signal,fetch:fetcher});await client.app("app");await expect(client.app("app")).rejects.toThrow("cancelled");expect(fetcher).toHaveBeenCalledTimes(1);
 });
+
+it("creates an encrypted checkpoint volume once with explicit placement and validates its stable identity",async()=>{
+ const options={name:"logtura_checkpoint",region:"ord",sizeGb:1,compute:{cpu_kind:"shared" as const,cpus:2,memory_mb:4096}},volume={id:"vol_checkpoint",name:options.name,region:"ord",size_gb:1,state:"created",encrypted:true,attached_machine_id:null},calls:RequestInit[]=[];
+ const fetcher=vi.fn<typeof fetch>(async(url,init)=>{expect(url).toBe("https://api.machines.dev/v1/apps/app/volumes");calls.push(init!);return Response.json(volume);});
+ const client=new FlyMachinesClient({token:"private",fetch:fetcher});expect(await client.createVolume("app",options)).toEqual(volume);
+ expect(calls[0]).toMatchObject({method:"POST",redirect:"manual",credentials:"omit"});expect(JSON.parse(calls[0]!.body as string)).toEqual({name:options.name,region:"ord",size_gb:1,compute:options.compute,encrypted:true,machines_only:true,require_unique_zone:true});
+ for(const bad of [{...options,name:"bad/name"},{...options,region:"invalid"},{...options,sizeGb:0},{...options,sizeGb:1.5},{...options,compute:null as unknown as typeof options.compute},{...options,compute:{...options.compute,cpu_kind:"bad" as "shared"}},{...options,compute:{...options.compute,cpus:0}},{...options,compute:{...options.compute,cpus:1.5}},{...options,compute:{...options.compute,memory_mb:0}},{...options,compute:{...options.compute,memory_mb:1.5}}])await expect(client.createVolume("app",bad)).rejects.toThrow("request");
+ expect(fetcher).toHaveBeenCalledTimes(1);
+ for(const change of [{name:"other"},{region:"iad"},{size_gb:2},{encrypted:false},{state:"deleting"},{attached_machine_id:"machine123"}]){fetcher.mockResolvedValueOnce(Response.json({...volume,...change}));await expect(client.createVolume("app",options)).rejects.toThrow("different checkpoint");}
+ for(const change of [{name:1},{size_gb:0},{size_gb:1.5},{state:1}]){fetcher.mockResolvedValueOnce(Response.json({...volume,...change}));await expect(client.createVolume("app",options)).rejects.toThrow("inventory");}
+ fetcher.mockRejectedValueOnce(new TypeError("lost volume response"));await expect(client.createVolume("app",options)).rejects.toThrow("lost volume response");expect(fetcher).toHaveBeenCalledTimes(12);
+ expect(await new FlyMachinesClient({token:"token",fetch:async()=>Response.json([volume,volume])}).volumes("app")).toEqual([volume,volume]); // Names are not unique; callers must reject ambiguous recovery candidates.
+});

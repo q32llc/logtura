@@ -2823,3 +2823,61 @@ only enforced Codecov upload fails. Prior image run 37014109274 succeeds. Scoped
 app permission approval is still pending. Final private coverage, broader provider
 and remote baselines, coordinated releases/migrations/live rollout and rollback
 remain open. The full shipping goal remains active.
+
+### Shared issued-runtime creation configuration and volume transport (implemented)
+
+The public core now exports `buildFlyRuntimeConfig`, which compiles a private
+issued-runtime machine configuration from an intended base configuration without
+inventing a provider machine ID/version. Existing `planFlyRuntime` delegates to
+this same builder after validating the actual machine snapshot. Both paths verify
+artifact file/environment integrity, bind the instance/revision, retain unrelated
+settings, install the supervised startup and graceful stop policy, and reject
+checkpoint mount conflicts. Direct builder calls also reject malformed absolute
+mount paths, duplicate checkpoint mounts, parent/child overlaps and a checkpoint
+volume reused at another path.
+
+`FlyMachinesClient.createVolume` now provides the shared bounded HTTPS transport
+for encrypted Machines-only checkpoint provisioning with explicit region, size
+and compute placement. It checks the returned stable volume identity, name,
+region, size, created state and lack of attachment. There is one provider POST
+and no automatic retry on acknowledgement loss. Optional name/size inventory
+fields are validated when present, while existing CLI inventory shapes remain
+compatible. Volume names are not unique; inventory preserves duplicates so a
+future durable reservation adapter must refuse ambiguous observations rather
+than silently select a candidate.
+
+The [Fly volume API](https://docs.fly.io/machines/api/volumes-resource/) documents
+these creation/placement fields and explicitly supports multiple volumes with the
+same name. The [unmanaged-machine storage procedure](https://docs.fly.io/volumes/volume-manage/)
+creates a volume and clones the machine with that volume. Consequently, adding
+checkpoint storage to an existing legacy machine needs a deliberate replacement
+transition with rollback and instance fencing. Do not treat a region-compatible
+unattached volume as proof that it can be mounted onto an arbitrary existing
+machine in place. New-machine creation can attach provisioned storage at creation;
+existing checkpoint mounts can retain their stable volume identity.
+
+This ships the public creation/storage primitives, not managed provisioning or
+issued-report convergence. The private service remains on its journaled legacy
+machine launch. The next managed slice must persist volume reservations before
+POST, reconcile lost responses without duplicate creation, atomically bind issued
+runtime installation intent to instance activation, handle existing-machine
+replacement safely, and require accepted runtime acknowledgement before marking
+convergence. No new migration, npm version, production schema or deployed
+forwarder is changed here.
+
+Validation: all 1,072 private backend/package tests pass with the existing coverage
+floors intact (87.26 statements / 85.00 branches / 90.34 functions / 85.58 lines).
+Both changed Fly modules retain 100% across all four metrics. All 723 public
+package tests pass with aggregate 95.22/92.90/96.89/95.79 coverage and unchanged
+final public floors. Builds, private/public typechecks, and all 15 freshly packed
+consumer checks pass in both layouts, including the new APIs and three TypeScript
+resolution modes. The full real local browser/installed-CLI/workerd/Docker journey
+passes accepted reporting, website convergence, restart and graceful shutdown.
+Volume creation itself is exercised through bounded provider fixtures, not live
+Fly resources. Final private 95/90/95/95 coverage targets remain outstanding.
+
+The preceding journal slice's private and public CI runs completed all build/test
+steps successfully; both failed at Codecov upload while its app installation is
+pending. Private image publication succeeded. Keep the Codecov gate enforced and
+complete the separately pending repository-access approval before treating CI as
+fully green.
