@@ -2725,3 +2725,101 @@ machine is changed by this slice. Managed issued runtime installation/durable
 recovery, final private coverage, broader provider/remote baselines and coordinated
 release, migrations, live rollout and rollback remain required. The full shipping
 goal remains active.
+
+
+### Durable managed provider installation and shared create backend (implemented)
+
+The managed machine step now persists an immutable encrypted install intent before
+provider mutation. Additive migration 0027 creates owner/deployment-scoped history,
+one active intent per deployment and an indexed recovery lookup. Captured generated
+files/environment, full prior machine config and digest-pinned rollback config are
+AES-GCM encrypted. Public job/ops payloads carry identities, not these private
+payloads. Preparation and dispatch are graph-version fenced. App, organization and
+region are immutable target identities; execution checks Fly's actual organization
+before writing. Multi-machine or differently named inventories are refused.
+
+A database lease serializes recovery jobs. Phase `dispatched` is committed before
+provider dispatch. Creation uses the packaged `FlyMachinesClient.create`; updates
+use packaged `applyFlyMachine` with a Fly lease, original machine version and full
+before/after configuration guards. Caller cancellation joins the bounded provider
+request signal. If a create response is lost, a new job observes the same named
+machine, unique `logtura.install` metadata and full intended configuration. It never
+blindly repeats an absent/ambiguous dispatched create. Update recovery recognizes
+an already-installed exact plan without a second write. The saved intent is reused
+without rendering new credentials or resolving a moving image tag again.
+
+The provider identity write and journal's post-write configuration base share one
+D1 batch. This handles a worker/job failure after committing the machine identity
+but before publishing the health poll: a subsequent job uses that committed base
+and same installation. Expired/competing database claims cannot finalize another
+claim or clear its lease. A changed graph, uncertain provider outcome or mismatched
+machine leaves the intent for recovery. Healthy completion checks exact saved
+config and reported manifest digest before clearing the old bundle marker and
+closing this legacy installation. Pre-journal queued polls retain their existing
+compatibility behavior.
+
+Private intent is capped at 1,900,000 plaintext bytes, leaving row/envelope overhead
+beneath [D1's 2,000,000-byte row/BLOB limit](https://developers.cloudflare.com/d1/platform/limits/).
+Oversized generation fails before provider writes. Reads normalize D1's array-form
+BLOB result before enforcing the ciphertext bound, then authenticate/validate the
+private shape, target identity and rollback snapshot. Corrupt storage produces a
+payload-free recovery error. Imported-row corruption tests preserve production
+SQL immutability triggers. Explicitly awaiting private decode also keeps the
+immediate bounded-read rejection attached to its caller in native workerd.
+
+The new public create operation validates immutable image syntax and the returned
+machine's name, region and complete planned config. It performs no automatic
+creation retry. An explicit Bearer/FlyV1 scheme supports already discharged adapter
+credentials; the API does not acquire/discharge them. Installed tarball tests execute
+creation and validate the new required-field/scheme types in NodeNext, Node16 and
+Bundler modes. The underlying [Fly create contract](https://docs.fly.io/machines/api/machines-resource)
+was checked; automatic create idempotency is not assumed. Persistent volume names
+are not unique identities (see [Fly volume behavior](https://docs.fly.io/machines/api/volumes-resource));
+checkpoint provisioning still requires its own durable operation.
+
+Eighteen native journal cases cover immutable encrypted storage, unknown/lost
+creates, lost update recovery, exact rollback, competing config/inventory,
+concurrent preparation/execution, expired claims, graph races, cancellation,
+ownership, organization, imported corruption, bounds, indexing, cascades and
+post-target-write graph bases. The 25-case real producer/inbound queue baseline
+covers the complete legacy chain plus response loss, post-commit poll publication
+failure, recovery target changes and changed healthy files/digest. Empty-inventory
+and deadline fixtures now carry explicit data objects and assert the intended
+failure cause. A separate schema-26 upgrade compares every application table,
+excluding D1-owned metadata/migration bookkeeping, and confirms empty journal
+storage without rewriting existing forwarders or configuration versions.
+
+All 1,069 private cases across 99 files pass with every existing aggregate gate
+retained. Final measured statement/branch/function/line coverage is
+87.24/84.91/90.31/85.54. Journal coverage is 96.93/96.07/100/100 with enforced
+96/95/100/100 floors. The managed queue handler reaches 99.20/93.54/100/100 and
+its floors rise to 99/90/100/100. Public core Fly transport remains 100% in all
+four measures. All 720 public cases across 61 files pass at
+95.20/92.83/96.88/95.77. Installed checks for all 15 packages pass in both layouts;
+package/service builds and types pass. All 280 website/native API cases pass at
+93.21/90.12/95.36/94.48 with existing strict UI gates. The fresh schema-27 complete
+browser/installed CLI/workerd/Docker journey passes, as do standalone real Vector
+flow and injected post-runtime owned cleanup. This browser journey remains the
+self-managed path; it does not claim real managed Fly resources or managed issued
+runtime/report delivery.
+
+This is the persistent provider-install foundation, not completion of managed
+runtime convergence. The machine config still follows the legacy Vector launch
+and health-based bundle marker path. Issued runtime descriptors, durable checkpoint
+volume provisioning, accepted-report success, obsolete/unknown-intent recovery UX,
+fleet semantics and exercised coordinated rollback remain required. App creation
+and organization-discharge steps still use private legacy adapters; their bounded
+shared provisioning/recovery integration is also required. No npm version,
+production migration or deployed forwarder is changed by this slice. Production
+remains through migration 0017; source migration 0027 is unapplied there.
+
+Migration rollback retains the additive table. Before rolling a managed consumer
+back to a worker that does not understand the journal, pause managed queue work
+and reconcile active intents/unknown provider outcomes; an older consumer must
+not blindly run a pending create. This constraint needs staging/rollback proof,
+not just documentation. Prior private/public heads 8c93e53 and be3fab7 complete
+all code/runtime/coverage steps in terminal CI runs 37014109114 and 37014101158;
+only enforced Codecov upload fails. Prior image run 37014109274 succeeds. Scoped
+app permission approval is still pending. Final private coverage, broader provider
+and remote baselines, coordinated releases/migrations/live rollout and rollback
+remain open. The full shipping goal remains active.

@@ -57,3 +57,17 @@ it("bounds streamed response bytes, validates UTF-8/JSON, handles empty bodies a
  let cancelled=false;const stream=new ReadableStream({start(controller){controller.enqueue(new Uint8Array(4_194_305));},cancel(){cancelled=true;}});await expect(new FlyMachinesClient({token:"token",fetch:async()=>new Response(stream)}).app("app")).rejects.toThrow("size limit");expect(cancelled).toBe(true);
  const readerError=new ReadableStream({pull(controller){controller.error(new Error("reader failed"));}});await expect(new FlyMachinesClient({token:"token",fetch:async()=>new Response(readerError)}).app("app")).rejects.toThrow("reader failed");
 });
+it("creates a single immutable machine without automatic retries and validates exact provider identity",async()=>{
+ const current={...machine(),name:"forwarder",region:"ord",config:{image,env:{PRIVATE:"never-log"}}},calls:RequestInit[]=[];
+ const fetcher=vi.fn<typeof fetch>(async(url,init)=>{expect(url).toBe("https://api.machines.dev/v1/apps/app/machines");calls.push(init!);return Response.json(current);});
+ const client=new FlyMachinesClient({token:"fo1_scoped",authorizationScheme:"FlyV1",fetch:fetcher}),options={name:"forwarder",region:"ord",config:current.config};
+ expect(await client.create("app",options)).toEqual(current);expect(calls[0]!.headers).toMatchObject({authorization:"FlyV1 fo1_scoped"});expect(JSON.parse(calls[0]!.body as string)).toEqual(options);
+ for(const bad of [{...options,name:"bad/name"},{...options,region:"invalid"},{...options,config:{image:"latest"}}])await expect(client.create("app",bad)).rejects.toThrow();expect(fetcher).toHaveBeenCalledTimes(1);
+ for(const result of [{...current,name:"other"},{...current,region:"iad"},{...current,config:{image}}]){fetcher.mockResolvedValueOnce(Response.json(result));await expect(client.create("app",options)).rejects.toThrow("different machine configuration");}
+ fetcher.mockRejectedValueOnce(new TypeError("lost response"));await expect(client.create("app",options)).rejects.toThrow("lost response");expect(fetcher).toHaveBeenCalledTimes(5);
+ expect(()=>new FlyMachinesClient({token:"token",authorizationScheme:"Basic" as "Bearer"})).toThrow("authorization scheme");
+});
+it("combines caller cancellation with the bounded provider request budget",async()=>{
+ const stop=new AbortController(),fetcher=vi.fn<typeof fetch>(async(_,init)=>{expect(init!.signal!.aborted).toBe(false);stop.abort(new Error("cancelled"));expect(init!.signal!.aborted).toBe(true);return Response.json({name:"app",organization:{slug:"personal"}});});
+ const client=new FlyMachinesClient({token:"token",signal:stop.signal,fetch:fetcher});await client.app("app");await expect(client.app("app")).rejects.toThrow("cancelled");expect(fetcher).toHaveBeenCalledTimes(1);
+});

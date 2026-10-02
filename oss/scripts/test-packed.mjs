@@ -27,7 +27,7 @@ try {
   // Typecheck the installed tarballs with their declarations, without skipLibCheck.
   const typesFile = join(consumer, "consumer.mts");
   writeFileSync(typesFile, packages.map((name, index) => `import * as package${index} from '@logtura/${name}';`).join("\n") + `
-    import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient, flyBundleFiles, resolveFlyImage} from '@logtura/core';
+    import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient, FlyMachinesClient, flyBundleFiles, resolveFlyImage} from '@logtura/core';
     import {type PendingActivation, type PendingFlyApply, activateLinkedDeployment} from '@logtura/cli';
     const typedActivation: (client:LogturaServiceClient,config:string,options?:{resume?:boolean})=>Promise<DeploymentInstanceReceipt> = activateLinkedDeployment;
     // @ts-expect-error Config fields remain required; these exports must not become any.
@@ -40,6 +40,10 @@ try {
     flyBundleFiles({});
     // @ts-expect-error Registry tokens retain their string type.
     resolveFlyImage('registry.test/image@sha256:'+'a'.repeat(64),{token:1});
+    // @ts-expect-error Discharged provider authorization only supports its two schemes.
+    new FlyMachinesClient({token:'fixture',authorizationScheme:'Basic'});
+    // @ts-expect-error Machine creation retains its required immutable configuration.
+    new FlyMachinesClient({token:'fixture'}).create('app',{name:'forwarder',region:'ord'});
     void invalidApply;void typedActivation;void invalidInput;void invalidPending;
   `);
   for (const [module, resolution] of [["NodeNext", "NodeNext"], ["Node16", "Node16"], ["ESNext", "Bundler"]]) {
@@ -199,6 +203,9 @@ monitors: []
       if(url.endsWith('/machine123'))return Response.json(applyMachine);
       return Response.json({name:'packed-app',organization:{slug:'personal'}});
     }});
+    const creationConfig={image:applyImage,env:{PRIVATE:'packed-create-private'}};
+    let creations=0;const creating=new FlyMachinesClient({token:'fo1_scoped',authorizationScheme:'FlyV1',fetch:async(url,init)=>{creations++;assert.equal(url,'https://api.machines.dev/v1/apps/packed-app/machines');assert.equal(init.redirect,'manual');assert.equal(new Headers(init.headers).get('authorization'),'FlyV1 fo1_scoped');assert.deepEqual(JSON.parse(init.body),{name:'forwarder',region:'ord',config:creationConfig});return Response.json({...applyMachine,name:'forwarder',config:creationConfig});}});
+    assert.equal((await creating.create('packed-app',{name:'forwarder',region:'ord',config:creationConfig})).id,'machine123');assert.equal(creations,1);
     const applyAccount=new LogturaServiceClient({url:'https://apply.test',token:'lt_cli_'+'T'.repeat(43),fetch:accountFetch});
     await assert.rejects(applyLinkedFlyDeployment(applyAccount,'packed-apply/logt.yaml',{fly,image:'registry.test/forwarder@'+applyRoot,imageFetch,volume:'vol_checkpoint'}),/provider acknowledgement lost/);
     const applyIntent=await readPendingFlyApply('packed-apply/logt.yaml');assert.equal(registryReads,2);assert.equal(applyIntent.plan.after.image,applyImage);assert.equal(statSync('packed-apply/.logtura-apply.json').mode&0o777,0o600);loseUpdate=false;

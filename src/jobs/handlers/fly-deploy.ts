@@ -1,5 +1,5 @@
 import { assembleDeploymentBundle } from "../../bundle-assembly";
-import { flyBundleFiles } from "@logtura/core";
+import { FlyMachinesClient, flyBundleFiles, matchesFlyConfig } from "@logtura/core";
 import { commitConfiguration, readStableConfiguration } from "../../config-version";
 import {
   decryptDeployTargetCredentials,
@@ -7,15 +7,14 @@ import {
 } from "../../db";
 import {
   createFlyApp,
-  createFlyMachine,
   flyAuthHeader,
   getFlyApp,
   listFlyMachines,
   resolveFlyOrgSlug,
   startFlyMachine,
-  updateFlyMachine,
   type FlyMachineConfig,
 } from "../../deploy-targets/fly-machines";
+import { readManagedInstall,prepareManagedInstall,executeManagedInstall,completeManagedInstall,recordManagedInstallVersion } from "../../managed-installations";
 import { dischargeBundle } from "../../deploy-targets/fly-macaroon";
 import type { Env } from "../../env";
 import type { JobHandlerCtx } from "../queue";
@@ -128,6 +127,20 @@ export async function runFlyCreateOrUpdateMachine(
   await ctx.progress({ label: "Assembling Vector config" });
   const flyAuth = await loadDischargedAuth(ctx.env, ctx.job.userId, parent);
 
+  const activeInstall=await readManagedInstall(ctx.env,ctx.job.userId,parent.deploymentId);
+  if(activeInstall){
+    if(activeInstall.app!==p.appName || activeInstall.region!==p.region || activeInstall.org!==p.orgSlug)throw new Error("Managed installation target changed; retain it for recovery");
+    const client=managedClient(flyAuth,ctx.signal),machineId=await executeManagedInstall(ctx.env,activeInstall,client,ctx.signal);
+    const expectedVersion=activeInstall.installedConfigurationVersion??activeInstall.configurationVersion;
+    const digest=activeInstall.payload.after.image.split("@")[1]!;
+    const committed=await commitConfiguration(ctx.env.DB,ctx.job.userId,expectedVersion,[
+      ctx.env.DB.prepare("UPDATE deployments SET external_id=?,image_digest=?,updated_at=? WHERE id=? AND user_id=?").bind(`fly:${p.appName}:${machineId}`,digest,Date.now(),parent.deploymentId,ctx.job.userId),
+      recordManagedInstallVersion(ctx.env.DB,activeInstall.id,ctx.job.userId),
+    ]);
+    await ctx.enqueueSibling({kind:"fly_deploy.wait_running",payload:{parentPayload:parent,appName:p.appName,machineId,pollDeadline:Date.now()+RUN_TIMEOUT_MS,configurationVersion:committed.version,installationId:activeInstall.id},delaySecs:POLL_DELAY_SECS});
+    return {appName:p.appName,machineId,orgSlug:p.orgSlug,region:p.region,installationId:activeInstall.id,recovered:true};
+  }
+
   const snapshot = await readStableConfiguration(ctx.env.DB, ctx.job.userId,
     () => assembleDeploymentBundle(ctx.env, ctx.job.userId, parent.deploymentId));
   const assembled = snapshot.value;
@@ -197,33 +210,12 @@ export async function runFlyCreateOrUpdateMachine(
   };
 
   await ctx.progress({ label: "Updating Fly machine" });
-  const existing = await listFlyMachines(flyAuth, p.appName);
-  const target = existing.find((m) => m.name === MACHINE_NAME);
-  let machineId: string;
-  if (target) {
-    const updated = await updateFlyMachine(flyAuth, {
-      appName: p.appName,
-      machineId: target.id,
-      config: machineConfig,
-    });
-    machineId = updated.id;
-    await ctx.events.record({
-      kind: "fly_machine.updated",
-      message: `Updated machine ${machineId} on ${p.appName}`,
-    });
-  } else {
-    const created = await createFlyMachine(flyAuth, {
-      appName: p.appName,
-      name: MACHINE_NAME,
-      region: p.region,
-      config: machineConfig,
-    });
-    machineId = created.id;
-    await ctx.events.record({
-      kind: "fly_machine.created",
-      message: `Created machine ${machineId} on ${p.appName}`,
-    });
-  }
+  const client=managedClient(flyAuth,ctx.signal),existing=await client.machines(p.appName);
+  if(existing.length>1 || (existing.length===1 && (existing[0] as {name?:string}).name!==MACHINE_NAME))throw new Error("Managed apply requires one owned forwarder machine");
+  const target=existing[0]??null;
+  const install=await prepareManagedInstall(ctx.env,{userId:ctx.job.userId,deploymentId:parent.deploymentId,app:p.appName,org:p.orgSlug,region:p.region,configurationVersion:snapshot.version,config:{...target?.config,...machineConfig},machine:target});
+  const machineId=await executeManagedInstall(ctx.env,install,client,ctx.signal);
+  await ctx.events.record({kind:target?"fly_machine.updated":"fly_machine.created",message:`Installed managed intent ${install.id} on ${p.appName}`,payload:{installationId:install.id,machineId}});
 
   // We don't issue /start here. updateFlyMachine returns before Fly
   // finishes propagating, so an immediate /start hits a 412 race.
@@ -233,6 +225,7 @@ export async function runFlyCreateOrUpdateMachine(
   const committed = await commitConfiguration(ctx.env.DB, ctx.job.userId, snapshot.version, [
     ctx.env.DB.prepare("UPDATE deployments SET external_id=?,image_digest=?,updated_at=? WHERE id=? AND user_id=?")
       .bind(`fly:${p.appName}:${machineId}`, digest, Date.now(), deployment.id, ctx.job.userId),
+    recordManagedInstallVersion(ctx.env.DB,install.id,ctx.job.userId),
   ]);
 
   await ctx.enqueueSibling({
@@ -243,10 +236,11 @@ export async function runFlyCreateOrUpdateMachine(
       machineId,
       pollDeadline: Date.now() + RUN_TIMEOUT_MS,
       configurationVersion: committed.version,
+      installationId: install.id,
     } as unknown as Record<string, unknown>,
     delaySecs: POLL_DELAY_SECS,
   });
-  return { appName: p.appName, machineId, orgSlug: p.orgSlug, region: p.region };
+  return { appName: p.appName, machineId, orgSlug: p.orgSlug, region: p.region, installationId:install.id };
 }
 
 // --- Step 3: poll machine state, requeue self until running ---------
@@ -259,12 +253,14 @@ export async function runFlyWaitRunning(
 
   const flyAuth = await loadDischargedAuth(ctx.env, ctx.job.userId, parent);
 
-  const machines = await listFlyMachines(flyAuth, p.appName);
+  const machines = p.installationId?await managedClient(flyAuth,ctx.signal).machines(p.appName) as unknown as Awaited<ReturnType<typeof listFlyMachines>>:await listFlyMachines(flyAuth, p.appName);
   const m = machines.find((x) => x.id === p.machineId);
   if (!m) {
     throw new Error(`machine ${p.machineId} not found on ${p.appName}`);
   }
 
+  const install=p.installationId?await readManagedInstall(ctx.env,ctx.job.userId,parent.deploymentId,p.installationId):null;
+  if(p.installationId && (!install || install.phase!=="installed" || install.machineId!==p.machineId || install.app!==p.appName || install.installedConfigurationVersion!==p.configurationVersion || !matchesFlyConfig({...m.config},install.payload.after) || (m as unknown as {image_ref?:{digest?:unknown}}).image_ref?.digest!==install.payload.after.image.split("@")[1]))throw new Error("Managed machine differs from its saved installation; retain it for recovery");
   const checks = m.checks ?? [];
   const checksPassing =
     checks.length > 0 && checks.every((c) => c.status === "passing");
@@ -302,6 +298,7 @@ export async function runFlyWaitRunning(
       await commitConfiguration(ctx.env.DB, ctx.job.userId, p.configurationVersion, [
         ctx.env.DB.prepare("UPDATE deployments SET bundle_outdated=0,updated_at=? WHERE id=? AND user_id=?")
           .bind(Date.now(), parent.deploymentId, ctx.job.userId),
+        ...(install?[completeManagedInstall(ctx.env.DB,install.id,ctx.job.userId)]:[]),
       ]);
     }
     await ctx.events.record({
@@ -394,4 +391,9 @@ export function flyAppNameFor(deploymentId: string): string {
   const suffix = deploymentId.replace(/^dep_/, "").toLowerCase();
   const safe = suffix.replace(/[^a-z0-9-]/g, "").slice(0, 20);
   return `logtura-${safe}`;
+}
+
+function managedClient(auth:string,signal:AbortSignal):FlyMachinesClient {
+ const match=/^(Bearer|FlyV1) (.+)$/.exec(auth);if(!match)throw new Error("Invalid discharged Fly authorization");
+ return new FlyMachinesClient({token:match[2]!,authorizationScheme:match[1] as "Bearer"|"FlyV1",signal});
 }

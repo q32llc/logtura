@@ -110,6 +110,8 @@ export interface FlyWaitRunningPayload {
   pollDeadline: number;
   /** Graph base installed by this attempt; absent only on pre-fence queued jobs. */
   configurationVersion?: number;
+  /** Durable private provider installation, absent on pre-journal jobs. */
+  installationId?: string;
 }
 
 export interface FlyDeployResult {

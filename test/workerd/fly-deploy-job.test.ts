@@ -41,15 +41,15 @@ function registry(index = false) {
     return new Response(imageManifest, { headers: { "docker-content-digest": digest } });
   });
 }
-function machine(state = "started", checks: unknown[] = [{ name: "vector_api", status: "passing" }], events: unknown[] = []) { return { id: "machine1", name: "forwarder", state, region: "ord", config: { image: `ghcr.io/q32llc/logtura-forwarder@${digest}` }, checks, events }; }
+function machine(state = "started", checks: unknown[] = [{ name: "vector_api", status: "passing" }], events: unknown[] = []) { return { id: "machine1", name: "forwarder", state, region: "ord", instance_id:"version1", image_ref:{registry:"ghcr.io",repository:"q32llc/logtura-forwarder",digest}, config: { image: `ghcr.io/q32llc/logtura-forwarder@${digest}` }, checks, events }; }
 it("runs the real persisted parent/three-step queue chain with generated Railway assets and a fenced healthy completion", async () => {
-  const f = await fixture(); registry(); let installed: Record<string, unknown> | undefined;
+  const f = await fixture(); registry(); let installed: Record<string, unknown> | undefined,appCreated=false;
   mockFetch("https://api.machines.dev", async req => {
     const path = new URL(req.url).pathname; expect(req.headers.get("authorization")).toBe("FlyV1 fo1_fixture");
-    if (path === `/v1/apps/${f.appName}`) return new Response(null, { status: 404 });
-    if (path === "/v1/apps") { expect(await req.json()).toEqual({ app_name: f.appName, org_slug: "personal" }); return Response.json({}, { status: 201 }); }
-    if (path === `/v1/apps/${f.appName}/machines` && req.method === "GET") return Response.json(installed ? [machine()] : []);
-    if (path === `/v1/apps/${f.appName}/machines` && req.method === "POST") { const body = await req.json() as {config:Record<string,unknown>;name:string;region:string}; expect(body).toMatchObject({ name: "forwarder", region: "ord" }); installed = body.config; return Response.json(machine()); }
+    if (path === `/v1/apps/${f.appName}`) return appCreated?Response.json({name:f.appName,organization:{slug:"personal"}}):new Response(null, { status: 404 });
+    if (path === "/v1/apps") { expect(await req.json()).toEqual({ app_name: f.appName, org_slug: "personal" }); appCreated=true;return Response.json({}, { status: 201 }); }
+    if (path === `/v1/apps/${f.appName}/machines` && req.method === "GET") return Response.json(installed ? [{...machine(),config:installed}] : []);
+    if (path === `/v1/apps/${f.appName}/machines` && req.method === "POST") { const body = await req.json() as {config:Record<string,unknown>;name:string;region:string}; expect(body).toMatchObject({ name: "forwarder", region: "ord" }); installed = body.config; return Response.json({...machine(),config:installed}); }
     throw new Error(`unexpected Fly request ${req.method} ${path}`);
   });
   const parent = await f.enqueue("fly_deploy", f.parentPayload); expect((await consume(f, parent)).status).toBe("succeeded");
@@ -65,14 +65,19 @@ it("runs the real persisted parent/three-step queue chain with generated Railway
   const events = await env.DB.prepare("SELECT kind FROM ops_events WHERE deployment_id=?").bind(f.deployment.id).all<{kind:string}>(); expect(events.results.map(e => e.kind)).toContain("fly_machine.running");
 });
 it("updates a named existing machine instead of creating another", async () => {
-  const f = await fixture(); registry(); let updated = false;
-  mockFetch("https://api.machines.dev", async req => { const path = new URL(req.url).pathname; if (path.endsWith("/machines") && req.method === "GET") return Response.json([machine()]); if (path.endsWith("/machines/machine1") && req.method === "POST") { expect(await req.json()).toHaveProperty("config.files"); updated = true; return Response.json(machine()); } throw new Error("unexpected provider write"); });
+  const f = await fixture(); registry(); let updated = false,current=machine();
+  mockFetch("https://api.machines.dev", async req => { const path = new URL(req.url).pathname;
+    if(path===`/v1/apps/${f.appName}`)return Response.json({name:f.appName,organization:{slug:"personal"}});
+    if(path.endsWith("/lease"))return req.method==="DELETE"?new Response(null,{status:204}):Response.json({data:{nonce:"private-lease"}});
+    if (path.endsWith("/machines") && req.method === "GET") return Response.json([current]);
+    if(path.endsWith("/machines/machine1") && req.method==="GET")return Response.json(current);
+    if (path.endsWith("/machines/machine1") && req.method === "POST") { const body=await req.json() as {config:typeof current.config;current_version:string};expect(body).toHaveProperty("config.files");expect(body.current_version).toBe("version1");expect(req.headers.get("fly-machine-lease-nonce")).toBe("private-lease");current={...current,config:body.config,instance_id:"version2"}; updated = true; return Response.json(current); } throw new Error("unexpected provider write"); });
   const job = await f.enqueue("fly_deploy.create_or_update_machine", { parentPayload: f.parentPayload, appName: f.appName, orgSlug: "personal", region: "ord" }); expect((await consume(f, job)).status).toBe("succeeded"); expect(updated).toBe(true);
 });
 it("fails an in-flight installation changed by a website edit instead of recording the stale bundle as current", async () => {
   const f = await fixture(); registry();
-  mockFetch("https://api.machines.dev", async req => { if (req.method === "GET") return Response.json([]); await env.DB.prepare("UPDATE connections SET display_name='Edited' WHERE id=?").bind(f.connection.id).run(); return Response.json(machine()); });
-  const job = await f.enqueue("fly_deploy.create_or_update_machine", { parentPayload: f.parentPayload, appName: f.appName, orgSlug: "personal", region: "ord" }); const result = await consume(f, job); expect(result.status).toBe("failed"); expect(result.lastError).toContain("Configuration changed"); expect(await f.read()).toMatchObject({ bundle_outdated: 1, external_id: null }); expect(await f.driver.listChildren(job.id)).toEqual([]);
+  mockFetch("https://api.machines.dev", async req => { if(new URL(req.url).pathname===`/v1/apps/${f.appName}`)return Response.json({name:f.appName,organization:{slug:"personal"}});if (req.method === "GET") return Response.json([]); const body=await req.json() as {config:ReturnType<typeof machine>["config"]};await env.DB.prepare("UPDATE connections SET display_name='Edited' WHERE id=?").bind(f.connection.id).run(); return Response.json({...machine(),config:body.config}); });
+  const job = await f.enqueue("fly_deploy.create_or_update_machine", { parentPayload: f.parentPayload, appName: f.appName, orgSlug: "personal", region: "ord" }); const result = await consume(f, job); expect(result.status).toBe("failed"); expect(result.lastError).toContain("configuration changed"); expect(await f.read()).toMatchObject({ bundle_outdated: 1, external_id: null }); expect(await f.driver.listChildren(job.id)).toEqual([]);
 });
 it("keeps the outdated marker when a website edit occurs while waiting for health", async () => {
   const f = await fixture(), version = await readConfigurationVersion(env.DB, f.userId); await env.DB.prepare("UPDATE connections SET display_name='Edited' WHERE id=?").bind(f.connection.id).run(); mockFetch("https://api.machines.dev", () => Response.json([machine()]));
@@ -87,8 +92,8 @@ it.each([["started", [], []], ["started", [{name:"vector_api",status:"critical"}
 it("nudges a stopped machine and tolerates Fly's transient start precondition response", async () => {
   const f = await fixture(); let starts = 0; mockFetch("https://api.machines.dev", req => { if (req.method === "GET") return Response.json([machine("stopped")]); expect(new URL(req.url).pathname).toContain("/start"); starts++; return new Response("not ready", { status: 412 }); }); const job = await f.enqueue("fly_deploy.wait_running", { parentPayload: f.parentPayload, appName: f.appName, machineId: "machine1", pollDeadline: Date.now() + 60_000 }); expect((await consume(f, job)).result).toMatchObject({ polling: true, startStatus: 412 }); expect(starts).toBe(1);
 });
-it.each([[], [machine("started", [], [{type:"exit",timestamp:Date.now()}])]])("fails a missing or deadline-expired unhealthy machine", async inventory => {
-  const f = await fixture(); mockFetch("https://api.machines.dev", () => Response.json(inventory)); const job = await f.enqueue("fly_deploy.wait_running", { parentPayload: f.parentPayload, appName: f.appName, machineId: "machine1", pollDeadline: Date.now() - 1 }); const result = await consume(f, job); expect(result.status).toBe("failed"); expect(await f.driver.listChildren(job.id)).toEqual([]);
+it.each([{inventory:[]}, {inventory:[machine("started", [], [{type:"exit",timestamp:Date.now()}])]}])("fails a missing or deadline-expired unhealthy machine", async ({inventory}) => {
+  const f = await fixture(); mockFetch("https://api.machines.dev", () => Response.json(inventory)); const job = await f.enqueue("fly_deploy.wait_running", { parentPayload: f.parentPayload, appName: f.appName, machineId: "machine1", pollDeadline: Date.now() - 1 }); const result = await consume(f, job); expect(result.status).toBe("failed");expect(result.lastError).toContain(inventory.length?"did not reach healthy":"not found"); expect(await f.driver.listChildren(job.id)).toEqual([]);
 });
 it("refuses missing deploy identifiers and unowned, wrong-kind or credentialless targets", async () => {
   const f = await fixture(); const missing = await f.enqueue("fly_deploy", {}); expect((await consume(f, missing)).lastError).toContain("missing ids");
@@ -117,5 +122,35 @@ it("accepts healthy checks after an old exit and preserves default organization/
 });
 
 it("pins the managed provider request to the verified platform child of an OCI index",async()=>{
- const f=await fixture();registry(true);mockFetch("https://api.machines.dev",async req=>{if(req.method==="GET")return Response.json([]);const body=await req.json() as {config:{image:string}};expect(body.config.image).toBe(`ghcr.io/q32llc/logtura-forwarder@${digest}`);expect(body.config.image).not.toContain(indexDigest);return Response.json(machine());});const job=await f.enqueue("fly_deploy.create_or_update_machine",{parentPayload:f.parentPayload,appName:f.appName,orgSlug:"personal",region:"ord"});expect((await consume(f,job)).status).toBe("succeeded");expect(await f.read()).toMatchObject({image_digest:digest});
+ const f=await fixture();registry(true);mockFetch("https://api.machines.dev",async req=>{if(new URL(req.url).pathname===`/v1/apps/${f.appName}`)return Response.json({name:f.appName,organization:{slug:"personal"}});if(req.method==="GET")return Response.json([]);const body=await req.json() as {config:{image:string}};expect(body.config.image).toBe(`ghcr.io/q32llc/logtura-forwarder@${digest}`);expect(body.config.image).not.toContain(indexDigest);return Response.json({...machine(),config:body.config});});const job=await f.enqueue("fly_deploy.create_or_update_machine",{parentPayload:f.parentPayload,appName:f.appName,orgSlug:"personal",region:"ord"});expect((await consume(f,job)).status).toBe("succeeded");expect(await f.read()).toMatchObject({image_digest:digest});
+});
+it("recovers a lost managed create response from the encrypted intent without re-resolving images or issuing another machine",async()=>{
+ const f=await fixture();registry();let installed:ReturnType<typeof machine>|null=null,creates=0,lose=true;
+ mockFetch("https://api.machines.dev",async req=>{if(new URL(req.url).pathname===`/v1/apps/${f.appName}`)return Response.json({name:f.appName,organization:{slug:"personal"}});if(req.method==="GET")return Response.json(installed?[installed]:[]);const body=await req.json() as {config:ReturnType<typeof machine>["config"]};creates++;installed={...machine(),config:body.config};if(lose)throw new TypeError("managed create acknowledgement lost");return Response.json(installed);});
+ const payload={parentPayload:f.parentPayload,appName:f.appName,orgSlug:"personal",region:"ord"},first=await f.enqueue("fly_deploy.create_or_update_machine",payload);expect((await consume(f,first)).status).toBe("failed");
+ const {readManagedInstall}=await import("../../src/managed-installations"),saved=(await readManagedInstall(env,f.userId,f.deployment.id))!;expect(saved.phase).toBe("dispatched");lose=false;
+ mockFetch("https://ghcr.io",()=>{throw new Error("registry must not be contacted during recovery");});
+ const second=await f.enqueue("fly_deploy.create_or_update_machine",payload),recovered=await consume(f,second);expect(recovered.status,recovered.lastError??"").toBe("succeeded");expect(recovered.result).toMatchObject({recovered:true,installationId:saved.id});expect(creates).toBe(1);
+ const wait=(await f.driver.listChildren(second.id))[0]!;expect((await consume(f,wait)).status).toBe("succeeded");expect((await readManagedInstall(env,f.userId,f.deployment.id,saved.id))!.phase).toBe("completed");
+ const publicRows=await env.DB.prepare("SELECT payload_json,result_json,last_error FROM jobs WHERE user_id=?").bind(f.userId).all();expect(JSON.stringify(publicRows)).not.toMatch(/project_token|fo1_fixture|registry_fixture/);
+});
+it("recovers after committing provider identity but failing to enqueue the health poll",async()=>{
+ const f=await fixture();registry();let installed:ReturnType<typeof machine>|null=null,creates=0;
+ mockFetch("https://api.machines.dev",async req=>{if(new URL(req.url).pathname===`/v1/apps/${f.appName}`)return Response.json({name:f.appName,organization:{slug:"personal"}});if(req.method==="GET")return Response.json(installed?[installed]:[]);const body=await req.json() as {config:ReturnType<typeof machine>["config"]};creates++;installed={...machine(),config:body.config};return Response.json(installed);});
+ await env.DB.exec("CREATE TRIGGER fail_managed_poll BEFORE INSERT ON jobs WHEN NEW.kind='fly_deploy.wait_running' BEGIN SELECT RAISE(ABORT,'injected_poll_publication_failure'); END");
+ const payload={parentPayload:f.parentPayload,appName:f.appName,orgSlug:"personal",region:"ord"},first=await f.enqueue("fly_deploy.create_or_update_machine",payload);expect((await consume(f,first)).status).toBe("failed");expect(await f.read()).toMatchObject({external_id:`fly:${f.appName}:machine1`});
+ await env.DB.exec("DROP TRIGGER fail_managed_poll");const second=await f.enqueue("fly_deploy.create_or_update_machine",payload),result=await consume(f,second);expect(result.status,result.lastError??"").toBe("succeeded");expect(creates).toBe(1);const wait=(await f.driver.listChildren(second.id))[0]!;expect((await consume(f,wait)).status).toBe("succeeded");
+});
+it("refuses a healthy managed machine with changed files or a different reported image digest",async()=>{
+ const f=await fixture();registry();let installed:ReturnType<typeof machine>|null=null;
+ mockFetch("https://api.machines.dev",async req=>{if(new URL(req.url).pathname===`/v1/apps/${f.appName}`)return Response.json({name:f.appName,organization:{slug:"personal"}});if(req.method==="GET")return Response.json(installed?[installed]:[]);const body=await req.json() as {config:ReturnType<typeof machine>["config"]};installed={...machine(),config:body.config};return Response.json(installed);});
+ const step=await f.enqueue("fly_deploy.create_or_update_machine",{parentPayload:f.parentPayload,appName:f.appName,orgSlug:"personal",region:"ord"});expect((await consume(f,step)).status).toBe("succeeded");const wait=(await f.driver.listChildren(step.id))[0]!;
+ const intended=structuredClone(installed!);installed!.config={image:intended.config.image};expect((await consume(f,wait)).lastError).toContain("differs from its saved installation");expect(await f.read()).toMatchObject({bundle_outdated:1});
+ installed={...intended,image_ref:{...intended.image_ref,digest:`sha256:${"c".repeat(64)}`}};const wrongImage=await f.enqueue("fly_deploy.wait_running",wait.payload);expect((await consume(f,wrongImage)).lastError).toContain("differs from its saved installation");
+});
+
+it("refuses a changed recovery target and unowned or multi-machine inventories",async()=>{
+ const f=await fixture();registry();const {prepareManagedInstall}=await import("../../src/managed-installations");await prepareManagedInstall(env,{userId:f.userId,deploymentId:f.deployment.id,app:f.appName,org:"personal",region:"ord",configurationVersion:await readConfigurationVersion(env.DB,f.userId),config:{image:`ghcr.io/q32llc/logtura-forwarder@${digest}`},machine:null});
+ for(const change of [{appName:"other"},{region:"iad"},{orgSlug:"other"}]){const job=await f.enqueue("fly_deploy.create_or_update_machine",{parentPayload:f.parentPayload,appName:f.appName,orgSlug:"personal",region:"ord",...change});expect((await consume(f,job)).lastError).toContain("target changed");}
+ const other=await fixture();registry();for(const inventory of [[machine(),{...machine(),id:"other"}],[{...machine(),name:"unowned"}]]){mockFetch("https://api.machines.dev",()=>Response.json(inventory));const job=await other.enqueue("fly_deploy.create_or_update_machine",{parentPayload:other.parentPayload,appName:other.appName,orgSlug:"personal",region:"ord"});expect((await consume(other,job)).lastError).toContain("one owned forwarder");}
 });

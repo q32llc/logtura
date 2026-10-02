@@ -430,6 +430,22 @@ state: the owning CLI/service adapter must observe the runtime's accepted report
 The CLI's linked apply adapter supplies private durable storage and recovery. These
 public operations themselves do not require a hosted Logtura service.
 
+
+`FlyMachinesClient.create(app, { name, region, config })` creates a named machine
+from a SHA-256-pinned image and checks the returned name, region and full planned
+configuration. It never automatically retries a create. Persist the exact private
+intent and a unique metadata identity before dispatch; if the response is lost,
+observe the app's inventory and require that complete identity/configuration before
+adopting a machine. An absent or ambiguous observation is an unknown outcome, not
+permission to repeat creation.
+
+The constructor's optional `authorizationScheme: "Bearer" | "FlyV1"` preserves
+an adapter's explicitly discharged authorization scheme; it does not acquire or
+exchange credentials. An optional caller `signal` is combined with the bounded
+request timeout. Caller cancellation aborts subsequent requests and the in-flight
+request budget; adapters retain uncertain installation intent for recovery.
+
+
 ### Shared metrics interpretation
 
 `parseMetricsBody` accepts Vector JSON arrays, pretty single events and ordinary

@@ -30,16 +30,20 @@ export function matchesFlyConfig(actual:FlyMachineConfig,planned:FlyMachineConfi
  * An injected fetch must retain the same origin/redirect rules (useful for local fixtures). */
 export class FlyMachinesClient {
   private readonly authorization:string;
-  constructor(options:{token:string;fetch?:typeof fetch;timeoutMs?:number}) {
+  constructor(options:{token:string;authorizationScheme?:"Bearer"|"FlyV1";fetch?:typeof fetch;timeoutMs?:number;signal?:AbortSignal}) {
     if(!options.token || /[\s\x00-\x1f\x7f]/.test(options.token) || options.token.length>65_536)throw new Error("Invalid Fly API token");
-    this.authorization=`${options.token.split(",").some(part=>/^(fm1r|fm2)_/.test(part))?"FlyV1":"Bearer"} ${options.token}`;
+    if(options.authorizationScheme!==undefined && !["Bearer","FlyV1"].includes(options.authorizationScheme))throw new Error("Invalid Fly authorization scheme");
+    this.signal=options.signal;
+    this.authorization=`${options.authorizationScheme??(options.token.split(",").some(part=>/^(fm1r|fm2)_/.test(part))?"FlyV1":"Bearer")} ${options.token}`;
     this.fetcher=options.fetch??fetch;this.timeoutMs=options.timeoutMs??20_000;
     if(!Number.isSafeInteger(this.timeoutMs) || this.timeoutMs<1 || this.timeoutMs>120_000)throw new Error("Invalid Fly request timeout");
   }
+  private readonly signal:AbortSignal|undefined;
   private readonly fetcher:typeof fetch;private readonly timeoutMs:number;
   private async request(path:string,method="GET",body?:unknown,nonce?:string):Promise<unknown> {
+    this.signal?.throwIfAborted();
     if(nonce!==undefined && (!nonce || /[\s\x00-\x1f\x7f]/.test(nonce)))throw new Error("Invalid Fly lease nonce");
-    const response=await this.fetcher(`https://api.machines.dev/v1/apps/${path}`,{method,redirect:"manual",credentials:"omit",signal:AbortSignal.timeout(this.timeoutMs),headers:{authorization:this.authorization,accept:"application/json",...(body===undefined?{}:{"content-type":"application/json"}),...(nonce===undefined?{}:{"fly-machine-lease-nonce":nonce})},...(body===undefined?{}:{body:JSON.stringify(body)})});
+    const response=await this.fetcher(`https://api.machines.dev/v1/apps/${path}`,{method,redirect:"manual",credentials:"omit",signal:this.signal?AbortSignal.any([this.signal,AbortSignal.timeout(this.timeoutMs)]):AbortSignal.timeout(this.timeoutMs),headers:{authorization:this.authorization,accept:"application/json",...(body===undefined?{}:{"content-type":"application/json"}),...(nonce===undefined?{}:{"fly-machine-lease-nonce":nonce})},...(body===undefined?{}:{body:JSON.stringify(body)})});
     if(!response.ok){await response.body?.cancel();throw new FlyMachineError(response.status);}
     if(response.status===204)return null;
     const reader=response.body?.getReader();if(!reader)throw new Error("Invalid Fly response");
@@ -59,6 +63,13 @@ export class FlyMachinesClient {
   async volumes(app:string):Promise<FlyVolume[]> {
     const result=await this.request(`${identifier(app)}/volumes`);
     if(!Array.isArray(result) || result.some(volume=>!object(volume) || typeof volume.id!=="string" || !/^vol_[a-z0-9]+$/.test(volume.id) || typeof volume.region!=="string" || !/^[a-z]{3}$/.test(volume.region) || typeof volume.state!=="string" || typeof volume.encrypted!=="boolean" || (volume.attached_machine_id!==null && typeof volume.attached_machine_id!=="string")))throw new Error("Invalid Fly volume inventory");return result as FlyVolume[];
+  }
+  /** Caller persists intent before dispatch. Never automatically retries creation. */
+  async create(app:string,options:{name:string;region:string;config:FlyMachineConfig}):Promise<FlyMachine> {
+    identifier(options.name);if(!/^[a-z]{3}$/.test(options.region))throw new Error("Invalid Fly machine region");
+    immutableFlyImage(options.config.image);canonicalConfigJson(options.config);
+    const result=validateFlyMachine(await this.request(`${identifier(app)}/machines`,"POST",options));
+    if(result.region!==options.region || (result as FlyMachine & {name?:string}).name!==options.name || !matchesFlyConfig(result.config,options.config))throw new Error("Fly created a different machine configuration");return result;
   }
   async lease(app:string,id:string):Promise<string> {
     const result=await this.request(`${identifier(app)}/machines/${identifier(id)}/lease`,"POST",{ttl:120,description:"Logtura configuration apply"}) as {data:{nonce:string}};
