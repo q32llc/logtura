@@ -5,7 +5,7 @@ import remarkGfm from "remark-gfm";
 export default defineConfig({
   plugins:[mdx({providerImportSource:"@mdx-js/react",remarkPlugins:[remarkGfm]}),react()],
   test:{name:"ui",environment:"jsdom",include:["src/web/**/*.test.tsx"],setupFiles:["test/ui/setup.ts"],
-    coverage:{provider:"istanbul",reportsDirectory:"coverage/ui",reporter:["text","lcov","json-summary"],
+    coverage:{provider:"istanbul",reportsDirectory:"coverage/ui",reporter:["text","html","lcov","json-summary"],
       include:["src/web/**/*.{ts,tsx}"],exclude:["**/*.test.*","**/*.d.ts"],
       // Include all UI source. These gates now meet the plan's aggregate
       // 90/90/90/85 target; stricter established file gates also remain enforced.

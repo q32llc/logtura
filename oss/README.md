@@ -191,3 +191,10 @@ Packages publish ordinary JavaScript and TypeScript declarations. The CLI has
 compiled `logt` and `logtura` executables and requires Node 22 or newer.
 `test:packed` installs every package tarball outside the workspace and checks
 standalone CLI generation with outbound fetch disabled, plus normal Node imports.
+
+CI enforces aggregate and module coverage thresholds plus a 95% changed-line
+gate. Each Actions run includes a coverage summary and a downloadable `coverage`
+artifact with HTML, LCOV, and JSON reports, retained for 14 days. No external
+coverage service is required. To check a local baseline, run
+`pnpm vitest run --coverage`, then
+`node scripts/coverage-report.mjs --report coverage --base <commit>`.

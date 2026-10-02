@@ -62,6 +62,13 @@ pnpm test:destinations
 The full test suite includes workerd integration tests, package unit tests, and
 Docker-backed Vector validation tests where available.
 
+CI enforces Vitest's coverage thresholds and our own 95% changed-executable-line
+gate. Each Actions run publishes a coverage summary and a `coverage` artifact
+containing HTML, LCOV, and JSON reports, retained for 14 days. Reports inherit
+repository access; no external coverage service or credential is needed.
+To check a local baseline after generating backend and UI coverage, run
+`node scripts/coverage-report.mjs --report coverage --report coverage/ui --base <commit>`.
+
 ## Deploy SaaS
 
 ```bash

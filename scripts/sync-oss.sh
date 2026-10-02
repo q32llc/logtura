@@ -125,6 +125,10 @@ rsync -a \
   --exclude='node_modules/' \
   "$ROOT/oss/" "$PUBLIC_REPO/"
 
+# This formerly exported configuration was explicitly retired. Preserve other
+# public-only files; do not use a blanket --delete on the root sync.
+rm -f "$PUBLIC_REPO/codecov.yml"
+
 echo "→ syncing packages/ → $PUBLIC_REPO/packages/ (mirror, --delete)"
 mkdir -p "$PUBLIC_REPO/packages"
 rsync -a --delete \

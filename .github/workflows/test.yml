@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   test:
@@ -15,6 +14,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
         with:
@@ -35,6 +36,9 @@ jobs:
 
       - name: typecheck
         run: pnpm typecheck
+
+      - name: coverage report and failure-gate tests
+        run: node --test oss/scripts/coverage-report.test.mjs
 
       - name: pull vector image
         # All per-package vector-validate tests reach for
@@ -73,18 +77,17 @@ jobs:
         run: pnpm test:ui:coverage
 
       - name: upload coverage artifacts
+        id: coverage
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage
           path: coverage/
           if-no-files-found: error
+          retention-days: 14
 
-      - name: upload coverage to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          use_oidc: true
-          files: coverage/lcov.info,coverage/ui/lcov.info
-          disable_search: true
-          fail_ci_if_error: true
-          flags: workspace
+      - name: coverage summary and 95% changed-line gate
+        if: always()
+        run: node scripts/coverage-report.mjs --report coverage --report coverage/ui
+        env:
+          COVERAGE_ARTIFACT_URL: ${{ steps.coverage.outputs.artifact-url }}

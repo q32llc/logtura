@@ -4,6 +4,26 @@ This plan makes the published CLI and libraries fully usable without the hosted 
 
 Status: implementation in progress. The starting inventory records repository and production inspection on October 1, 2026; implemented milestones and remaining work are tracked below. Completion still requires all outcome/validation gates. This plan does not authorize destructive tests against existing production resources.
 
+Coverage decision, October 2, 2026: compute and enforce coverage in our own CI and publish our own reports through GitHub Actions. Codecov is no longer a requirement or blocker. Earlier milestone entries mentioning its configuration, failed uploads, or pending activation describe historical runs; no external coverage service or app installation is needed.
+
+The replacement CI computes separate package/backend/UI totals from Istanbul
+JSON and LCOV, publishes readable HTML and machine-readable reports as Actions
+artifacts (14-day retention), and writes a run summary with a download link.
+Vitest's existing aggregate/module floors remain enforced. Our own Git diff
+reader enforces 95% coverage of changed instrumented lines using the PR base or
+push's previous commit; full checkout history makes those bases available.
+Missing reports, missing changed production sources, inconsistent or duplicate
+counts, unavailable bases, and patch failures fail the job. Eight local tests
+exercise actual Git histories, PR/push/initial-push handling, exact 95% and failing
+patches, malformed/missing reports, and summary output. The actual backend/package
+reports and all 280 UI tests also passed the new reader; UI now emits HTML too.
+
+Branch protection is still a separate incomplete gate: read-only inspection on
+October 2 returned no protection on public `main`; GitHub returned HTTP 403 for
+private `master`, stating the repository's current plan does not support that
+feature. Neither is claimed to enforce required checks yet. Final private backend
+coverage targets and the rest of this convergence plan remain unfinished.
+
 ## Outcomes and completion criteria
 
 - A clean installation of published packages supports configuration, credential verification, discovery, validation, bundle generation, deployment, and local inspection without contacting Logtura. Provider APIs and deployment infrastructure remain necessary for their respective operations.
@@ -98,9 +118,9 @@ Apply backend thresholds per package or meaningful module group, as well as over
 
 1. Run unit, workerd integration, and UI tests with coverage in both private and public CI. Verify Istanbul compatibility with the selected Workers test pool before changing tooling.
 2. Reconcile test projects with all packages, and fail discovery checks if a package with tests is omitted.
-3. Generate LCOV and readable HTML summaries. Upload separate Codecov flags for public packages, service backend, and UI, with an explicit list of expected uploads for each repository.
-4. Configure Codecov project and patch statuses as required checks, and independently enforce thresholds in the test runner. Confirm branch protection is actually configured; a workflow alone does not require checks.
-5. Fail on missing reports, malformed reports, missing expected uploads, or upload failures. Select a supported OIDC/token strategy; private coverage must remain private and public fork handling must not expose credentials.
+3. Generate LCOV, JSON, and readable HTML reports. Publish them as GitHub Actions artifacts and display a run summary with separate public-package, service-backend, and UI totals. Private reports inherit private repository access.
+4. Enforce aggregate/module thresholds in Vitest and a 95% changed-executable-line gate using our own LCOV and Git diff reader. Require the CI test check in branch protection. Confirm protection is actually configured; a workflow alone does not require checks.
+5. Fail on missing or malformed expected reports, inconsistent LCOV/JSON counts, duplicate source measurements, unavailable base commits, or artifact upload failures. Exercise these failure gates locally. Reporting requires no external coverage account, token, or OIDC permission.
 6. Establish the measured baseline, close gaps, and reach the targets before convergence is considered complete. Any temporary lower threshold must name the gap and removal milestone; no permanent grandfathering of low coverage.
 7. Run deterministic local E2E and packed-artifact checks on every PR. Run remote lifecycle tests on explicit dispatch and staging/release jobs; scheduled remote checks are optional and require a later scheduling decision.
 
@@ -196,7 +216,7 @@ Do not make broad dependency modernization a prerequisite for shipping the share
 | --- | --- | --- |
 | Baseline inventory | Route/command/driver matrix, sanitized fixtures, measured coverage, pinned runtime | Current behavior and known defects documented |
 | Baseline suite | Workerd, local HTTP/browser/CLI, packed install, remote lifecycle runner and cleanup | Deterministic baseline passes; isolated remote smoke passes |
-| Coverage enforcement | Complete project discovery, backend/UI tests, Codecov flags and required statuses | High targets reached; failure gates demonstrated |
+| Coverage enforcement | Complete project discovery, backend/UI tests, our own reports and changed-line gate, required CI check | High targets reached; failure gates demonstrated |
 | Portable contracts | Config and applied manifest schemas, stable IDs, migrations, revision semantics | Round-trip, redaction, and conflict tests pass |
 | Shared backend | Public operations and thin CLI/service adapters | Output parity and packed-consumer checks pass |
 | Synchronization | CLI login/pull/diff/deploy, service revision APIs, forwarder reporting | Full bidirectional E2E passes, including offline/conflict cases |
