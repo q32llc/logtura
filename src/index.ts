@@ -1,3 +1,4 @@
+import { createDeploymentIngest } from "./deployment-ingest";
 import { deploymentStateRoutes,deploymentAppliedRoutes } from "./deployment-state-routes";
 import { exportDeploymentTarget } from "./deployment-target";
 import { createPushReceiptIntent,readPushReceipt,PushReceiptConflict,PushReceiptUnavailable,type PushReceiptIntent } from "./deployment-push-receipts";
@@ -90,7 +91,6 @@ import { assembleDeploymentBundle } from "./bundle-assembly";
 import { buildInstallBundle } from "./install-bundle";
 import {
   type MetricsSnapshot,
-  applyMetricsToSnapshot,
   parseMetricsBody,
 } from "./metrics-snapshot";
 import {
@@ -128,225 +128,7 @@ app.use("/api/deployments/:id/config/*",async(c,next)=>{c.header("cache-control"
 app.use("/api/applied/:id",async(c,next)=>{c.header("cache-control","no-store");await next();});
 app.use("*", attachOptionalUser);
 
-type DeploymentIngestCacheEntry = {
-  token: string;
-  tokenLoadedAt: number;
-  status: string | null;
-  lastSeenAt: number | null;
-  lastSeenPersistedAt: number | null;
-  metricsSnapshot: MetricsSnapshot | null;
-  metricsPersistedAt: number | null;
-  lastAccessedAt: number;
-};
-
-const INGEST_CACHE_TTL_MS = 10 * 60 * 1000;
-const INGEST_CACHE_MAX_ENTRIES = 2_000;
-const HEARTBEAT_CHECKPOINT_MS = 5 * 60 * 1000;
-const METRICS_CHECKPOINT_MS = 5 * 60 * 1000;
-
-const deploymentIngestCache = new Map<string, DeploymentIngestCacheEntry>();
-
-function pruneDeploymentIngestCache(now: number): void {
-  if (deploymentIngestCache.size <= INGEST_CACHE_MAX_ENTRIES) return;
-  for (const [id, entry] of deploymentIngestCache) {
-    if (now - entry.lastAccessedAt > INGEST_CACHE_TTL_MS) {
-      deploymentIngestCache.delete(id);
-    }
-  }
-  if (deploymentIngestCache.size <= INGEST_CACHE_MAX_ENTRIES) return;
-  const oldest = [...deploymentIngestCache.entries()]
-    .sort((a, b) => a[1].lastAccessedAt - b[1].lastAccessedAt)
-    .slice(0, Math.ceil(INGEST_CACHE_MAX_ENTRIES / 10));
-  for (const [id] of oldest) deploymentIngestCache.delete(id);
-}
-
-async function loadDeploymentIngestEntry(
-  db: D1Database,
-  deploymentId: string,
-  now: number,
-): Promise<DeploymentIngestCacheEntry | null> {
-  const cached = deploymentIngestCache.get(deploymentId);
-  if (cached && now - cached.tokenLoadedAt < INGEST_CACHE_TTL_MS) {
-    cached.lastAccessedAt = now;
-    return cached;
-  }
-
-  const row = await db
-    .prepare(
-      `SELECT id, heartbeat_token, status, last_seen_at, metrics_snapshot_json
-       FROM deployments WHERE id = ?`,
-    )
-    .bind(deploymentId)
-    .first<{
-      id: string;
-      heartbeat_token: string | null;
-      status: string | null;
-      last_seen_at: number | null;
-      metrics_snapshot_json: string | null;
-    }>();
-  if (!row?.heartbeat_token) {
-    deploymentIngestCache.delete(deploymentId);
-    return null;
-  }
-  let metricsSnapshot: MetricsSnapshot | null = null;
-  if (row.metrics_snapshot_json) {
-    try {
-      metricsSnapshot = JSON.parse(row.metrics_snapshot_json) as MetricsSnapshot;
-    } catch {
-      metricsSnapshot = null;
-    }
-  }
-  const entry: DeploymentIngestCacheEntry = {
-    token: row.heartbeat_token,
-    tokenLoadedAt: now,
-    status: row.status,
-    lastSeenAt: row.last_seen_at,
-    lastSeenPersistedAt: row.last_seen_at,
-    metricsSnapshot,
-    metricsPersistedAt: metricsSnapshot?.updatedAt ?? null,
-    lastAccessedAt: now,
-  };
-  deploymentIngestCache.set(deploymentId, entry);
-  pruneDeploymentIngestCache(now);
-  return entry;
-}
-
-async function authenticateDeploymentIngest(
-  db: D1Database,
-  deploymentId: string,
-  presented: string,
-  now: number,
-): Promise<DeploymentIngestCacheEntry | "not_found" | "invalid_token"> {
-  const entry = await loadDeploymentIngestEntry(db, deploymentId, now);
-  if (!entry) return "not_found";
-  if (constantTimeEqual(entry.token, presented)) return entry;
-
-  // Token rotation edge: force one D1 refresh before rejecting a token
-  // that disagrees with this isolate's cache.
-  deploymentIngestCache.delete(deploymentId);
-  const refreshed = await loadDeploymentIngestEntry(db, deploymentId, now);
-  if (!refreshed) return "not_found";
-  return constantTimeEqual(refreshed.token, presented)
-    ? refreshed
-    : "invalid_token";
-}
-
-async function checkpointHeartbeatIfNeeded(
-  db: D1Database,
-  deploymentId: string,
-  entry: DeploymentIngestCacheEntry,
-  now: number,
-): Promise<void> {
-  entry.lastSeenAt = now;
-  const mustPersist =
-    entry.status === "pending" ||
-    entry.status === "crashed" ||
-    entry.lastSeenPersistedAt === null ||
-    now - entry.lastSeenPersistedAt >= HEARTBEAT_CHECKPOINT_MS;
-  if (!mustPersist) return;
-
-  const staleBefore = now - HEARTBEAT_CHECKPOINT_MS;
-  const r = await db
-    .prepare(
-      `UPDATE deployments
-       SET last_seen_at = ?, status = CASE
-         WHEN status IN ('pending', 'crashed') THEN 'running'
-         ELSE status
-       END,
-       updated_at = ?
-       WHERE id = ?
-         AND (
-           status IN ('pending', 'crashed')
-           OR last_seen_at IS NULL
-           OR last_seen_at < ?
-         )`,
-    )
-    .bind(now, now, deploymentId, staleBefore)
-    .run();
-  if ((r.meta.rows_written ?? 0) > 0) {
-    entry.status = "running";
-    entry.lastSeenPersistedAt = now;
-  }
-}
-
-function isUrgentMetricsCheckpoint(
-  prev: MetricsSnapshot | null,
-  next: MetricsSnapshot,
-): boolean {
-  if (!prev) return true;
-  if (next.processStartAt !== prev.processStartAt) return true;
-  if (next.vectorVersion !== prev.vectorVersion) return true;
-  if (next.totals.errors > prev.totals.errors) return true;
-  if (next.totals.discarded > prev.totals.discarded) return true;
-  if (next.lifetimeOffset.errors > prev.lifetimeOffset.errors) return true;
-  if (next.lifetimeOffset.discarded > prev.lifetimeOffset.discarded) return true;
-  if (
-    Object.keys(next.byComponent).length !== Object.keys(prev.byComponent).length
-  ) {
-    return true;
-  }
-  return false;
-}
-
-function shouldCheckpointMetrics(
-  prev: MetricsSnapshot | null,
-  next: MetricsSnapshot,
-  lastPersistedAt: number | null,
-  now: number,
-): boolean {
-  if (lastPersistedAt === null) return true;
-  if (isUrgentMetricsCheckpoint(prev, next)) return true;
-  return now - lastPersistedAt >= METRICS_CHECKPOINT_MS;
-}
-
-async function checkpointMetricsIfNeeded(
-  db: D1Database,
-  deploymentId: string,
-  entry: DeploymentIngestCacheEntry,
-  prev: MetricsSnapshot | null,
-  next: MetricsSnapshot,
-  now: number,
-): Promise<void> {
-  entry.metricsSnapshot = next;
-  entry.lastSeenAt = now;
-  if (!shouldCheckpointMetrics(prev, next, entry.metricsPersistedAt, now)) {
-    return;
-  }
-  const urgent = isUrgentMetricsCheckpoint(prev, next);
-  if (urgent) {
-    const r = await db
-      .prepare(
-        `UPDATE deployments
-         SET metrics_snapshot_json = ?, last_seen_at = ?, updated_at = ?
-         WHERE id = ?`,
-      )
-      .bind(JSON.stringify(next), now, now, deploymentId)
-      .run();
-    if ((r.meta.rows_written ?? 0) > 0) {
-      entry.metricsPersistedAt = next.updatedAt;
-      entry.lastSeenPersistedAt = now;
-    }
-    return;
-  }
-  const staleBefore = now - METRICS_CHECKPOINT_MS;
-  const r = await db
-    .prepare(
-      `UPDATE deployments
-       SET metrics_snapshot_json = ?, last_seen_at = ?, updated_at = ?
-       WHERE id = ?
-         AND (
-           metrics_snapshot_json IS NULL
-           OR json_extract(metrics_snapshot_json, '$.updatedAt') IS NULL
-           OR json_extract(metrics_snapshot_json, '$.updatedAt') < ?
-         )`,
-    )
-    .bind(JSON.stringify(next), now, now, deploymentId, staleBefore)
-    .run();
-  if ((r.meta.rows_written ?? 0) > 0) {
-    entry.metricsPersistedAt = next.updatedAt;
-    entry.lastSeenPersistedAt = now;
-  }
-}
+const deploymentIngest = createDeploymentIngest();
 
 // --- OAuth (server-side redirects) -----------------------------------------
 
@@ -1691,19 +1473,9 @@ api.post("/heartbeat/:id", async (c) => {
   if (!presented) return c.json({ error: "missing_token" }, 401);
 
   const now = Date.now();
-  const authResult = await authenticateDeploymentIngest(
-    c.env.DB,
-    id,
-    presented,
-    now,
-  );
-  if (authResult === "not_found") {
-    return c.json({ error: "not_found" }, 404);
-  }
-  if (authResult === "invalid_token") {
-    return c.json({ error: "invalid_token" }, 401);
-  }
-  await checkpointHeartbeatIfNeeded(c.env.DB, id, authResult, now);
+  const result = await deploymentIngest.ingest(c.env.DB, id, presented, [], now);
+  if (result === "not_found") return c.json({ error: result }, 404);
+  if (result === "invalid_token") return c.json({ error: result }, 401);
   return c.body(null, 204);
 });
 
@@ -1719,41 +1491,19 @@ api.post("/metrics/:id", async (c) => {
   const presented = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
   if (!presented) return c.json({ error: "missing_token" }, 401);
   const now = Date.now();
-  const authResult = await authenticateDeploymentIngest(
-    c.env.DB,
-    id,
-    presented,
-    now,
-  );
-  if (authResult === "not_found") {
-    return c.json({ error: "not_found" }, 404);
-  }
-  if (authResult === "invalid_token") {
-    return c.json({ error: "invalid_token" }, 401);
-  }
+  const authorized = await deploymentIngest.authenticate(c.env.DB, id, presented, now);
+  if (authorized === "not_found") return c.json({ error: authorized }, 404);
+  if (authorized === "invalid_token") return c.json({ error: authorized }, 401);
   let body = "";
   try {
     body = await c.req.text();
   } catch {
     // empty body — still record liveness below
   }
-  const events = parseMetricsBody(body);
-  if (events.length > 0) {
-    const prevSnap = authResult.metricsSnapshot;
-    const next = applyMetricsToSnapshot(prevSnap, events);
-    await checkpointMetricsIfNeeded(
-      c.env.DB,
-      id,
-      authResult,
-      prevSnap,
-      next,
-      now,
-    );
-  } else {
-    // Body absent or malformed; treat as a plain liveness ping.
-    await checkpointHeartbeatIfNeeded(c.env.DB, id, authResult, now);
-  }
-  // Vector will resend on 5xx, so always 2xx for a valid token.
+  const result = await deploymentIngest.ingest(c.env.DB, id, presented, parseMetricsBody(body), now);
+  if (result === "not_found") return c.json({ error: result }, 404);
+  if (result === "invalid_token") return c.json({ error: result }, 401);
+  // D1 failures remain retryable; successful/coalesced observations are acknowledged.
   return c.body(null, 204);
 });
 
@@ -2894,13 +2644,6 @@ function toApiSink(s: SinkRow) {
     filterSteps: parseFilterSteps(s.filter_steps_json),
     createdAt: s.created_at,
   };
-}
-
-function constantTimeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
 }
 
 function toApiJob(j: JobRecord) {

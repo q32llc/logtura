@@ -2376,3 +2376,64 @@ is overwritten and no production resource changes. Further live provider deliver
 matrices, shared managed apply, remote ownership ledgers, coordinated publication
 and staged production migration/rollout/rollback remain required; the full goal
 remains active.
+
+### D1 ingestion checkpoint coordination and native contention baseline
+
+Heartbeat/metrics ingestion is extracted into a private coordinator that uses the
+public core metrics parser/merger. Each Worker isolate keeps its existing bounded
+auth/snapshot cache and serializes local requests by deployment. D1 metrics writes
+compare the exact previously persisted JSON and current heartbeat credential. A
+losing isolate reloads the authoritative row, reapplies accepted buffered samples
+and the current batch, and retries at most three times. Newer counters/process
+epochs are preserved by the public merger's timestamp checks. After another
+isolate wins, its checkpoint/liveness baseline is refreshed so ordinary requests
+do not keep issuing conditional D1 updates.
+
+Metric checkpoints make pending/crashed deployments running directly. Heartbeat
+and checkpoint timestamps never move stored liveness/config-update clocks
+backwards; explicit stopped status is preserved. All counter lifetime resets are
+material checkpoints, alongside process/version/topology changes and error/drop
+increases. D1 failures remain retryable and do not forget urgent buffered
+observations; exhausted contention preserves the final rebased state for retry.
+Cache expiry preserves accepted pending observations when the credential still
+matches. Invalid clients cannot evict that valid buffer, and credential changes
+during checkpoint recovery refuse the write. Authentication occurs before body
+parsing. Auth-cache revocation retains the existing bounded TTL contract; this
+slice does not claim instantaneous revocation of warm coalesced telemetry.
+
+Pending observations are keyed by recognized metric/accepted component/error
+identity and bounded by the core's 256-component/32-error-label snapshot caps.
+Malformed or incomplete persisted snapshots and invalid numeric/root/cardinality
+data are repaired by a fresh checkpoint. Metrics remains a coalesced bounded
+snapshot, not a durable sample stream or exact cross-isolate historical ledger.
+No schema migration, provider contract or public package source changes are needed.
+
+Twenty-seven new native workerd/D1 cases create independent coordinator caches,
+race real SQL writes and verify warm request query counts, stale counter/epoch
+rejection, buffered-counter rebasing, losing-checkpoint query suppression,
+metrics-only recovery, concurrent local requests, D1 failure/lock release, all
+counter-reset policy, cache expiry/pruning/eviction, token rotation/deletion,
+invalid-client isolation, monotonic clocks, malformed persisted state, supported
+observation buffering and bounded contention/retry continuity. The coordinator
+measures 99.37 statements / 97.02 branches / 100 functions / 100 lines, enforcing
+99/95/100/100. All 972 backend/package cases across 92 files pass at
+83.76/81.97/86.78/81.15; private aggregate floors rise to 83.5/81.8/86.5/81.
+All 280 website/native API cases pass with established 93/90/95/94 aggregate gates.
+Service/E2E types and package/Vite builds pass.
+
+The full browser/installed CLI/native workerd/actual Docker supervisor journey
+passes with runtime reporting, desired/applied convergence, metrics presentation,
+restart reporting, shutdown and owned-resource cleanup. After-create and
+after-runtime injected failure runs both verify cleanup of all owned resources.
+These checks establish checkpoint ordering and query coalescing. They do not
+prove the root cause of the original isolated production D1 queue-timeout event
+or complete cron query/alert coordination and production performance validation.
+
+Preceding private/public setup heads e37acb6 and c1d9bf2 pass all code, coverage
+and runtime gates in terminal test runs 37003391943 and 37003404113; only enforced
+Codecov upload fails. Private image run 37003391982 succeeds. Scoped app permission
+approval remains pending. Production resources and public package source are
+unchanged by this private service slice. The private backend final coverage target,
+live provider delivery, shared managed apply, remote ownership ledgers and
+coordinated package publication/production migration/rollout/rollback remain
+required; the full goal stays active.
