@@ -2,6 +2,7 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import ts from "typescript";
 
 const metrics = ["lines", "statements", "functions", "branches"];
 const scopes = ["Public packages", "Service backend", "Web UI"];
@@ -87,7 +88,7 @@ export function readReports(directories, root = process.cwd()) {
       group.covered += data[metric].covered;
     }
   }
-  return { files, lines, groups };
+  return { files, lines, groups, sourceRoot: root };
 }
 export function changedLines(diff) {
   const changes = new Map();
@@ -112,11 +113,27 @@ export function changedLines(diff) {
   }
   return changes;
 }
+/** Istanbul can omit pure re-export barrels: their own source contains no
+ * executable statements. Parse actual checkout source, never infer this from a
+ * filename or a missing report. Anything else still requires instrumentation. */
+function reexportsOnly(file, root) {
+  if (typeof root !== "string") return false;
+  try {
+    if (sourcePath(file, root) !== file) return false;
+    const parsed = ts.createSourceFile(file, readFileSync(resolve(root, file), "utf8"), ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS);
+    return parsed.parseDiagnostics.length === 0 && parsed.statements.length > 0
+      && parsed.statements.every(statement => ts.isExportDeclaration(statement)
+        && statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier));
+  } catch { return false; }
+}
 export function patchCoverage(changes, reports) {
   const result = { covered: 0, total: 0, uncovered: [] };
   for (const [file, changed] of changes) {
     if (!changed.size) continue;
-    if (!reports.files.has(file)) throw new Error(`Changed source is missing from coverage: ${file}`);
+    if (!reports.files.has(file)) {
+      if (reexportsOnly(file, reports.sourceRoot)) continue;
+      throw new Error(`Changed source is missing from coverage: ${file}`);
+    }
     const measured = reports.lines.get(file) ?? new Map();
     for (const line of changed) {
       if (!measured.has(line)) continue; // Comments, types, and other non-instrumented lines.

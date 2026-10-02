@@ -3273,3 +3273,48 @@ still a fixture: live Fly canary, safe replacement/rollback for legacy machines
 without checkpoints, provider delivery matrix, remote interruption cleanup,
 final private coverage, coordinated npm release and production rollout remain
 required. No production machine, migration or published package was changed.
+
+### Shared Fly self-deploy settings and native target baseline (implemented)
+
+`@logtura/core.renderFlyToml` now supplies both the standalone CLI and hosted
+self-deploy download. The service retains its app naming and generated settings,
+including Dockerfile build, shared CPU/512 MiB VM, always-on behavior, internal
+exporter port and optional environment-name guidance. Invalid app identities,
+regions, environment names and non-string JavaScript inputs are rejected before
+rendering. Both private and public CI enforce 100% statements/branches/functions/
+lines for the shared module.
+
+Native target cases cover form defaults/trimming, token verification and safe
+status errors, self-deploy files and app-name fallback, supported source minting,
+organization selection, actual read-only macaroon attenuation, empty inventory
+and missing explicit scope. An explicit unavailable organization now fails before
+minting rather than silently selecting another organization. The default still
+prefers `personal`, then the first visible organization. The private Fly adapter
+has enforced 100% coverage in all four dimensions.
+
+The owned changed-line reader encountered a pure public re-export barrel absent
+from Istanbul. It now parses the actual checkout source with TypeScript and
+allows only valid re-export-only files to contribute zero executable lines.
+Missing files, malformed syntax, local exports, executable declarations,
+side-effect imports and mixed runtime statements still fail. A filesystem
+regression covers these distinctions; existing report integrity, Git base,
+threshold and process-failure gates remain intact. This is documented
+non-executable glue, not an exclusion for untested runtime behavior.
+
+Validation passed 1,153 private native/package assertions, 745 standalone public
+assertions, 18 private/15 public reporting/harness guards, both builds/types, all
+15 installed tarball consumers and the actual browser/CLI/workerd/Vector journey
+through fresh managed creation, restart and CLI-edited compatible reapply.
+Aggregate private floors rise to 88% statements, 85.8% branches, 91% functions
+and 86.6% lines. Separate service backend coverage is 75.53% lines, 78.21%
+statements, 82.17% functions and 74.71% branches, so its final 95/95/95/90 gate
+remains unfinished. Shared launch-script composition and the remaining route/
+provider baseline are still required, alongside legacy replacement/rollback,
+live provider and remote cleanup gates, coordinated release and staged rollout.
+
+The preceding compatible-reapply private head `ccb07aa` completed exact
+[test CI](https://github.com/q32llc/logtura/actions/runs/37042656036) and
+[forwarder image CI](https://github.com/q32llc/logtura/actions/runs/37042656085).
+Public renderer and owned reporting updates are pushed in `9d902e4` and `feb5e13`;
+100% changed executable line coverage was verified locally before pushing.
+No production resources, migrations or published npm versions changed.

@@ -146,3 +146,20 @@ test("actual CLI uses PR/push bases, writes the summary, and rejects a failing p
   rmSync(join(root, "coverage/lcov.info"));
   assert.equal(cli("--base", base).status, 1);
 });
+
+test("omitted re-export-only barrels have no executable lines; missing executable sources still fail", (t) => {
+  const root=fixture(t), barrel="packages/core/src/index.ts";
+  mkdirSync(dirname(join(root,barrel)),{recursive:true});
+  report(root,"coverage",{[source]:[true]});
+  const reports=readReports(["coverage"],root), changed=new Map([[barrel,new Set([1,2])]]);
+  for(const content of ["export { value } from './value';", "export * from './value';\nexport type { Shape } from './types';", "// export const ignored = 1;\nexport { type Shape, value as named } from './value';"]){
+    writeFileSync(join(root,barrel),content);
+    assert.deepEqual(patchCoverage(changed,reports),{covered:0,total:0,uncovered:[],passed:true});
+  }
+  for(const content of ["export const value = 1;", "export { value } from './value';\nrun();", "import './side-effect';\nexport * from './value';", "export { local };", "export default () => 1;", "export {} from './value';\nif (true) run();", "// export * from './value';", "export * from ;", "export class Value {}"]){
+    writeFileSync(join(root,barrel),content);
+    assert.throws(()=>patchCoverage(changed,reports),/missing from coverage/);
+  }
+  rmSync(join(root,barrel));
+  assert.throws(()=>patchCoverage(changed,reports),/missing from coverage/);
+});

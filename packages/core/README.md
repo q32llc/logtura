@@ -476,3 +476,18 @@ Provision storage before issuing an instance and attaching it to a newly created
 machine. Adding storage to an existing unmanaged machine requires a separately
 planned replacement and rollback path; these public operations do not migrate a
 running machine or claim that attaching a new volume in place is supported.
+
+`renderFlyToml({ appName, region, envVars? })` composes the self-deploy Fly settings
+used by both the standalone CLI and hosted download. It preserves the always-on
+512 MiB/shared-CPU configuration and Dockerfile build, with optional environment
+name guidance. App identities, three-letter regions and environment names are
+validated before rendering. It performs no provider or service requests.
+
+```ts
+import { renderFlyToml } from "@logtura/core";
+const toml = renderFlyToml({
+  appName: "logtura-example",
+  region: "iad",
+  envVars: ["CLOUDFLARE_API_TOKEN"],
+});
+```
