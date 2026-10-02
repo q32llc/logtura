@@ -58,6 +58,7 @@ export default defineConfig({
       // Baseline floor; raise these as the planned coverage slices land.
       // Final scope targets are 95% lines/statements/functions and 90% branches.
       thresholds: {
+        "packages/cli/src/**/*.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
         "packages/custom-vector/src/**/*.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
         "packages/driver-vercel-logs/src/**/*.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
         // Separate package gates keep aggregate coverage from hiding weak drivers.

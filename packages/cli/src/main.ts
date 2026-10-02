@@ -9,10 +9,13 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { generateBundle } from "@logtura/core";
 import type { BundleEnvVar, DiscoveredSource } from "@logtura/core";
@@ -723,12 +726,16 @@ function sourceIdsForProvider(doc: Record<string, unknown>, provider: string): s
 }
 
 function validateVector(vectorYaml: string): void {
-  writeFileSync("vector.yaml.tmp", vectorYaml);
-  const res = spawnSync("vector", ["validate", "vector.yaml.tmp"], {
-    encoding: "utf8",
-  });
-  if (res.status !== 0) {
-    throw new Error(res.stderr || res.stdout || "vector validate failed");
+  const directory = mkdtempSync(resolve(tmpdir(), "logtura-vector-validate-"));
+  try {
+    const path = resolve(directory, "vector.yaml");
+    writeFileSync(path, vectorYaml, { mode: 0o600 });
+    const res = spawnSync("vector", ["validate", path], { encoding: "utf8" });
+    if (res.status !== 0) {
+      throw new Error(res.stderr || res.stdout || "vector validate failed");
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 }
 

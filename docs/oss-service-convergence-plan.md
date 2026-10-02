@@ -3894,3 +3894,42 @@ wildcard validation and the remaining provider/destination matrix still require
 proof. Durable remote cleanup/SIGKILL recovery, legacy managed replacement/
 rollback, coordinated npm publication and staged production rollout remain open.
 No production resource, migration or published npm version changed.
+
+### Complete CLI command baseline and final independent package gates
+
+Forty additional CLI cases cover initialization/idempotency, every source scaffold,
+unique source identities, sink credentials and replacement, monitor defaults,
+environment checking/templates, normalization/hashing, standalone bundles and Fly
+deployment, invalid arguments, external Vector validation, terminal/readline/browser
+adapters, registry lookup and compressed install archives. Archive checks independently
+decode gzip/ustar, verify namespaced binary asset bytes and executable modes, and
+require private credential files. Deployment checks keep secrets on stdin rather
+than process arguments; interactive secret tests prove raw terminal state restoration.
+
+The baseline found that external Vector validation left a shared `vector.yaml.tmp`
+in the working directory. Validation now uses a unique private temporary directory,
+writes configuration with mode 0600, and removes the directory on success or failure.
+Both paths verify cleanup and separate invocation paths.
+
+The CLI now independently enforces 95% statements/lines/functions and 90% branches.
+All fifteen public packages meet their independent final scope gates; stronger
+existing module gates remain and every production package source file is included.
+CLI coverage is 97.48% statements, 94.30% branches, 99.33% functions and 99.07% lines.
+Coverage remains entirely owned: CI generates HTML, LCOV and JSON artifacts,
+per-package summaries and executable changed-line gates, without Codecov credentials
+or an external coverage service.
+
+Private validation passed 1,421 tests across 127 files; independent public validation
+passed 868 tests across 75 files. Both layouts passed builds, types and clean installed
+consumer checks for all fifteen packages, both CLI aliases and the runtime binary;
+private E2E types also passed. Private aggregate coverage is 97.01% statements,
+94.25% branches, 98.82% functions and 97.30% lines; public aggregate is 98.31%,
+96.33%, 99.41% and 99.07%, respectively. Outbound Fly/Vector process boundaries in
+the new command tests are controlled fixtures; they do not replace the required
+actual provider/runtime delivery and staged rollout proofs.
+
+Full provider/destination delivery, custom graph output-port/wildcard validation,
+durable remote cleanup/SIGKILL recovery, legacy managed replacement/rollback,
+coordinated npm publication and staged production rollout remain open. No production
+resource, migration or published npm version changed in this slice.
+
