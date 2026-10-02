@@ -1248,3 +1248,53 @@ remote cleanup remain required. Final backend/public 95/90 and UI 90/85 coverage
 provider/telemetry hardening, dependency updates, publication and staged production
 rollout also remain outstanding. No package release, production migration or deployment
 is claimed. The full shipping goal remains active.
+
+
+### Shared runtime integrity and durable reporting engine (implemented)
+
+The packaged core now compiles an issued manifest into its actual bundle and a
+private runtime descriptor. It binds the public revision/instance, generator and
+Vector versions, exact YAML/asset bytes (including binary assets) and resolved
+runtime environment values with private keyed proofs. Missing payloads or runtime
+values, malformed paths/proofs, mismatched revisions and changed observations fail
+before reporting. The private descriptor contains its integrity key and must remain
+with private install state; only the public instance/revision report reaches the API.
+
+The pure reporting engine requires a serialized durable store, persists intent
+before transport and records completion afterwards. Lost acknowledgments or failed
+completion writes replay the same report counter. Ignored replay responses complete
+that local attempt without claiming acceptance. Corrupt/foreign checkpoints and
+exhausted counters fail closed. Generator identity uses the built package version;
+the Vector pin is shared with Dockerfile rendering. Existing generated output is
+unchanged.
+
+Validation passes 760 private tests across 75 files. Coverage is
+76.30/72.74/79.78/73.85 (statements/branches/functions/lines). The new runtime module
+enforces 100% for all four metrics in both repository layouts. Tests cover descriptor
+validation, binary integrity, private/runtime resolution, durable intent ordering,
+acknowledgment loss, failed completion persistence, monotonic counters and corrupt
+state. A workerd test compiles an owned issued manifest, loses an accepted report's
+response, retries the same counter and verifies stored applied history. Its readiness
+observation is a fixture; this is not evidence of an actual Vector process. Packed
+consumer checks cover compilation/verification/reporting and the built package
+version. Public validation passes 509 tests across 43 files at
+82.83/80.27/82.11/81.23 coverage; its aggregate floors rise to 82/80/82/81.
+Both package layouts pass build/typecheck and all 15 packed checks; the service
+build passes.
+
+The real pinned Vector delivery fixture now renders through issued-manifest
+compilation, checks the owned running container's version and read-only configuration
+mount, reads its actual YAML bytes and launched environment, and verifies them
+against the descriptor after readiness. Changed YAML or a changed bound environment
+value fails verification. Normalization, filtering, routing, context and webhook
+503 retry delivery still pass without the Logtura service. This proves the shared
+verification contract against an actual container fixture; production process
+adapter/container wiring and actual service report delivery remain separate work.
+
+A real process adapter remains required: private immutable files/environment,
+owned-process readiness and version observation, atomic filesystem checkpoints,
+serialization across restarts, backoff, shutdown and container wiring. CLI/service
+activation and apply orchestration, actual Vector reporting E2E, remote/browser
+journeys and durable remote cleanup also remain required. Final coverage targets,
+provider/telemetry hardening, dependency updates, publication, unapplied migrations
+0018–0025 and staged production rollout remain part of the active full shipping goal.

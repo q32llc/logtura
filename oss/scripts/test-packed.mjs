@@ -60,7 +60,7 @@ monitors: []
   assert.ok(!yaml.includes("/api/heartbeat/"), "standalone bundle must not require hosted heartbeat");
   assert.ok(!yaml.includes("/api/metrics/"), "standalone bundle must not require hosted metrics");
   const script = `import assert from 'node:assert/strict';
-    import {generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit} from '@logtura/core';
+    import {GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit} from '@logtura/core';
     import {writeFileSync,readFileSync,statSync} from 'node:fs';
     import {main} from '@logtura/cli';
     import {cloudflareWorkerTailDriver} from '@logtura/driver-cloudflare-worker-tail';
@@ -138,6 +138,16 @@ monitors: []
       assert.equal(new Headers(init.headers).get('authorization'),'Bearer fixture-report-token');assert.equal(JSON.parse(init.body).instanceId,instanceId);return Response.json({accepted:true});
     }});
     assert.equal(await reporting.reportApplied('fixture',{instanceId,sequence:1,revision:commit.revision,reportSequence:1}),true);
+    assert.equal(GENERATOR_VERSION,JSON.parse(readFileSync('node_modules/@logtura/core/package.json','utf8')).version);
+    const compiled=await compileForwarderRuntime({service:'https://service.test',deploymentId:'fixture',document:exported.document,instance:instanceReceipt,env:exported.secretValues,providers:input.providers,destinations:input.destinations});
+    assert.deepEqual(compiled.bundle,bundle);
+    const observed={files:{'vector.yaml':bundle.vectorYaml,...Object.fromEntries(bundle.runtimeAssets.map(asset=>['assets/'+asset.driverId+'/'+asset.path,asset.content]))},environment:Object.fromEntries(bundle.envVars.map(v=>[v.name,v.value])),generatorVersion:GENERATOR_VERSION,vectorVersion:'0.55.0',ready:true};
+    assert.deepEqual(await verifyLoadedForwarder(compiled.artifact,observed),compiled.artifact);
+    assert.ok(!JSON.stringify(compiled.artifact).includes('fixture-token'));
+    let checkpoint=null;
+    const reportStore={load:async()=>checkpoint,save:async(value)=>{checkpoint=structuredClone(value)}};
+    assert.deepEqual(await reportLoadedForwarder({artifact:compiled.artifact,observed,store:reportStore,report:async()=>true}),{reportSequence:1,accepted:true});
+    assert.equal(checkpoint.lastReportSequence,1);
     const parsed=parseDeploymentManifest(exported.document,{env:exported.secretValues,providers:input.providers,destinations:input.destinations});
     assert.deepEqual(generateBundle(parsed.input),bundle);
     const edited=await editDeploymentManifest(exported.document,exported.secretValues,[{kind:'source.add',connectionId:'fixture',source:{id:'src_second',externalId:'fixture-second',displayName:'Second',sourceKind:'worker',metadata:null}}],await createSecretVersioner('local-private-key'));

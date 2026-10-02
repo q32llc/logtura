@@ -1,3 +1,4 @@
+import { VECTOR_VERSION } from "./versions";
 import type {
   BundleEnvVar,
   ComponentManifestEntry,
@@ -992,7 +993,7 @@ export function renderDockerfile(
 # Vector-based forwarder. Tails selected log sources and routes them
 # through monitors to your configured destinations.
 
-FROM timberio/vector:0.55.0-debian
+FROM timberio/vector:${VECTOR_VERSION}-debian
 
 ${aptList ? `RUN apt-get update && apt-get install -y --no-install-recommends ${aptList} && rm -rf /var/lib/apt/lists/*` : ""}
 ${installSteps}

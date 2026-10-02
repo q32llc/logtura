@@ -350,3 +350,36 @@ cookies, and use a bounded request timeout. Reporting-token rotation is honored
 immediately by the report endpoint. Shared public validators are exported for
 configuration state, activation intent/receipt and applied-report records. These
 optional transports are not needed for standalone parsing, rendering or deployment.
+
+
+### Private forwarder runtime artifacts
+
+`compileForwarderRuntime({service, deploymentId, document, instance, env,
+providers, destinations, runtimeEnv?})` renders the issued manifest and returns
+`{bundle, artifact}`. It requires all referenced private payloads and generated
+runtime environment values. `runtimeEnv` supplies values for generated variables
+without a resolved value. The descriptor binds the public revision and instance
+to exact generated file bytes, environment values and generator/Vector versions
+using private keyed integrity proofs. Keep the entire descriptor private, alongside
+the install bundle; it contains a key and must never be sent to the account API,
+logged or published. It does not contain resolved payload values.
+
+`verifyLoadedForwarder(artifact, observation)` checks the exact file set and bytes,
+bound environment values, versions and readiness. A process adapter must supply
+observations from its own immutable configuration and the Vector process it actually
+started. A generated file or a healthy unrelated process is insufficient. Ambient
+unreferenced environment variables are allowed. The library performs no process,
+filesystem or readiness-probe I/O.
+
+`reportLoadedForwarder({artifact, observed, store, report})` verifies the observation
+before reading durable state or making a request. The caller serializes access to
+one instance's store and implements atomic, durable `load`/`save`. Missing state is
+`null`; corrupt or foreign state fails closed. Report intent is saved before the
+transport runs, and completion afterwards. Lost responses or failed completion
+writes retry the same counter. A boolean false response records an ignored report
+and advances the local counter; it does not prove remote acceptance. No retries,
+backoff, file locks or process startup are implicit in this pure helper.
+
+`GENERATOR_VERSION` records the built core package version (`development` when
+running source directly). `VECTOR_VERSION` is the renderer's shared runtime pin.
+These helpers are optional; standalone rendering needs no service or reporting.

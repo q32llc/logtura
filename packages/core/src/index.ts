@@ -75,3 +75,6 @@ export { isInstanceId, validateDeploymentActivation, validateDeploymentInstanceR
 export type { DeploymentConfigurationState, DeploymentInstanceActivation, DeploymentInstanceReceipt, DeploymentAppliedReport } from "./deployment-state";
 
 export { DeploymentReportingClient } from "./deployment-reporting";
+
+export { GENERATOR_VERSION, VECTOR_VERSION, validateForwarderRuntimeArtifact, compileForwarderRuntime, verifyLoadedForwarder, reportLoadedForwarder } from "./runtime";
+export type { ForwarderRuntimeArtifact, LoadedForwarderObservation, ForwarderReportCheckpoint, ForwarderReportStore } from "./runtime";

@@ -9,7 +9,7 @@ rmSync("dist", { recursive: true, force: true });
 await build({
   entryPoints: [`src/${entry}.ts`], outfile: `dist/${entry}.js`,
   bundle: true, packages: "external", format: "esm", platform: cli ? "node" : "neutral",
-  target: "es2022", sourcemap: true,
+  target: "es2022", sourcemap: true, define: {__LOGTURA_PACKAGE_VERSION__: JSON.stringify(pkg.version)},
 });
 const types = spawnSync("tsc", ["-p", "tsconfig.build.json"], { stdio: "inherit" });
 if (types.status !== 0) throw new Error(`Declaration build failed for ${pkg.name}`);

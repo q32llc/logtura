@@ -1,6 +1,6 @@
 import { SELF,env,createExecutionContext } from "cloudflare:test";
 import { expect,it,afterEach } from "vitest";
-import { LogturaServiceClient,DeploymentReportingClient,hashConfigDocument,exportDeploymentManifest,createSecretVersioner,type DeploymentInstanceActivation } from "@logtura/core";
+import { LogturaServiceClient,DeploymentReportingClient,compileForwarderRuntime,reportLoadedForwarder,hashConfigDocument,exportDeploymentManifest,createSecretVersioner,type DeploymentInstanceActivation } from "@logtura/core";
 import worker from "../../src/index";
 import type { Env } from "../../src/env";
 import { createConnection,createDeployment } from "../../src/db";
@@ -9,6 +9,8 @@ import { hashCliSecret } from "../../src/cli-auth";
 import { issueDeploymentConfiguration,readDeploymentConfiguration } from "../../src/deployment-configuration";
 import { readConfigurationVersion } from "../../src/config-version";
 import { activateDeploymentWithReceipt,readDeploymentInstanceReceipt } from "../../src/deployment-instances";
+import { listProviders } from "../../src/providers";
+import { listDestinationDrivers } from "../../src/destinations";
 import { seedUser } from "./_setup";
 afterEach(async()=>{await env.DB.exec("DROP TRIGGER IF EXISTS instance_receipt_failure");});
 async function fixture(issue=true){
@@ -20,7 +22,7 @@ async function fixture(issue=true){
  const intent:DeploymentInstanceActivation={requestId:crypto.randomUUID(),expectedConfigurationVersion:issued.configurationVersion,expectedSequence:Math.max(1,issued.sequence),revision:issued.revision,expectedInstanceId:null};
  const fetch:typeof globalThis.fetch=(input,init)=>SELF.fetch(new Request(input,init));
  const client=new LogturaServiceClient({url:"https://local.test",token:accountToken,fetch}),reporting=new DeploymentReportingClient({url:"https://local.test",token:dep.heartbeat_token!,fetch});
- return {...user,con,dep,issued,intent,client,reporting,accountToken};
+ return {...user,con,dep,issued,intent,client,reporting,accountToken,exported};
 }
 async function activate(f:Awaited<ReturnType<typeof fixture>>,body:unknown=f.intent,headers:HeadersInit={cookie:f.sessionCookie}){return SELF.fetch(`https://local.test/api/deployments/${f.dep.id}/config/instances`,{method:"POST",headers,body:JSON.stringify(body)});}
 it("exposes legacy/desired/applied state and durably recovers activation after a lost response",async()=>{
@@ -90,4 +92,15 @@ it("honors reporting token rotation immediately and ignores unknown revisions wi
  await env.DB.prepare("UPDATE deployments SET heartbeat_token='rotated-report-token' WHERE id=?").bind(f.dep.id).run();await expect(f.reporting.reportApplied(f.dep.id,report)).rejects.toMatchObject({status:401});
  const afterRotation=await readConfigurationVersion(env.DB,f.userId);const reporting=new DeploymentReportingClient({url:"https://local.test",token:"rotated-report-token",fetch:(input,init)=>SELF.fetch(new Request(input,init))});expect(await reporting.reportApplied(f.dep.id,report)).toBe(true);expect(await readConfigurationVersion(env.DB,f.userId)).toBe(afterRotation);
  await env.DB.prepare("DELETE FROM deployments WHERE id=?").bind(f.dep.id).run();expect(await env.DB.prepare("SELECT COUNT(*) FROM deployment_instance_receipts WHERE deployment_id=?").bind(f.dep.id).first("COUNT(*)")).toBe(0);
+});
+
+it("recovers the shared verified-report engine through the real reporting API after acknowledgement loss",async()=>{
+ const f=await fixture(),instance=await f.client.activateDeploymentInstance(f.dep.id,f.intent);
+ const {artifact,bundle}=await compileForwarderRuntime({service:"https://local.test",deploymentId:f.dep.id,document:f.exported.document,instance,env:f.exported.secretValues,providers:listProviders(),destinations:listDestinationDrivers()});
+ const observed={ready:true,generatorVersion:artifact.generatorVersion,vectorVersion:artifact.vectorVersion,files:{"vector.yaml":bundle.vectorYaml,...Object.fromEntries(bundle.runtimeAssets.map(asset=>[`assets/${asset.driverId}/${asset.path}`,asset.content]))},environment:Object.fromEntries(bundle.envVars.map(v=>[v.name,v.value??undefined]))};
+ let checkpoint:unknown=null,writes=0;const store={load:async()=>checkpoint,save:async(value:unknown)=>{checkpoint=structuredClone(value);}};
+ await expect(reportLoadedForwarder({artifact,observed,store,report:async body=>{writes++;expect(await f.reporting.reportApplied(f.dep.id,body)).toBe(true);throw new Error("Acknowledgement lost");}})).rejects.toThrow("Acknowledgement lost");
+ expect(checkpoint).toMatchObject({lastReportSequence:0,pending:{reportSequence:1}});
+ expect(await reportLoadedForwarder({artifact,observed,store,report:body=>{writes++;return f.reporting.reportApplied(f.dep.id,body);}})).toEqual({reportSequence:1,accepted:false});
+ expect(writes).toBe(2);expect(checkpoint).toMatchObject({lastReportSequence:1,pending:null,lastAccepted:false});expect(await f.client.getDeploymentConfigurationState(f.dep.id)).toMatchObject({applied:{sequence:1,revision:instance.revision},lastReportSequence:1});
 });

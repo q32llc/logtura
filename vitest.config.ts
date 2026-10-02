@@ -79,6 +79,7 @@ export default defineConfig({
         "packages/cli/src/deployment-link.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/push.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/push-lock.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/core/src/runtime.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/deployment-state.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/deployment-reporting.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/service-client.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },

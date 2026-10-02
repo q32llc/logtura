@@ -8,7 +8,8 @@ import { spawnSync } from "node:child_process";
 
 const root = process.cwd();
 const load = (name) => import(pathToFileURL(join(root, "packages", name, "dist/index.js")));
-const { generateBundle } = await load("core");
+const { compileForwarderRuntime, exportDeploymentManifest, createSecretVersioner, hashConfigDocument,
+  verifyLoadedForwarder, GENERATOR_VERSION, VECTOR_VERSION } = await load("core");
 const { customVectorProvider } = await load("custom-vector");
 const { webhookDriver } = await load("destination-webhook");
 const temporary = mkdtempSync(join(tmpdir(), "logt-vector-flow-"));
@@ -42,7 +43,7 @@ async function waitFor(check, label, milliseconds = 30_000) {
   throw new Error(`${label} timed out\n${docker(["logs", name], true)}`);
 }
 try {
-  const bundle = generateBundle({
+  const input = {
     providers: [customVectorProvider], destinations: [webhookDriver],
     connections: [{ connection: { id: "con_fixture", provider: "custom-vector", displayName: "Fixture", externalAccountId: null }, selectedSources: [{
       id: "src_fixture", externalId: "normalize", displayName: "Fixture ingress", sourceKind: "custom_vector", metadata: { customVector: {
@@ -56,15 +57,40 @@ try {
       sink: { id: "sink_fixture", filterSteps: [] }, destination: { id: "dest_fixture", kind: "webhook", displayName: "Fixture webhook" },
       destinationConfig: { url: `http://host.docker.internal:${receiverPort}/events` },
     }] }],
-  });
+  };
+  const exported = await exportDeploymentManifest(input, await createSecretVersioner(crypto.randomUUID()));
+  const {bundle, artifact} = await compileForwarderRuntime({service: "https://runtime-fixture.test",
+    deploymentId: "dep_fixture", document: exported.document,
+    instance: {requestId: crypto.randomUUID(), instanceId: crypto.randomUUID(),
+      configurationVersion: 0, sequence: 1, revision: await hashConfigDocument(exported.document)},
+    env: exported.secretValues, providers: input.providers, destinations: input.destinations});
   assert.ok(!bundle.vectorYaml.includes("/api/heartbeat/"));
   assert.ok(!bundle.vectorYaml.includes("/api/metrics/"));
   writeFileSync(join(temporary, "vector.yaml"), bundle.vectorYaml);
   const env = bundle.envVars.flatMap((variable) => variable.value === null ? [] : ["--env", `${variable.name}=${variable.value}`]);
-  docker(["run", "--detach", "--rm", "--name", name, "--add-host=host.docker.internal:host-gateway", "--publish", "127.0.0.1::9000", "--volume", `${temporary}:/etc/vector:ro`, ...env, "timberio/vector:0.55.0-debian", "--config", "/etc/vector/vector.yaml"]);
+  docker(["run", "--detach", "--rm", "--name", name, "--add-host=host.docker.internal:host-gateway", "--publish", "127.0.0.1::9000", "--publish", "127.0.0.1::8686", "--volume", `${temporary}:/etc/vector:ro`, ...env, `timberio/vector:${VECTOR_VERSION}-debian`, "--config", "/etc/vector/vector.yaml"]);
   const mapping = docker(["port", name, "9000/tcp"]);
   const ingress = `http://${mapping}`;
   await waitFor(async () => { try { await fetch(ingress, { signal: AbortSignal.timeout(500) }); return true; } catch { return false; } }, "Vector readiness");
+  const api = `http://${docker(["port", name, "8686/tcp"])}`;
+  await waitFor(async () => { try { return (await fetch(`${api}/health`, {signal: AbortSignal.timeout(500)})).status === 200; } catch { return false; } }, "Vector API readiness");
+  // Read back from this container's read-only config mount and launched environment.
+  // Startup has no config-watch option; observations belong to this owned runtime.
+  const loadedYaml = spawnSync("docker", ["exec", name, "cat", "/etc/vector/vector.yaml"], {encoding: "utf8", timeout: 5000});
+  assert.equal(loadedYaml.status, 0);
+  const runtimeVersion = docker(["exec", name, "vector", "--version"]).match(/^vector (\d+\.\d+\.\d+)/)?.[1];
+  assert.equal(runtimeVersion, VECTOR_VERSION);
+  const container = JSON.parse(docker(["inspect", name]))[0];
+  assert.equal(container.State.Running, true);
+  assert.ok(container.Mounts.some(mount => mount.Destination === "/etc/vector" && mount.RW === false));
+  const environment = Object.fromEntries(container.Config.Env.map(value => {const index = value.indexOf("=");return [value.slice(0, index), value.slice(index + 1)];}));
+  const observed = {files: {"vector.yaml": loadedYaml.stdout}, environment,
+    generatorVersion: GENERATOR_VERSION, vectorVersion: runtimeVersion, ready: true};
+  await verifyLoadedForwarder(artifact, observed);
+  await assert.rejects(verifyLoadedForwarder(artifact, {...observed, files: {"vector.yaml": loadedYaml.stdout + "\n# changed\n"}}));
+  const boundName = Object.keys(artifact.environment)[0];
+  assert.ok(boundName);
+  await assert.rejects(verifyLoadedForwarder(artifact, {...observed, environment: {...environment, [boundName]: "changed"}}));
   const response = await fetch(ingress, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify([
     { message: "keep-error-one", level: "error" }, { message: "drop-info", level: "info" }, { message: "keep-error-two", level: "error" },
   ]), signal: AbortSignal.timeout(5000) });
@@ -77,7 +103,7 @@ try {
     assert.equal(event.logtura_provider, "custom-vector");
     assert.equal(event.error, true);
   }
-  console.log("Real Vector flow passed: normalization, error filtering, routing, context, and retry delivery without Logtura service");
+  console.log("Real Vector flow passed: normalization, error filtering, routing, context, retry delivery, and issued runtime integrity without Logtura service");
 } finally {
   docker(["rm", "--force", name], true);
   await new Promise((resolve) => server.close(resolve));
