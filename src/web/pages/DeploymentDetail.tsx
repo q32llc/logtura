@@ -1762,7 +1762,9 @@ function ManagedDeployCard({
   useEffect(() => {
     if (!connecting) return;
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
+      if (cancelled) return;
       try {
         const r = await api.flyConnectPoll(connecting.sessionId);
         if (cancelled) return;
@@ -1772,16 +1774,17 @@ function ManagedDeployCard({
           await refetch();
           return;
         }
-        setTimeout(tick, 2000);
+        timer = setTimeout(tick, 2000);
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof ApiError ? e.message : "Polling failed");
         setConnecting(null);
       }
     };
-    setTimeout(tick, 2000);
+    timer = setTimeout(tick, 2000);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [connecting]);
 
@@ -1790,22 +1793,25 @@ function ManagedDeployCard({
     if (!deployJob) return;
     if (deployJob.status === "succeeded" || deployJob.status === "failed") return;
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
     const tick = async () => {
+      if (cancelled) return;
       try {
         const r = await api.getJob(deployJob.id);
         if (cancelled) return;
         setDeployJob(r.job);
         if (r.job.status === "queued" || r.job.status === "running") {
-          setTimeout(tick, 2000);
+          timer = setTimeout(tick, 2000);
         }
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof ApiError ? e.message : "Job poll failed");
       }
     };
-    setTimeout(tick, 2000);
+    timer = setTimeout(tick, 2000);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [deployJob]);
 

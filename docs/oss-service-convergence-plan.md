@@ -1940,6 +1940,43 @@ provider/source/site/browser cases, remote ledgers, managed apply, coordinated
 package release, rollback and staged production rollout remain required. Codecov
 permission approval remains pending. Public package source and production resources
 are unchanged by this private website/test slice.
+
+### Deployment run controls and polling lifecycle baseline
+
+The actual deployment detail page gains 30 run-control interaction cases, bringing
+the UI suite to 194 across 15 files. Coverage includes personal-versus-organization
+Fly account selection, duplicate submission prevention, deduplicated job identity,
+queued/running job rehydration after remount, progress and terminal failure/retry,
+success-driven header refresh, terminal polling shutdown, submission/poll failures,
+authorization start/pending/success/cancel/error, late responses after cancellation
+or unmount, reconnect without deploy, legacy redeploy links and unavailable target
+catalogs. Non-Fly targets retain self-deploy. Signed install-command cases verify
+deployment identity, disabled regeneration until expiry, expired-link recovery and
+signing failure retries. These interaction tests mock API responses and do not
+constitute a live managed Fly deployment or complete deployment-page coverage.
+
+The cases expose and fix overlapping job polls: an effect restart after a progress
+update previously left the prior scheduled timeout alive. Authorization cancellation
+also left a scheduled request alive. Both effects now retain and clear their timer
+and guard requests after cancellation; late in-flight responses remain ignored.
+Regression assertions require one poll per interval and no requests after unmount
+or authorization cancellation.
+
+Service typechecking, Vite/package build, all 194 UI tests and raised coverage gates
+pass locally. Aggregate statements/branches/functions/lines measure
+71.27/68.75/65.05/72.58, with enforced floors 71/68.5/65/72.5 and every UI file
+included. DeploymentDetail measures 49.71/38.34/44.27/53.69 and adds a partial
+baseline floor of 49.5/38/44/53.5; metrics, configuration, bundle and lifecycle
+interactions still require broader coverage. The complete real browser/installed
+CLI/workerd/Docker journey passes with credential rotation, runtime convergence,
+restart reporting, graceful shutdown and ownership cleanup after the polling fix.
+
+Preceding connection-detail head effce9d passes all prior CI gates in terminal run
+36993144474; only the enforced Codecov upload fails. Scoped app approval is still
+pending. This slice does not change public package source or production resources.
+Final aggregate coverage, provider/source/site delivery, managed apply, persistent
+remote cleanup ledgers, coordinated releases and staged production rollout remain
+required before the overall goal can be complete.
 Both after-create and after-runtime failure injections pass with verified cleanup
 including destinations. Pushed-head CI remains an independent gate. Preceding
 monitor head 346b2a0 reaches the Codecov upload in run 36989208667 after passing
