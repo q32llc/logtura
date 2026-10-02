@@ -23,6 +23,30 @@ it("distinguishes expired sessions, missing deployments and service outages from
 });
 it("preserves JSON and multipart mutation transport when the shared reader changes",async()=>{
  const fetch=vi.fn(async()=>Response.json({ok:true}));vi.stubGlobal("fetch",fetch);
- await api.updateDeployment("dep",{displayName:"Website update",sourceIds:["src_site"]});expect(fetch.mock.calls[0]).toEqual(["/api/deployments/dep",{credentials:"include",headers:{accept:"application/json","content-type":"application/json"},method:"PUT",body:JSON.stringify({displayName:"Website update",sourceIds:["src_site"]})}]);
- const form=new FormData();form.set("api_token","private-test-token");await api.createConnection(form);expect(fetch.mock.calls[1]).toEqual(["/api/connections",{credentials:"include",headers:{accept:"application/json"},method:"POST",body:form}]);
+ await api.updateDeployment("dep",{displayName:"Website update",sourceIds:["src_site"]});expect(fetch.mock.calls[0]).toEqual(["/api/deployments/dep",{credentials:"include",signal:expect.any(AbortSignal),headers:{accept:"application/json","content-type":"application/json"},method:"PUT",body:JSON.stringify({displayName:"Website update",sourceIds:["src_site"]})}]);
+ const form=new FormData();form.set("api_token","private-test-token");await api.createConnection(form);expect(fetch.mock.calls[1]).toEqual(["/api/connections",{credentials:"include",signal:expect.any(AbortSignal),headers:{accept:"application/json"},method:"POST",body:form}]);
+});
+it("rejects successful non-JSON mutation responses instead of declaring them complete",async()=>{
+ vi.stubGlobal("fetch",async()=>new Response("private-html-response",{status:200}));
+ await expect(api.deleteDeployment("dep")).rejects.toMatchObject({message:"Invalid response from Logtura",status:200,code:"invalid_response"});
+});
+it("keeps path identifiers as single URL segments rather than allowing them to select another endpoint",async()=>{
+ const fetch=vi.fn(async(_input:RequestInfo|URL,_init?:RequestInit)=>Response.json({ok:true}));vi.stubGlobal("fetch",fetch);
+ await api.deleteDeployment("dep /?secret=#fragment");expect(fetch.mock.calls[0]?.[0]).toBe("/api/deployments/dep%20%2F%3Fsecret%3D%23fragment");
+ expect(api.installBundleUrl("dep /?secret=#fragment")).toBe("/api/deployments/dep%20%2F%3Fsecret%3D%23fragment/install-bundle.tgz");
+});
+it("bounds mutation requests and preserves an aborted fetch without retrying it",async()=>{
+ const controller=new AbortController(),reason=new DOMException("Operation timed out","TimeoutError");
+ const timeout=vi.spyOn(AbortSignal,"timeout").mockReturnValue(controller.signal);
+ const fetch=vi.fn((_url:unknown,init?:RequestInit)=>new Promise<Response>((_resolve,reject)=>init!.signal!.addEventListener("abort",()=>reject(init!.signal!.reason),{once:true})));
+ vi.stubGlobal("fetch",fetch);
+ const pending=api.createMonitor({displayName:"Timed out monitor"});const rejected=expect(pending).rejects.toBe(reason);
+ controller.abort(reason);await rejected;expect(fetch).toHaveBeenCalledTimes(1);expect(timeout).toHaveBeenCalledWith(20_000);
+});
+it("preserves an abort during response-body reading instead of misclassifying it as malformed JSON",async()=>{
+ const controller=new AbortController(),reason=new DOMException("Operation timed out","TimeoutError");
+ vi.spyOn(AbortSignal,"timeout").mockReturnValue(controller.signal);
+ const response=Response.json({deployment:{}});vi.spyOn(response,"json").mockImplementation(async()=>{controller.abort(reason);throw reason;});
+ vi.stubGlobal("fetch",async()=>response);
+ await expect(api.updateDeployment("dep",{displayName:"Uncertain mutation"})).rejects.toBe(reason);
 });

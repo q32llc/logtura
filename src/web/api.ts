@@ -1,6 +1,5 @@
 import { validateDeploymentConfigurationState,type DeploymentConfigurationState } from "@logtura/core";
 import type {
-  ApiBundle,
   ApiConnection,
   ApiDeployTarget,
   ApiDeployTargetDriver,
@@ -29,8 +28,10 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const signal = init?.signal ?? AbortSignal.timeout(20_000);
   const res = await fetch(`/api${path}`, {
     credentials: "include",
+    signal,
     headers: {
       accept: "application/json",
       ...(init?.body && !(init.body instanceof FormData)
@@ -44,7 +45,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     json = await res.json();
   } catch {
-    // ignore
+    if (signal.aborted) throw signal.reason;
+    if (res.ok) throw new ApiError("Invalid response from Logtura", res.status, "invalid_response");
   }
   if (!res.ok) {
     const data = json as { error?: string; message?: string } | null;
@@ -98,7 +100,7 @@ export const api = {
     }),
   reconnectConnection: (id: string, form: FormData) =>
     request<{ connection: ApiConnection }>(
-      `/connections/${id}/reconnect`,
+      `/connections/${encodeURIComponent(id)}/reconnect`,
       { method: "POST", body: form },
     ),
   getConnection: (id: string) =>
@@ -106,15 +108,10 @@ export const api = {
       connection: ApiConnection;
       sources: ApiSource[];
       latestDiscoveryJob: ApiJob | null;
-    }>(`/connections/${id}`),
-  setSourceSelections: (id: string, selectedSourceIds: string[]) =>
-    request<{ sources: ApiSource[] }>(`/connections/${id}/sources`, {
-      method: "POST",
-      body: JSON.stringify({ selectedSourceIds }),
-    }),
+    }>(`/connections/${encodeURIComponent(id)}`),
   rediscover: (id: string) =>
     request<{ job: ApiJob; deduped: boolean }>(
-      `/connections/${id}/discover`,
+      `/connections/${encodeURIComponent(id)}/discover`,
       { method: "POST" },
     ),
   listSupabaseProjects: (id: string) =>
@@ -125,10 +122,10 @@ export const api = {
         organizationId: string | null;
         functionCount: number | null;
       }>;
-    }>(`/connections/${id}/supabase-projects`),
+    }>(`/connections/${encodeURIComponent(id)}/supabase-projects`),
   pickSupabaseProject: (id: string, projectRef: string) =>
     request<{ connection: ApiConnection }>(
-      `/connections/${id}/supabase-pick-project`,
+      `/connections/${encodeURIComponent(id)}/supabase-pick-project`,
       {
         method: "POST",
         body: JSON.stringify({ projectRef }),
@@ -145,22 +142,21 @@ export const api = {
           serviceCount: number | null;
         }>;
       }>;
-    }>(`/connections/${id}/railway-environments`),
+    }>(`/connections/${encodeURIComponent(id)}/railway-environments`),
   pickRailwayEnvironment: (
     id: string,
     input: { projectId: string; environmentId: string },
   ) =>
     request<{ connection: ApiConnection }>(
-      `/connections/${id}/railway-pick-environment`,
+      `/connections/${encodeURIComponent(id)}/railway-pick-environment`,
       {
         method: "POST",
         body: JSON.stringify(input),
       },
     ),
-  getJob: (id: string) => request<{ job: ApiJob }>(`/jobs/${id}`),
+  getJob: (id: string) => request<{ job: ApiJob }>(`/jobs/${encodeURIComponent(id)}`),
   deleteConnection: (id: string) =>
-    request<{ ok: true }>(`/connections/${id}`, { method: "DELETE" }),
-  getBundle: (id: string) => request<ApiBundle>(`/connections/${id}/bundle`),
+    request<{ ok: true }>(`/connections/${encodeURIComponent(id)}`, { method: "DELETE" }),
   /** Every source across every connection the user owns. Powers the
    *  deployment configure tab's cross-connection picker — UI groups
    *  by connection id, derives "this deployment uses these
@@ -193,7 +189,7 @@ export const api = {
       body: form,
     }),
   deleteDestination: (id: string) =>
-    request<{ ok: true }>(`/destinations/${id}`, { method: "DELETE" }),
+    request<{ ok: true }>(`/destinations/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
   listMonitors: () =>
     request<{ monitors: ApiMonitor[]; sinks: ApiSinkRecord[] }>("/monitors"),
@@ -216,12 +212,12 @@ export const api = {
       enabled?: boolean;
     },
   ) =>
-    request<{ monitor: ApiMonitor }>(`/monitors/${id}`, {
+    request<{ monitor: ApiMonitor }>(`/monitors/${encodeURIComponent(id)}`, {
       method: "PUT",
       body: JSON.stringify(body),
     }),
   deleteMonitor: (id: string) =>
-    request<{ ok: true }>(`/monitors/${id}`, { method: "DELETE" }),
+    request<{ ok: true }>(`/monitors/${encodeURIComponent(id)}`, { method: "DELETE" }),
   addSink: (
     monitorId: string,
     body: {
@@ -229,17 +225,17 @@ export const api = {
       filterSteps?: FilterStep[];
     },
   ) =>
-    request<{ sink: ApiSinkRecord }>(`/monitors/${monitorId}/sinks`, {
+    request<{ sink: ApiSinkRecord }>(`/monitors/${encodeURIComponent(monitorId)}/sinks`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
   updateSinkSteps: (id: string, filterSteps: FilterStep[]) =>
-    request<{ ok: true }>(`/sinks/${id}`, {
+    request<{ ok: true }>(`/sinks/${encodeURIComponent(id)}`, {
       method: "PUT",
       body: JSON.stringify({ filterSteps }),
     }),
   deleteSink: (id: string) =>
-    request<{ ok: true }>(`/sinks/${id}`, { method: "DELETE" }),
+    request<{ ok: true }>(`/sinks/${encodeURIComponent(id)}`, { method: "DELETE" }),
 
   // ----- Deploy targets ------------------------------------------------
   deployTargetDrivers: () =>
@@ -268,7 +264,7 @@ export const api = {
     request<{ deployments: ApiDeployment[] }>("/deployments"),
   listDeploymentsForConnection: (connectionId: string) =>
     request<{ deployments: ApiDeployment[] }>(
-      `/connections/${connectionId}/deployments`,
+      `/connections/${encodeURIComponent(connectionId)}/deployments`,
     ),
   getDeployment: (id: string) =>
     request<{
@@ -280,7 +276,7 @@ export const api = {
         provider: string;
         externalAccountId: string | null;
       }>;
-    }>(`/deployments/${id}`),
+    }>(`/deployments/${encodeURIComponent(id)}`),
   createDeployment: (body: {
     connectionId: string;
     displayName: string;
@@ -307,12 +303,12 @@ export const api = {
       externalId: string | null;
     }>,
   ) =>
-    request<{ deployment: ApiDeployment }>(`/deployments/${id}`, {
+    request<{ deployment: ApiDeployment }>(`/deployments/${encodeURIComponent(id)}`, {
       method: "PUT",
       body: JSON.stringify(body),
     }),
   deleteDeployment: (id: string) =>
-    request<{ ok: true }>(`/deployments/${id}`, { method: "DELETE" }),
+    request<{ ok: true }>(`/deployments/${encodeURIComponent(id)}`, { method: "DELETE" }),
   getDeploymentBundle: (
     deploymentId: string,
     target?: string,
@@ -323,7 +319,7 @@ export const api = {
     if (region) params.set("region", region);
     const qs = params.toString();
     return request<ApiTargetBundle>(
-      `/deployments/${deploymentId}/bundle${qs ? `?${qs}` : ""}`,
+      `/deployments/${encodeURIComponent(deploymentId)}/bundle${qs ? `?${qs}` : ""}`,
     );
   },
   deployNow: (
@@ -331,24 +327,24 @@ export const api = {
     body: { deployTargetId: string; region?: string },
   ) =>
     request<{ job: ApiJob; deduped: boolean }>(
-      `/deployments/${deploymentId}/deploy`,
+      `/deployments/${encodeURIComponent(deploymentId)}/deploy`,
       { method: "POST", body: JSON.stringify(body) },
     ),
   markDeploymentDeployed: (deploymentId: string) =>
     request<{ deployment: ApiDeployment | null }>(
-      `/deployments/${deploymentId}/mark-deployed`,
+      `/deployments/${encodeURIComponent(deploymentId)}/mark-deployed`,
       { method: "POST" },
     ),
   /** URL for the session-authed install bundle download. The browser
    *  hits it directly via an <a> tag with download attribute; no
    *  JSON wrapper. Returning the path lets the UI render the link. */
   installBundleUrl: (deploymentId: string) =>
-    `/api/deployments/${deploymentId}/install-bundle.tgz`,
+    `/api/deployments/${encodeURIComponent(deploymentId)}/install-bundle.tgz`,
   /** Mint an HMAC-signed one-shot URL for the curl one-liner. Caller
    *  is expected to surface it within ~60s before it expires. */
   signInstallBundle: (deploymentId: string) =>
     request<{ url: string; expiresAt: number }>(
-      `/deployments/${deploymentId}/install-bundle/sign`,
+      `/deployments/${encodeURIComponent(deploymentId)}/install-bundle/sign`,
       { method: "POST" },
     ),
 };

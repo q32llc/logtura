@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { signCookie } from "../../src/crypto";
 
 /** Fresh real storage; only identity seeding bypasses public HTTP workflows. */
-export async function startLocalService() {
+export async function startLocalService(optionsForFixture: { flyAuthorization?: boolean } = {}) {
   const secret = randomUUID();
   const compiled = await build({ entryPoints: ["src/index.ts"], bundle: true, write: false,
     format: "esm", platform: "browser", external: ["node:*", "cloudflare:*"], logLevel: "silent" });
@@ -34,6 +34,9 @@ export async function startLocalService() {
       CREDENTIAL_ENCRYPTION_KEY: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" },
     async outboundService(request: Request) {
       const url = new URL(request.url);
+      if (optionsForFixture.flyAuthorization && url.origin === "https://api.fly.io" && url.pathname === "/api/v1/cli_sessions" && request.method === "POST" && !request.headers.has("authorization")) {
+        return Response.json({ id: "fixture-fly-session", auth_url: "https://fly.io/authorize/fixture-fly-session" });
+      }
       if (url.origin === "https://api.cloudflare.com") {
         if (request.headers.get("authorization") !== `Bearer ${providerToken}`) {
           unexpected.push("invalid_cloudflare_fixture_credential");

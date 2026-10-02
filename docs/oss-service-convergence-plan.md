@@ -2222,3 +2222,48 @@ remains pending. This slice does not change public package source or production
 resources. Final coverage, provider/source/site delivery, managed apply, remote
 ledgers, coordinated package publication/rollback and staged production rollout
 remain required.
+
+### Native website API contracts and final UI aggregate coverage target
+
+The website API suite now exercises real HTTP lifecycles against a disposable
+native workerd service, all migrations and fresh D1, with session authentication
+and explicit outbound provider fixtures. Seven new cases cover account/catalog
+reads, multipart connection create/reconnect/delete, held queued discovery
+reattachment and deduplication, encrypted destination/monitor/sink CRUD, existing
+deployment identity/configuration/bundle/signing/deletion, unknown device/token
+operations and Fly authorization start with signed-cookie polling refusal.
+Wrong-provider Supabase/Railway picks are checked against actual backend guards;
+these are not successful provider picks, live OAuth grants or managed deployment.
+Unexpected provider requests fail the suite. The Fly start fixture is opt-in, so
+the existing full browser runner retains its default outbound behavior.
+
+Actual HTTP checks exposed two unused private website helpers for retired
+connection-level source-selection and bundle endpoints. They and their unused
+private DTOs are removed; active selection and bundle flows use deployment APIs.
+No backend endpoint or public package capability is removed. Resource identifiers
+are now URL-encoded. The shared reader bounds requests to 20 seconds, rejects
+non-JSON successful replies without exposing response contents, preserves timeout
+errors during both fetch and body reads, and never automatically retries mutations.
+Four additional transport cases verify those behavior changes.
+
+All 280 website tests across 20 files pass. Aggregate coverage measures
+93.21 statements / 90.12 branches / 95.36 functions / 94.48 lines, with enforced
+floors of 93/90/95/94 and unchanged production source inclusion rules. The website
+API file measures and enforces 100 across all four dimensions; prior strict file
+gates remain. This completes the plan's aggregate website coverage target of
+90/90/90/85. Private service and public package final aggregate targets, provider
+delivery and the remaining browser/lifecycle matrix are still required. The native
+API suite runs in the normal UI coverage command after building website assets.
+
+Service/E2E types, package/Vite builds and the full browser/installed CLI/native
+workerd/actual Docker supervisor journey pass, including desired/applied
+convergence, restart reporting, graceful shutdown and owned-resource cleanup.
+Both after-create and after-runtime failure injections also pass with verified
+owned service/runtime cleanup.
+
+Preceding private head 945fef4 passes all prior test gates in terminal CI run
+36998223303; only enforced Codecov upload fails. Scoped app permission approval
+remains pending. This slice changes neither public package source nor production
+resources. Backend/package coverage, provider/source/site delivery, shared managed
+apply, remote ownership ledgers, coordinated package publication/rollback and staged
+production rollout remain required; the full goal remains active.

@@ -96,21 +96,6 @@ export interface ApiProvider {
   } | null;
 }
 
-export interface ApiEnvVar {
-  name: string;
-  description: string;
-  source: "credential" | "external_account_id" | "destination" | "manual";
-  credentialPath?: string;
-}
-
-export interface ApiBundle {
-  vectorYaml: string;
-  dockerfile: string;
-  runCommand: string;
-  envVars: ApiEnvVar[];
-  selectedCount: number;
-}
-
 export interface ApiBundleEnvVar {
   name: string;
   description: string;

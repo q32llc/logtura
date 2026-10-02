@@ -157,3 +157,17 @@ both CLI aliases, validates and generates a standalone bundle with outbound
 fetch disabled, and imports every public package in ordinary Node. The service
 production build also builds these package artifacts. Tests use the development
 export condition so coverage continues measuring package source.
+
+The website suite includes native workerd API lifecycle tests alongside browser
+component interactions. Build the packages and website assets first:
+
+```sh
+pnpm build
+pnpm test:ui:coverage
+```
+
+Coverage includes all website TypeScript source and enforces at least 93%
+statements, 90% branches, 95% functions and 94% lines, with stricter file gates.
+Native tests use a disposable local database, session and explicit provider
+fixtures; they require no production credentials. The full installed CLI,
+browser and Docker forwarder journey runs separately with `pnpm test:e2e:local`.
