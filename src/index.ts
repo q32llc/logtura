@@ -1,3 +1,4 @@
+import { createPushReceiptIntent,readPushReceipt,PushReceiptConflict,PushReceiptUnavailable,type PushReceiptIntent } from "./deployment-push-receipts";
 import { parseDeploymentPush,resolveOwnedDeploymentManifest,DeploymentPushError } from "./deployment-push";
 import { reconcileDeploymentConfiguration } from "./deployment-reconciliation";
 import { readDeploymentConfiguration,DeploymentRevisionConflict } from "./deployment-configuration";
@@ -121,6 +122,7 @@ import {
 const app = new Hono<AppContext>();
 
 app.use("/api/deployments/:id/config",async(c,next)=>{c.header("cache-control","no-store");await next();});
+app.use("/api/deployments/:id/config/*",async(c,next)=>{c.header("cache-control","no-store");await next();});
 app.use("*", attachOptionalUser);
 
 type DeploymentIngestCacheEntry = {
@@ -481,6 +483,7 @@ api.post("/tail/railway/token", async (c) => {
 
 const apiAuth = new Hono<AppContext>();
 apiAuth.use("/deployments/:id/config",async(c,next)=>{c.header("cache-control","no-store");if(!c.get("user"))return c.json({error:"auth_required"},401);await next();});
+apiAuth.use("/deployments/:id/config/*",async(c,next)=>{c.header("cache-control","no-store");if(!c.get("user"))return c.json({error:"auth_required"},401);await next();});
 apiAuth.use("*", requireAuth);
 
 apiAuth.get("/connections", async (c) => {
@@ -1250,6 +1253,15 @@ apiAuth.get("/deployments/:id/config", async (c) => {
   }
 });
 
+apiAuth.get("/deployments/:id/config/receipts/:requestId",async c=>{
+  const user=c.get("user")!,id=c.req.param("id");
+  try{
+    if(!await getDeployment(c.env.DB,user.id,id))return c.json({error:"not_found"},404);
+    const receipt=await readPushReceipt(c.env.DB,user.id,id,c.req.param("requestId"));
+    return receipt?c.json(receipt):c.json({error:"receipt_not_found"},404);
+  }catch(error){if(error instanceof DeploymentPushError)return c.json({error:error.code},error.status);return c.json({error:"configuration_unavailable"},503);}
+});
+
 apiAuth.put("/deployments/:id/config",async c=>{
   c.header("cache-control","no-store");
   const user=c.get("user")!,id=c.req.param("id");
@@ -1262,12 +1274,24 @@ apiAuth.put("/deployments/:id/config",async c=>{
     while(true){const part=await reader.read();if(part.done)break;length+=part.value.byteLength;if(length>1_048_576){await reader.cancel();return c.json({error:"push_too_large"},413);}chunks.push(part.value);}
   }catch{return c.json({error:"invalid_push"},400);}
   const bytes=new Uint8Array(length);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.byteLength;}
+  let receipt:PushReceiptIntent|undefined;
   try{
     let value:unknown;try{value=JSON.parse(new TextDecoder().decode(bytes));}catch{return c.json({error:"invalid_push"},400);}
-    const body=parseDeploymentPush(value),resolved=await resolveOwnedDeploymentManifest(c.env,user.id,id,body);
-    const result=await reconcileDeploymentConfiguration(c.env,user.id,id,body.expectedConfigurationVersion,body.expectedSequence,resolved.input,await createSecretVersioner(c.env.CREDENTIAL_ENCRYPTION_KEY),resolved.retainedCredentials);
+    const body=parseDeploymentPush(value);
+    receipt=await createPushReceiptIntent(c.env,user.id,id,body);
+    if(receipt){const prior=await readPushReceipt(c.env.DB,user.id,id,receipt.requestId,receipt.requestHash);if(prior)return c.json(prior.result);}
+    const resolved=await resolveOwnedDeploymentManifest(c.env,user.id,id,body);
+    const result=await reconcileDeploymentConfiguration(c.env,user.id,id,body.expectedConfigurationVersion,body.expectedSequence,resolved.input,await createSecretVersioner(c.env.CREDENTIAL_ENCRYPTION_KEY),resolved.retainedCredentials,receipt);
     return c.json(result);
   }catch(error){
+    // Another identical writer may have committed while this request was being
+    // prepared. Durable receipts take precedence over stale-fence/unique errors.
+    if(receipt && !(error instanceof PushReceiptConflict) && !(error instanceof PushReceiptUnavailable)){
+      try{const prior=await readPushReceipt(c.env.DB,user.id,id,receipt.requestId,receipt.requestHash);if(prior)return c.json(prior.result);}
+      catch(recoveryError){error=recoveryError;}
+    }
+    if(error instanceof PushReceiptConflict)return c.json({error:"request_id_reused"},409);
+    if(error instanceof PushReceiptUnavailable)return c.json({error:"configuration_unavailable"},503);
     if(error instanceof DeploymentPushError)return c.json({error:error.code},error.status);
     if(error instanceof ConfigurationConflict)return c.json({error:"configuration_changed",configurationVersion:error.currentVersion},409);
     if(error instanceof DeploymentRevisionConflict)return c.json({error:"desired_changed"},409);

@@ -300,3 +300,25 @@ parsing, rendering and discovery do not construct this client or need the servic
 `manifestSecretName(category,id)` exposes the schema's canonical UTF-8 identity
 encoding for reference namespaces. Hosted secret resolution restricts unchanged
 references to their owned connection, source, destination or deployment purpose.
+
+
+Configuration pushes can opt into durable deduplication with a caller-generated
+canonical UUIDv4 `requestId`. Persist the ID and exact intended request before
+sending it. Repeating the same effective request returns its original commit,
+even after later website edits; changing the request under that ID returns
+`request_id_reused` (409). JSON formatting inside explicit payload uploads does
+not change their effective identity.
+
+`getDeploymentPushReceipt(deploymentId, requestId)` retrieves the original public
+commit. It returns `null` only for an owned deployment's missing receipt; ownership,
+authorization and storage failures remain errors. Receipts prove an earlier commit
+and may be older than the current desired configuration. They contain no resolved
+private values or request fingerprints. The service stores a keyed request digest
+and retains receipts until the deployment is deleted. Receipt storage and graph
+mutations commit atomically, including graph no-ops. The service must have migration
+0024 and these endpoints before consumers rely on recovery. The CLI push/recovery
+consumer is a subsequent capability; the SDK never retries writes implicitly.
+
+The library also exports `isDeploymentPushRequestId` and
+`validateDeploymentConfigCommit` for validating request identities and canonical
+public commit responses without contacting a service.

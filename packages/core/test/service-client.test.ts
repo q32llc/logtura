@@ -89,3 +89,17 @@ it("rejects unrelated, malformed or non-JSON secret uploads before sending them"
 it("reports non-JSON authorization failures without reflecting response bodies",async()=>{
   await expect(client([new Response("private upstream failure",{status:503})]).client.pollDevice(device.deviceCode)).rejects.toMatchObject({status:503,code:"request_failed"});
 });
+it("validates durable push receipts, uses the authenticated transport and recognizes only owned missing receipts",async()=>{
+ const document:DeploymentManifest={kind:"logtura.deployment",schema_version:1,connections:[],monitors:[],runtimeEnv:null},result={configurationVersion:0,sequence:1,document,revision:await hashConfigDocument(document),sourceAliases:{}},requestId=crypto.randomUUID(),receipt={requestId,result};
+ const transport=client([Response.json(receipt),Response.json({error:"receipt_not_found"},{status:404}),Response.json({error:"not_found"},{status:404})],credential.token);
+ expect(await transport.client.getDeploymentPushReceipt("dep id",requestId)).toEqual(receipt);const [url,init]=transport.fetch.mock.calls[0]! as unknown as [string,RequestInit];expect(url).toBe(`https://fixture.test/api/deployments/dep%20id/config/receipts/${requestId}`);expect(new Headers(init.headers).get("authorization")).toBe(`Bearer ${credential.token}`);expect(init.redirect).toBe("manual");expect(init.credentials).toBe("omit");
+ expect(await transport.client.getDeploymentPushReceipt("dep id",requestId)).toBeNull();await expect(transport.client.getDeploymentPushReceipt("dep id",requestId)).rejects.toMatchObject({status:404,code:"not_found"});
+ await expect(client([Response.json({error:"unavailable"},{status:503})]).client.getDeploymentPushReceipt("dep",requestId)).rejects.toMatchObject({status:503});
+ await expect(client([]).client.getDeploymentPushReceipt("dep",requestId)).rejects.toThrow("unexpected request");
+ const never=client([]);for(const args of [["",requestId],["dep","bad"],["dep",12]])await expect(never.client.getDeploymentPushReceipt(...args as [string,string])).rejects.toThrow("identities");
+ await expect(client([Response.json(null)]).client.getDeploymentPushReceipt("dep",requestId)).rejects.toMatchObject({code:"invalid_response"});
+ for(const bad of [false,0,{}, {requestId:"other",result},{requestId,result,extra:"private"}])await expect(client([Response.json(bad)]).client.getDeploymentPushReceipt("dep",requestId)).rejects.toMatchObject({code:"invalid_push_receipt"});
+ for(const bad of [null,[],{}, {...result,extra:"private"},{...result,configurationVersion:-1},{...result,document:{}}])await expect(client([Response.json({requestId,result:bad})]).client.getDeploymentPushReceipt("dep",requestId)).rejects.toMatchObject({code:"invalid_config_commit"});
+ const good=client([Response.json(result)]);expect(await good.client.pushDeploymentConfig("dep",{document,expectedConfigurationVersion:0,expectedSequence:0,requestId})).toEqual(result);expect(JSON.parse((good.fetch.mock.calls[0] as unknown as [string,RequestInit])[1].body as string).requestId).toBe(requestId);
+ for(const bad of [null,2,"bad"])await expect(never.client.pushDeploymentConfig("dep",{document,expectedConfigurationVersion:0,expectedSequence:0,requestId:bad as any})).rejects.toThrow("request identity");expect(never.fetch).not.toHaveBeenCalled();
+});

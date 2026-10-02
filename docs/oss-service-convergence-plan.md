@@ -1007,3 +1007,60 @@ forwarder apply/acknowledgement and website desired/applied state, full remote/b
 E2E, final coverage, provider/telemetry hardening, dependencies, publication and
 staged production rollout remain required. No npm release or production migration
 or deployment is claimed. The complete shipping goal remains active.
+
+### Durable hosted push receipts and recovery transport (implemented)
+
+Migration 0024 adds immutable owned deployment push receipts without changing
+legacy forwarder tokens, ciphertext/credential intent, image digests, runtime values,
+account configuration versions or desired/applied state. Receipts live until their
+deployment is deleted. Their writes do not advance graph versions.
+
+`PUT /api/deployments/:id/config` optionally accepts a canonical UUIDv4 `requestId`.
+The service fingerprints the effective public manifest, both fences, explicit-upload
+switch and parsed private JSON values with a keyed HMAC. It stores only that digest
+and the public commit receipt, never resolved upload values or an unkeyed private
+payload hash. Omitted/false upload switches and private JSON whitespace/key order
+have the same effective request identity. Changed content under an existing ID
+returns `request_id_reused` (409).
+
+Receipt insertion is appended to the same guarded D1 transaction as inventory,
+selectors, encrypted private values and desired history. A receipt insertion failure
+rolls the entire graph back. No-op commits can receive new receipts without advancing
+account versions or desired sequences. Prior matching receipts are returned before
+secret resolution/fence checks; concurrently committed matching receipts also take
+precedence over stale-fence or unique-key errors. Replaying a historical request never
+restores an older graph after subsequent website edits.
+
+`GET /api/deployments/:id/config/receipts/:requestId` returns an owned public receipt
+with its original configuration version, desired sequence, manifest revision/document
+and source aliases. Active account tokens and website sessions can read it; forwarder
+reporting tokens, unauthenticated callers and foreign owners cannot. Replies include
+no-store headers including authentication failures. Missing receipts on owned
+deployments are distinguished from missing/foreign deployments and storage errors.
+Corrupt/unavailable receipt storage produces sanitized failures without reflecting
+private data. A historical receipt proves that commit, not that it is still desired.
+
+The packaged SDK accepts request IDs and exposes `getDeploymentPushReceipt`,
+`isDeploymentPushRequestId` and shared `validateDeploymentConfigCommit`. Lookup
+returns null only for an owned missing receipt; account, ownership, storage and
+schema failures remain errors. It does not retry writes implicitly. Compiled consumers
+exercise both push and receipt lookup with injected fetch and no network dependency.
+
+Validation passes 706 backend/package tests across 65 files and 465 public tests
+across 36 files. Coverage is 73.56/68.70/77.65/71.70 privately and
+79.11/75.23/78.95/78.01 publicly; public floors rise to 79/75/78/78. Receipt storage,
+push resolution, graph reconciliation and SDK transport enforce 100% across all
+four metrics. Tests cover concurrent identical/different requests, no-op receipt
+writes, explicit uploads/equivalent JSON, write rollback, immutable/corrupt storage,
+ownership/authentication/caching/deletion and schema-23 upgrade preservation. An
+end-to-end SDK transport deliberately drops the response after D1 commits, then
+retrieves the original receipt and safely repeats the request. Both layouts pass
+package builds/types and all 15 packed-package checks; the service build passes.
+
+CLI pending-request persistence, private-reference restamping/explicit-upload
+selection, linked account/service enforcement, receipt recovery and atomic local
+baseline advancement remain the next consumer work. Existing-target forwarder
+updates and acknowledgements, website desired/applied display, full remote/browser
+E2E, final coverage, provider/telemetry hardening, dependencies, npm publication and
+staged production rollout remain required. Migration 0024 joins 0018–0023 as
+unreleased production work. The full shipping goal remains active.

@@ -58,8 +58,8 @@ export { buildTar, type TarFile } from "./tar";
 
 export { parseConfigDocument, normalizeConfigDocument, canonicalConfigJson, hashConfigDocument, ensureSection, ensureListSection, safeId, defaultProviderName } from "./config";
 export type { ConfigParseOptions, ConfigIncludeReader, ParsedConfig } from "./config";
-export { LogturaServiceClient, ServiceError, normalizeServiceUrl, authorizeCliDevice } from "./service-client";
-export type { ServiceClientOptions, DeviceAuthorization, AccountCredential, DevicePoll, ServiceUser, DeploymentConfigExport, DeploymentConfigPush, DeploymentConfigCommit } from "./service-client";
+export { LogturaServiceClient, isDeploymentPushRequestId, validateDeploymentConfigCommit, ServiceError, normalizeServiceUrl, authorizeCliDevice } from "./service-client";
+export type { ServiceClientOptions, DeviceAuthorization, AccountCredential, DevicePoll, ServiceUser, DeploymentConfigExport, DeploymentConfigPush, DeploymentConfigCommit, DeploymentPushReceipt } from "./service-client";
 
 export { manifestSecretName, exportDeploymentManifest, parseDeploymentManifest, normalizeDeploymentManifest, createSecretVersioner, validateDeploymentInput } from "./manifest";
 export type { DeploymentManifest, SecretReference, SecretVersioner } from "./manifest";

@@ -1,3 +1,4 @@
+import { compilePushReceipt, type PushReceiptIntent } from "./deployment-push-receipts";
 import { canonicalConfigJson,generateBundle,hashConfigDocument,type GenerateInput,type DeploymentManifest,type SecretVersioner } from "@logtura/core";
 import { exportHostedManifest } from "./credential-intent";
 import { getDeployment } from "./db";
@@ -18,7 +19,7 @@ export interface ReconciledDeploymentConfiguration {
  * Runtime OAuth broker envelopes must never be supplied as stored credentials.
  * Inventory, selectors, reporting targets, encrypted runtime overrides and public
  * desired history commit together, or nothing changes. No provider I/O occurs. */
-export async function reconcileDeploymentConfiguration(env:Env,userId:string,deploymentId:string,expectedVersion:number,expectedSequence:number,desired:GenerateInput,versioner:SecretVersioner,retainedCredentials?:Map<string,string>):Promise<ReconciledDeploymentConfiguration>{
+export async function reconcileDeploymentConfiguration(env:Env,userId:string,deploymentId:string,expectedVersion:number,expectedSequence:number,desired:GenerateInput,versioner:SecretVersioner,retainedCredentials?:Map<string,string>,receipt?:PushReceiptIntent):Promise<ReconciledDeploymentConfiguration>{
   if(!Number.isSafeInteger(expectedSequence) || expectedSequence<0 || expectedSequence>=Number.MAX_SAFE_INTEGER)throw new Error("Invalid desired sequence");
   const deployment=await getDeployment(env.DB,userId,deploymentId);if(!deployment)throw new Error("Deployment not found");
   const {plan,inventory,credentialVersions}=await prepareGraphReconciliation(env,userId,expectedVersion,desired,retainedCredentials);
@@ -52,7 +53,7 @@ export async function reconcileDeploymentConfiguration(env:Env,userId:string,dep
   const heartbeat=input.heartbeat.kind,metrics=input.metrics.kind==="destination"?input.metrics.destination.id:input.metrics.kind;
   const graphChanges=plan.connections.length+plan.sources.length+plan.destinations.length+plan.monitors.length+plan.sinks.length+plan.removeSinkIds.length;
   const unchanged=state && state.desired.configurationVersion===expectedVersion && state.desired.revision===revision && graphChanges===0 && !runtimeChanged && deployment.graph_selection_json===canonicalConfigJson(selection) && deployment.heartbeat_target===heartbeat && (deployment.metrics_target??"none")===metrics && deployment.heartbeat_token===token;
-  if(unchanged){await commitConfiguration(env.DB,userId,expectedVersion,[]);return {configurationVersion:expectedVersion,sequence:state.desired.sequence,revision,document:exported.document,sourceAliases:plan.sourceAliases};}
+  if(unchanged){const result={configurationVersion:expectedVersion,sequence:state.desired.sequence,revision,document:exported.document,sourceAliases:plan.sourceAliases};await commitConfiguration(env.DB,userId,expectedVersion,receipt?[compilePushReceipt(env.DB,userId,deploymentId,receipt,result)]:[]);return result;}
   const statements=await compileGraphMutations(env,userId,plan,inventory,credentialVersions);
   statements.push(...compileDeploymentSelection(env.DB,userId,deploymentId,selection));
   const encrypted=runtimeChanged?(Object.keys(runtime).length===0?null:await encryptSecret(canonicalConfigJson(runtime),env.CREDENTIAL_ENCRYPTION_KEY)):deployment.runtime_env_encrypted??null;
@@ -61,6 +62,7 @@ export async function reconcileDeploymentConfiguration(env:Env,userId:string,dep
     .bind(heartbeat,metrics,token,encrypted,Date.now(),deploymentId,userId,heartbeat,metrics,token,encrypted));
   const sequence=expectedSequence+1,compiled=await compileDeploymentRevision(env.DB,userId,deploymentId,sequence,exported.document);
   statements.push(...compiled.statements);
+  if(receipt)statements.push(compilePushReceipt(env.DB,userId,deploymentId,receipt,{sequence,revision:compiled.revision,document:compiled.document,sourceAliases:plan.sourceAliases}));
   let configurationVersion:number;
   try{configurationVersion=(await commitConfiguration(env.DB,userId,expectedVersion,statements)).version;}
   catch(error){if(error instanceof Error && error.message.includes("LOGT_REVISION_CONFLICT"))throw new DeploymentRevisionConflict();throw error;}

@@ -18,8 +18,19 @@ export function normalizeServiceUrl(value:string):string {
   return url.origin;
 }
 export interface DeploymentConfigExport {configurationVersion?:number;desiredSequence?:number;document:DeploymentManifest;revision:string;deployment:{id:string;displayName:string};secretValues?:Record<string,string>;}
-export interface DeploymentConfigPush {document:DeploymentManifest;expectedConfigurationVersion:number;expectedSequence:number;uploadSecrets?:boolean;secretValues?:Record<string,string>;}
+export interface DeploymentConfigPush {document:DeploymentManifest;expectedConfigurationVersion:number;expectedSequence:number;uploadSecrets?:boolean;secretValues?:Record<string,string>;requestId?:string;}
 export interface DeploymentConfigCommit {configurationVersion:number;sequence:number;revision:string;document:DeploymentManifest;sourceAliases:Record<string,string>;}
+export interface DeploymentPushReceipt {requestId:string;result:DeploymentConfigCommit;}
+export function isDeploymentPushRequestId(value:unknown):value is string {return typeof value==="string" && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value);}
+export async function validateDeploymentConfigCommit(value:unknown):Promise<DeploymentConfigCommit>{
+  try{
+    const result=value as DeploymentConfigCommit;
+    if(!result || typeof result!=="object" || Array.isArray(result) || Object.keys(result).some(key=>!["configurationVersion","sequence","revision","document","sourceAliases"].includes(key)))throw new Error();
+    normalizeDeploymentManifest(result.document);
+    if(!Number.isSafeInteger(result.configurationVersion) || result.configurationVersion<0 || !Number.isSafeInteger(result.sequence) || result.sequence<=0 || result.revision!==await hashConfigDocument(result.document) || !result.sourceAliases || typeof result.sourceAliases!=="object" || Array.isArray(result.sourceAliases) || Object.values(result.sourceAliases).some(v=>typeof v!=="string" || !v))throw new Error();
+    return result;
+  }catch{throw new ServiceError(200,"invalid_config_commit");}
+}
 export class LogturaServiceClient {
   readonly url:string;
   constructor(private readonly options:ServiceClientOptions){
@@ -75,6 +86,7 @@ export class LogturaServiceClient {
   async pushDeploymentConfig(id:string,input:DeploymentConfigPush):Promise<DeploymentConfigCommit>{
     if(!id)throw new Error("Deployment identity is required");
     normalizeDeploymentManifest(input.document);
+    if(input.requestId!==undefined && !isDeploymentPushRequestId(input.requestId))throw new Error("Invalid push request identity");
     if(!Number.isSafeInteger(input.expectedConfigurationVersion) || input.expectedConfigurationVersion<0 || !Number.isSafeInteger(input.expectedSequence) || input.expectedSequence<0 || input.expectedSequence>=Number.MAX_SAFE_INTEGER || (input.uploadSecrets!==undefined && typeof input.uploadSecrets!=="boolean"))throw new Error("Invalid push baseline");
     if(input.secretValues!==undefined && !input.uploadSecrets)throw new Error("Secret upload must be explicitly authorized");
     if(input.secretValues!==undefined){
@@ -83,11 +95,17 @@ export class LogturaServiceClient {
       try{parseDeploymentManifest(input.document,{env:input.secretValues});}catch{throw new Error("Invalid secret upload");}
     }
     const result=await this.request<DeploymentConfigCommit>(`/deployments/${encodeURIComponent(id)}/config`,{method:"PUT",body:JSON.stringify(input)});
-    try{
-      normalizeDeploymentManifest(result.document);
-      if(!Number.isSafeInteger(result.configurationVersion) || result.configurationVersion<input.expectedConfigurationVersion || !Number.isSafeInteger(result.sequence) || result.sequence<input.expectedSequence || result.sequence>input.expectedSequence+1 || result.sequence<=0 || result.revision!==await hashConfigDocument(result.document) || !result.sourceAliases || typeof result.sourceAliases!=="object" || Array.isArray(result.sourceAliases) || Object.values(result.sourceAliases).some(v=>typeof v!=="string" || !v))throw new Error();
-    }catch{throw new ServiceError(200,"invalid_config_commit");}
+    await validateDeploymentConfigCommit(result);
+    if(result.configurationVersion<input.expectedConfigurationVersion || result.sequence<input.expectedSequence || result.sequence>input.expectedSequence+1)throw new ServiceError(200,"invalid_config_commit");
     return result;
+  }
+  async getDeploymentPushReceipt(id:string,requestId:string):Promise<DeploymentPushReceipt|null>{
+    if(!id || !isDeploymentPushRequestId(requestId))throw new Error("Deployment and push request identities are required");
+    let receipt:DeploymentPushReceipt;
+    try{receipt=await this.request<DeploymentPushReceipt>(`/deployments/${encodeURIComponent(id)}/config/receipts/${requestId}`);}
+    catch(error){if(error instanceof ServiceError && error.status===404 && error.code==="receipt_not_found")return null;throw error;}
+    if(!receipt || receipt.requestId!==requestId || Object.keys(receipt).some(key=>!["requestId","result"].includes(key)))throw new ServiceError(200,"invalid_push_receipt");
+    return {requestId,result:await validateDeploymentConfigCommit(receipt.result)};
   }
   async logout():Promise<void>{await this.request("/cli/logout",{method:"POST",body:"{}"});}
 }

@@ -1,4 +1,4 @@
-import { canonicalConfigJson,manifestSecretName,createSecretVersioner,normalizeDeploymentManifest,parseDeploymentManifest,type SecretReference,type DeploymentConfigPush } from "@logtura/core";
+import { isDeploymentPushRequestId,canonicalConfigJson,manifestSecretName,createSecretVersioner,normalizeDeploymentManifest,parseDeploymentManifest,type SecretReference,type DeploymentConfigPush } from "@logtura/core";
 import type { Env } from "./env";
 import { ConfigurationConflict,readStableConfiguration } from "./config-version";
 import { loadOwnedGraphInventory } from "./graph-reconciliation";
@@ -11,8 +11,9 @@ export class DeploymentPushError extends Error{
 /** This boundary accepts public references by default. Payload uploads must be
  * explicitly enabled and limited to references in the submitted manifest. */
 export function parseDeploymentPush(value:unknown):DeploymentConfigPush{
-  if(!value || typeof value!=="object" || Array.isArray(value) || Object.keys(value).some(k=>!["document","expectedConfigurationVersion","expectedSequence","uploadSecrets","secretValues"].includes(k)))throw new DeploymentPushError(400,"invalid_push");
+  if(!value || typeof value!=="object" || Array.isArray(value) || Object.keys(value).some(k=>!["document","expectedConfigurationVersion","expectedSequence","uploadSecrets","secretValues","requestId"].includes(k)))throw new DeploymentPushError(400,"invalid_push");
   const body=value as DeploymentConfigPush;
+  if(body.requestId!==undefined && !isDeploymentPushRequestId(body.requestId))throw new DeploymentPushError(400,"invalid_request_id");
   if(!Number.isSafeInteger(body.expectedConfigurationVersion) || body.expectedConfigurationVersion<0 || !Number.isSafeInteger(body.expectedSequence) || body.expectedSequence<0 || body.expectedSequence>=Number.MAX_SAFE_INTEGER || (body.uploadSecrets!==undefined && typeof body.uploadSecrets!=="boolean"))throw new DeploymentPushError(400,"invalid_push");
   try{normalizeDeploymentManifest(body.document);}catch{throw new DeploymentPushError(400,"invalid_manifest");}
   if(body.secretValues!==undefined){

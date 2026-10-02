@@ -54,6 +54,7 @@ export default defineConfig({
       // Final scope targets are 95% lines/statements/functions and 90% branches.
       thresholds: {
         "src/deployment-push.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "src/deployment-push-receipts.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/credential-intent.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/deployment-reconciliation.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/deployment-runtime.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
