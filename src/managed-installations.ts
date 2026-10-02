@@ -1,12 +1,14 @@
-import { FlyMachinesClient, applyFlyMachine, canonicalConfigJson, flyRollbackConfig, immutableFlyImage, matchesFlyConfig, validateFlyMachine, type FlyMachine, type FlyMachineConfig } from "@logtura/core";
+import { FlyMachinesClient, applyFlyMachine, canonicalConfigJson, flyRollbackConfig, immutableFlyImage, matchesFlyConfig, validateFlyMachine, type FlyMachine, type FlyMachineConfig, type ForwarderRuntimeArtifact } from "@logtura/core";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { commitConfiguration, readConfigurationVersion } from "./config-version";
+import { validateManagedRuntime } from "./managed-runtime-inputs";
+import { readDeploymentConfiguration } from "./deployment-configuration";
 import type { Env } from "./env";
 
-interface InstallPayload {schemaVersion:1;name:string;after:FlyMachineConfig;before:FlyMachine|null;rollback:FlyMachineConfig|null;}
+interface InstallPayload {schemaVersion:1|2;name:string;after:FlyMachineConfig;before:FlyMachine|null;rollback:FlyMachineConfig|null;}
 export interface ManagedInstall {
  id:string;deploymentId:string;userId:string;app:string;org:string;region:string;configurationVersion:number;
- phase:"prepared"|"dispatched"|"installed"|"completed"|"obsolete";machineId:string|null;installedConfigurationVersion:number|null;payload:InstallPayload;
+ phase:"prepared"|"dispatched"|"installed"|"completed"|"obsolete";machineId:string|null;installedConfigurationVersion:number|null;payload:InstallPayload;runtime:ForwarderRuntimeArtifact|null;
 }
 interface Row {id:string;deployment_id:string;user_id:string;app_name:string;org_slug:string;region:string;configuration_version:number;phase:ManagedInstall["phase"];machine_id:string|null;installed_configuration_version:number|null;payload_encrypted:ArrayBuffer|number[];}
 // Leave space for row metadata beneath D1's 2,000,000-byte row/blob limit.
@@ -17,12 +19,12 @@ async function decode(env:Env,row:Row):Promise<ManagedInstall> {
   if(envelope.byteLength>LIMIT+28)throw new Error();
   const text=await decryptSecret(envelope,env.CREDENTIAL_ENCRYPTION_KEY);
   const value=JSON.parse(text) as InstallPayload;
-  if(!value || typeof value!=="object" || Array.isArray(value) || Object.keys(value).length!==5 || value.schemaVersion!==1 || value.name!=="forwarder" || !value.after || typeof value.after!=="object" || Array.isArray(value.after))throw new Error();
+  if(!value || typeof value!=="object" || Array.isArray(value) || Object.keys(value).length!==5 || ![1,2].includes(value.schemaVersion) || value.name!=="forwarder" || !value.after || typeof value.after!=="object" || Array.isArray(value.after))throw new Error();
   immutableFlyImage(value.after.image);canonicalConfigJson(value.after);
   if((value.after.metadata as Record<string,unknown>)?.["logtura.install"]!==row.id)throw new Error();
   if(value.before!==null){value.before=validateFlyMachine(value.before);if(value.before.region!==row.region || canonicalConfigJson(value.rollback)!==canonicalConfigJson(flyRollbackConfig(value.before)) || row.machine_id!==value.before.id)throw new Error();}
   else if(value.rollback!==null)throw new Error();
-  return {id:row.id,deploymentId:row.deployment_id,userId:row.user_id,app:row.app_name,org:row.org_slug,region:row.region,configurationVersion:row.configuration_version,phase:row.phase,machineId:row.machine_id,installedConfigurationVersion:row.installed_configuration_version,payload:value};
+  return {id:row.id,deploymentId:row.deployment_id,userId:row.user_id,app:row.app_name,org:row.org_slug,region:row.region,configurationVersion:row.configuration_version,phase:row.phase,machineId:row.machine_id,installedConfigurationVersion:row.installed_configuration_version,payload:value,runtime:value.schemaVersion===2?await validateManagedRuntime(value.after,row.deployment_id,row.configuration_version):null};
  } catch {throw new Error("Invalid encrypted managed installation; retain it for recovery");}
 }
 /** Private internal lookup. Never expose decrypted provider payloads in job results. */
@@ -36,21 +38,18 @@ export async function readManagedInstall(env:Env,userId:string,deploymentId:stri
 export async function prepareManagedInstall(env:Env,input:{userId:string;deploymentId:string;app:string;org:string;region:string;configurationVersion:number;config:FlyMachineConfig;machine:FlyMachine|null}):Promise<ManagedInstall> {
  const prior=await readManagedInstall(env,input.userId,input.deploymentId);
  if(prior){if(prior.app!==input.app || prior.region!==input.region || prior.org!==input.org)throw new Error("Managed installation target changed; retain it for recovery");return prior;}
- const id=crypto.randomUUID(),before=input.machine===null?null:validateFlyMachine(input.machine);
- if(!/^[a-z0-9-]{1,63}$/.test(input.org) || !/^[a-zA-Z0-9_-]{1,128}$/.test(input.app) || !/^[a-z]{3}$/.test(input.region) || (before && before.region!==input.region))throw new Error("Invalid managed installation target");
- immutableFlyImage(input.config.image);
- const payload:InstallPayload={schemaVersion:1,name:"forwarder",after:{...input.config,metadata:{...(input.config.metadata as Record<string,unknown>??{}),"logtura.install":id}},before,rollback:before?flyRollbackConfig(before):null};
- const text=canonicalConfigJson(payload);if(new TextEncoder().encode(text).byteLength>LIMIT)throw new Error("Managed installation exceeds recovery limit");
- const encrypted=await encryptSecret(text,env.CREDENTIAL_ENCRYPTION_KEY),now=Date.now();
+ const compiled=await compileManagedInstallIntent(env,input,1);
+ const {id}=compiled;
  try {
-  const result=await commitConfiguration(env.DB,input.userId,input.configurationVersion,[env.DB.prepare(`INSERT INTO managed_installations(id,deployment_id,user_id,app_name,org_slug,region,configuration_version,payload_encrypted,phase,machine_id,created_at,updated_at)
-   SELECT ?,id,user_id,?,?,?,?,?, 'prepared',?,?,? FROM deployments WHERE id=? AND user_id=? AND managed=1 AND target_kind='fly'`)
-   .bind(id,input.app,input.org,input.region,input.configurationVersion,encrypted,before?.id??null,now,now,input.deploymentId,input.userId)]);
+  const result=await commitConfiguration(env.DB,input.userId,input.configurationVersion,[compiled.statement]);
   if(result.results[0]!.meta.changes!==1)throw new Error("Managed deployment not found");
  } catch(error) {const recovered=await readManagedInstall(env,input.userId,input.deploymentId);if(recovered && recovered.app===input.app && recovered.region===input.region && recovered.org===input.org)return recovered;throw error;}
  return (await readManagedInstall(env,input.userId,input.deploymentId,id))!;
 }
 async function current(env:Env,install:ManagedInstall):Promise<void> {
+ if(install.runtime){const state=await readDeploymentConfiguration(env.DB,install.userId,install.deploymentId),instance=install.runtime.instance;
+  if(!state || state.stale || state.activeInstanceId!==instance.instanceId || state.desired.sequence!==instance.sequence || state.desired.revision!==instance.revision)throw new Error("Managed issued instance changed; retain installation for recovery");
+ }
  if(await readConfigurationVersion(env.DB,install.userId)!==(install.installedConfigurationVersion??install.configurationVersion))throw new Error("Managed configuration changed; retain installation for recovery");
  if(!await env.DB.prepare("SELECT id FROM deployments WHERE id=? AND user_id=? AND managed=1 AND target_kind='fly'").bind(install.deploymentId,install.userId).first())throw new Error("Managed deployment no longer owned; retain installation for recovery");
 }
@@ -107,4 +106,19 @@ export function completeManagedInstall(db:D1Database,id:string,userId:string):D1
 export function recordManagedInstallVersion(db:D1Database,id:string,userId:string):D1PreparedStatement {
  return db.prepare(`UPDATE managed_installations SET installed_configuration_version=(SELECT version FROM configuration_versions WHERE user_id=?)
   WHERE id=? AND user_id=? AND phase='installed'`).bind(userId,id,userId);
+}
+
+export interface ManagedInstallInput {userId:string;deploymentId:string;app:string;org:string;region:string;configurationVersion:number;config:FlyMachineConfig;machine:FlyMachine|null;}
+export async function compileManagedInstallIntent(env:Env,input:ManagedInstallInput,schemaVersion:1|2):Promise<{id:string;statement:D1PreparedStatement}>{
+ const id=crypto.randomUUID(),before=input.machine===null?null:validateFlyMachine(input.machine);
+ if(!/^[a-z0-9-]{1,63}$/.test(input.org) || !/^[a-zA-Z0-9_-]{1,128}$/.test(input.app) || !/^[a-z]{3}$/.test(input.region) || (before && before.region!==input.region))throw new Error("Invalid managed installation target");
+ immutableFlyImage(input.config.image);
+ const payload:InstallPayload={schemaVersion,name:"forwarder",after:{...input.config,metadata:{...(input.config.metadata as Record<string,unknown>??{}),"logtura.install":id}},before,rollback:before?flyRollbackConfig(before):null};
+ const text=canonicalConfigJson(payload);if(new TextEncoder().encode(text).byteLength>LIMIT)throw new Error("Managed installation exceeds recovery limit");
+ const encrypted=await encryptSecret(text,env.CREDENTIAL_ENCRYPTION_KEY),now=Date.now();
+ const runtime=schemaVersion===2?await validateManagedRuntime(payload.after,input.deploymentId,input.configurationVersion):null;
+ return {id,statement:env.DB.prepare(`INSERT INTO managed_installations(id,deployment_id,user_id,app_name,org_slug,region,configuration_version,payload_encrypted,phase,machine_id,created_at,updated_at)
+  SELECT ?,id,user_id,?,?,?,?,?,'prepared',?,?,? FROM deployments WHERE id=? AND user_id=? AND managed=1 AND target_kind='fly'
+  AND (? IS NULL OR EXISTS (SELECT 1 FROM deployment_configuration_state s WHERE s.deployment_id=deployments.id AND s.active_instance_id=?))`)
+  .bind(id,input.app,input.org,input.region,input.configurationVersion,encrypted,before?.id??null,now,now,input.deploymentId,input.userId,runtime?.instance.instanceId??null,runtime?.instance.instanceId??null)};
 }

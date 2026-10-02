@@ -18,6 +18,17 @@ export async function activateDeploymentWithReceipt(db:D1Database,userId:string,
  const instanceId=crypto.randomUUID();
  try{
   const result=await commitConfiguration(db,userId,intent.expectedConfigurationVersion,[
+   ...deploymentInstanceActivationStatements(db,userId,deploymentId,intent,instanceId),
+  ]);
+  if(result.results[0]!.meta.changes!==1 || result.results[1]!.meta.changes!==1)throw new DeploymentInstanceError(409,"revision_changed");
+  return {requestId:intent.requestId,instanceId,configurationVersion:intent.expectedConfigurationVersion,sequence:intent.expectedSequence,revision:intent.revision};
+ }catch(error){const recovered=await readDeploymentInstanceReceipt(db,userId,deploymentId,intent.requestId,intent);if(recovered)return recovered;throw error;}
+}
+
+/** Internal statement compiler for atomic service runtime intent + activation.
+ * instanceId is allocated by the calling server operation, never HTTP input. */
+export function deploymentInstanceActivationStatements(db:D1Database,userId:string,deploymentId:string,intent:DeploymentInstanceActivation,instanceId:string):D1PreparedStatement[]{
+ return [
    db.prepare(`UPDATE deployment_configuration_state SET active_instance_id=?,last_report_sequence=0
     WHERE deployment_id=? AND active_instance_id IS ? AND desired_sequence=?
     AND EXISTS (SELECT 1 FROM deployment_configuration_revisions r WHERE r.deployment_id=? AND r.sequence=? AND r.revision=? AND r.configuration_version=?)`)
@@ -25,8 +36,5 @@ export async function activateDeploymentWithReceipt(db:D1Database,userId:string,
    db.prepare(`INSERT INTO deployment_instance_receipts(deployment_id,user_id,request_id,request_json,instance_id,configuration_version,sequence,revision,created_at)
     SELECT d.id,d.user_id,?,?,?,?,?,?,? FROM deployments d JOIN deployment_configuration_state s ON s.deployment_id=d.id WHERE d.id=? AND d.user_id=? AND s.active_instance_id=?`)
    .bind(intent.requestId,canonicalConfigJson(intent),instanceId,intent.expectedConfigurationVersion,intent.expectedSequence,intent.revision,Date.now(),deploymentId,userId,instanceId),
-  ]);
-  if(result.results[0]!.meta.changes!==1 || result.results[1]!.meta.changes!==1)throw new DeploymentInstanceError(409,"revision_changed");
-  return {requestId:intent.requestId,instanceId,configurationVersion:intent.expectedConfigurationVersion,sequence:intent.expectedSequence,revision:intent.revision};
- }catch(error){const recovered=await readDeploymentInstanceReceipt(db,userId,deploymentId,intent.requestId,intent);if(recovered)return recovered;throw error;}
+ ];
 }

@@ -2951,3 +2951,62 @@ all checks. Final private 95/90/95/95 coverage, managed issued-runtime integrati
 live provisioning/deletion recovery and coordinated release/rollout remain open.
 The preceding private/public CI test steps passed and both Codecov uploads failed
 while app installation remains pending; private image publication succeeded.
+
+### Atomic managed issued-runtime intent and target binding (implemented internally)
+
+The service now has `prepareIssuedManagedInstall`. It checks an owned managed Fly
+deployment and an already issued, current desired revision, allocates the instance
+and request IDs on the server, and compiles the runtime through the packaged
+`compileForwarderRuntime` / `buildFlyRuntimeConfig` backend. Instance activation,
+its immutable receipt and the encrypted provider intent share one graph-fenced
+D1 transaction. A failed journal insertion rolls activation and receipt back;
+concurrent preparations recover the same persisted install rather than issue a
+second provider intent. No provider mutation happens during this preparation.
+
+The common activation SQL is shared with the existing CLI activation endpoint.
+Journal payload schema 2 retains the existing five-field encrypted shape; the
+issued descriptor is stored once within the exact provider files. On recovery,
+`validateManagedRuntime` reconstructs the vector/helper bytes and environment,
+verifies the descriptor/HMAC proofs and instance/deployment/configuration identity,
+and checks the supervised launch. Schema-1 legacy journals remain readable and
+recoverable. Issued provider dispatch is fenced against changed active instances,
+desired revisions and graph bases. Neither a newly generated runtime nor caller
+supplied YAML replaces the original private provider intent during recovery.
+
+`bindInstalledManagedRuntime` writes the physical Fly target, binds the journal's
+post-write account version, and rebases only the unchanged issued desired revision
+in one guarded transaction. The immutable receipt/artifact retain the original
+issuance version; active instance, sequence, revision and private generated inputs
+remain the same. This prevents the physical target write from leaving an otherwise
+unchanged desired manifest permanently stale. Repeated binding/recovery retains
+that same receipt, configuration and physical machine. Missing/uninstalled or
+superseded intent cannot be bound.
+
+These are internal operations, not yet called by the managed creation queue.
+The queue still uses legacy preparation and health-based completion; it must be
+integrated with checkpoint reservation, issued preparation, target binding and
+accepted runtime reports together before enabling this path. Do not manually
+feed schema-2 intent into the legacy queue chain and infer convergence from its
+health checks. New legacy-machine storage still requires a safe replacement /
+rollback transition. There is no new migration beyond source schema 28, no npm
+version change and no production deployment/schema change. Production remains
+through migration 17. Older workers do not understand schema-2 journals; retain
+those journals and pause/reconcile managed queue work before rolling a consumer
+back across this boundary.
+
+Validation: all 1,103 backend/package tests pass across 102 files with the existing
+aggregate floors retained (87.47 statements / 85.35 branches / 90.46 functions /
+85.79 lines). Issued preparation/binding measures 97.29/97.56/100/100 and now has
+97/97/100/100 module floors; durable runtime-input verification measures and
+enforces 100% across all four metrics. The existing private instance/journal
+floors remain intact. Eight native issued-installation cases cover transaction
+rollback on journal failure, concurrent issuance, encrypted exact configuration,
+stale/foreign/legacy conflicts, superseded dispatch, private runtime integrity and
+post-target version rebasing/recovery. Private types/service build and the full
+local installed-CLI/browser/workerd/Docker journey pass; the final full coverage
+run emitted no unhandled teardown errors. The public package source is unchanged.
+These checks do not prove queued managed convergence, live Fly provisioning or
+new managed Vector reporting; those integrations remain required. Final private
+coverage and coordinated production publication/rollout are still outstanding.
+The preceding checkpoint CI completed its build/test steps and failed only at the
+still-pending Codecov app upload.
