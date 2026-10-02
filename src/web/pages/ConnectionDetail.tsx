@@ -948,7 +948,7 @@ function ReconnectModal({
       connectFlow.kind === "external_token" &&
       f.name === connectFlow.pasteFieldName
     ) {
-      return connectClicked;
+      return connectClicked || showManual;
     }
     return true;
   });

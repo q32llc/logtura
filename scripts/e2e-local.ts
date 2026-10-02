@@ -105,10 +105,20 @@ try {
   assert.equal(desired.desired.document.connections[0].connection.displayName, "CLI-updated account");
   assert.equal((await request("/api/connections")).connections.find((item: any) => item.id === connectionId).displayName, "CLI-updated account");
   assert.equal(desired.applied, null);
+  const previousCredentialVersion = desired.desired.document.connections[0].credentials.version;
   console.log("Installed CLI: browser-approved login, private pull/edit/push and website API desired revision agree");
 
   await website.changedConnection(connectionId);
-  await website.deployment(deploymentId, "Waiting for forwarder");
+  const resumeDiscovery = service.holdDiscovery();
+  let rediscoveryId: string;
+  try { rediscoveryId = await website.rediscover(connectionId, resumeDiscovery); }
+  finally { resumeDiscovery(); }
+  assert.equal((await request(`/api/jobs/${rediscoveryId}`)).job.status, "succeeded");
+  const rotatedProviderToken = service.rotateProviderFixtureCredential();
+  await website.reconnect(connectionId, rotatedProviderToken);
+  assert.ok(service.rotatedVerificationCount() > 0, "provider must verify the replacement credential");
+  assert.equal((await request(`/api/deployments/${deploymentId}`)).deployment.id, deploymentId);
+  await website.deployment(deploymentId, "Configuration changed");
   const savedAccount = readFileSync(account, "utf8");
   const denied = start(bin, ["login", "--service", service.url, "--no-browser", "--name", "e2e-denied"]);
   void denied.result.catch(() => {});
@@ -126,6 +136,9 @@ try {
   await run(bin, ["--config", config, "push"]);
   desired = (await request(`/api/deployments/${deploymentId}/config/state`)).state;
   assert.ok(desired.desired.sequence > previousSequence);
+  assert.notEqual(desired.desired.document.connections[0].credentials.version, previousCredentialVersion);
+  assert.ok(readFileSync(join(dirname(config), ".env"), "utf8").includes(rotatedProviderToken), "CLI pull must capture the replacement provider credential");
+  assert.ok(!JSON.stringify(desired).includes(rotatedProviderToken), "public state must not disclose the replacement credential");
   const websiteMonitorEntry = desired.desired.document.monitors.find((item: any) => item.monitor.id === websiteMonitorId);
   const websiteMonitor = websiteMonitorEntry?.monitor;
   assert.equal(websiteMonitor?.connectionId, connectionId);

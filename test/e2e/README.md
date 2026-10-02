@@ -71,7 +71,12 @@ this configuration/runtime case. The strict provider fixture validates the exact
 Bearer credential received; it does not accept arbitrary input. The browser approves an installed
 CLI login, and observes the pulled/edited/pushed connection label after sign-out,
 a fresh authenticated context and reload. A second CLI login is denied without
-replacing the saved account. The website creates a connection-scoped monitor with errors and dedup filters,
+replacing the saved account. The browser re-discovers sources, reloads while the
+strict provider fixture holds that real queue job, and must render the active job
+before release and completion. It reconnects through manual token entry using a
+replacement credential; the provider fixture rejects the retired token. CLI pull
+must capture the replacement private payload and changed secret version without
+exposing the credential in public state. The website creates a connection-scoped monitor with errors and dedup filters,
 types a comma-separated field list normally, and reopens the saved filter after
 reload. CLI pull/push must capture the exact monitor ID, connection scope and
 filter parameters. The browser also creates an HTTPS webhook destination and

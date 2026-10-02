@@ -90,6 +90,39 @@ export async function startBrowser(service: { url: string; cookie: string }) {
         await page.reload();
         await page.getByRole("heading", { name: "CLI-updated account", exact: true }).waitFor();
       },
+      async rediscover(id: string, resume: () => void) {
+        await page.goto(`${service.url}/app/connections/${id}`);
+        const queued = page.waitForResponse(response => response.url() === `${service.url}/api/connections/${id}/discover` && response.request().method() === "POST");
+        await page.getByRole("button", { name: "Re-discover", exact: true }).click();
+        const response = await queued; assert.equal(response.status(), 200);
+        const body = await response.json(); assert.equal(typeof body.job?.id, "string");
+        const rehydrated = page.waitForResponse(response => response.url() === `${service.url}/api/connections/${id}` && response.request().method() === "GET");
+        await page.reload();
+        const resourceResponse = await rehydrated; assert.equal(resourceResponse.status(), 200);
+        const resource = await resourceResponse.json();
+        assert.equal(resource.latestDiscoveryJob?.id, body.job.id, "reload must return the same active discovery job");
+        assert.ok(["queued", "running"].includes(resource.latestDiscoveryJob.status));
+        const discovering = page.getByRole("button", { name: "Discovering…", exact: true });
+        await discovering.waitFor(); assert.equal(await discovering.isDisabled(), true);
+        await page.getByText("Discovery in progress…", { exact: true }).waitFor();
+        resume();
+        await page.getByRole("button", { name: "Re-discover", exact: true }).waitFor();
+        await page.getByText("No sources discovered yet.", { exact: true }).waitFor();
+        return body.job.id as string;
+      },
+      async reconnect(id: string, token: string) {
+        await page.goto(`${service.url}/app/connections/${id}`);
+        await page.getByRole("button", { name: "Reconnect", exact: true }).click();
+        const dialog = page.getByRole("dialog", { name: "Reconnect", exact: true });
+        await dialog.getByRole("button", { name: "Or create the token manually", exact: true }).click();
+        await dialog.getByLabel(/^Paste the token Cloudflare gave you/).fill(token);
+        const reconnected = page.waitForResponse(response => response.url() === `${service.url}/api/connections/${id}/reconnect` && response.request().method() === "POST");
+        await dialog.getByRole("button", { name: "Reconnect", exact: true }).click();
+        const response = await reconnected; assert.equal(response.status(), 200, "website reconnection must succeed");
+        const body = await response.json(); assert.equal(body.connection.id, id);
+        await dialog.waitFor({ state: "hidden" }); await page.reload();
+        await page.getByRole("heading", { name: "CLI-updated account", exact: true }).waitFor();
+      },
       async enableMetrics(id: string) {
         await page.goto(`${service.url}/app/deployments/${id}?tab=configure`);
         await page.getByRole("textbox", { name: "Metrics target", exact: true }).click();

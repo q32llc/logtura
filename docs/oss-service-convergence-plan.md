@@ -1988,3 +1988,51 @@ regression test retaining a connection-load error when an available target is
 chosen. Preceding destination head 9e6e410 passes all prior CI gates in terminal
 run 36990142617; only the enforced Codecov upload fails. Pushed-head wizard CI
 still requires independent verification.
+
+### Connection discovery, reconnect and project-selection baseline
+
+The connection detail page gains 36 interaction cases, bringing the UI suite to
+164. Cases cover source-name/kind filtering, discovered counts and routing/setup
+navigation, deployment statuses/heartbeat ages/compact metrics, discovery enqueue
+and deduplication, enqueue failures, queued/running rehydration across remount,
+terminal polling shutdown, failed/successful job banners, confirmed deletion,
+reconnect cancellation/reset/retry and optional OAuth/direct-token entry. Supabase
+project cases cover the current selection, picker reopening, empty/error catalogs,
+selection on the existing identity and failed-pick preservation. APIs and
+notifications are mocked in these unit tests; they do not authorize live providers.
+
+The reconnect tests exposed a product bug: choosing manual token instructions left
+the paste field hidden. Manual mode now reveals the token input alongside the
+instructions while reopening/cancelling still clears private drafts.
+
+The real browser/workerd scenario queues discovery and reloads while a strict
+provider fixture holds its Worker-list request. The reloaded connection resource
+must expose the exact same job ID in queued/running state, and the page must render
+active discovery controls before the fixture is released. Native queue completion
+then restores the discovery action; direct job inspection requires success. The
+hold is bounded and always released on failure, so a stalled fixture cannot leave
+the runner silently waiting indefinitely.
+
+The browser then reconnects the same connection through manual entry with a
+replacement fixture token. The provider fixture retires the old token, requires
+the new Bearer credential and records successful verification. The deployment
+identity survives and its desired state becomes stale. Subsequent installed CLI
+pull/push must capture the replacement private payload and a changed opaque secret
+version while keeping the token out of public state. The actual packaged runtime
+still needs to converge to that complete revision. This is simulated credential
+rotation, not a live provider account change; source selection remains empty.
+
+All 164 UI tests and raised coverage gates pass. Aggregate statements/branches/
+functions/lines measure 65.06/61.39/61.41/66.09; enforced floors rise to
+65/61/61/66 without excluding UI files. ConnectionDetail measures
+87.21/83.77/84.21/88.38 and enforces 87/83/84/88. Service/E2E types, Vite/package
+build, complete browser/CLI/workerd/Docker runtime journey and both injected cleanup
+boundaries pass locally. The final journey independently passes the exact-ID reload assertion, runtime
+restart reporting, graceful shutdown and cleanup; pushed-head CI remains separate.
+
+Preceding wizard head 72407fe passes all prior CI gates in terminal run
+36991415175; only the enforced Codecov upload fails. Scoped app permission approval
+remains pending. Final coverage, remaining browser/provider/source/site cases,
+remote persistent ledgers, managed apply, coordinated release/rollback and staged
+production rollout remain required. Public package source and production resources
+are unchanged by this private website/test slice.
