@@ -1945,3 +1945,46 @@ including destinations. Pushed-head CI remains an independent gate. Preceding
 monitor head 346b2a0 reaches the Codecov upload in run 36989208667 after passing
 all prior code, package, type, real runtime, unit/UI and coverage artifact steps;
 its upload outcome still requires terminal verification.
+
+### Deployment wizard baseline and wildcard deselection correctness
+
+The wizard gains 17 interaction cases for target/keyboard selection, default and
+explicit source/monitor policies, individual deselection/reselection, wildcard
+restoration, scoped monitor applicability, empty-monitor guidance, trimmed names,
+managed-mode gating/reset, creation retries, target/connection lookup failures,
+missing route data and invalid preset targets. A deployment Configure regression
+case checks the same wildcard-monitor transition on an existing deployment. The
+full UI suite now has 128 tests.
+
+The tests exposed a selection bug in both wizard selectors and Configure's monitor
+selector: the wildcard state rendered every item checked while its explicit set
+was empty. Deselecting one item converted that empty set to an empty explicit
+selection, dropping every other item. Transitions now expand the current visible
+wildcard catalog before applying the individual change. Explicit selection and
+restoring wildcard policy keep their existing behavior. Invalid preset target
+links now return to an actionable target picker with an error that clears on a
+valid choice. Available targets are keyboard-accessible buttons and future targets
+are explicitly disabled; managed apply remains a separate required capability.
+
+The real browser/workerd journey now creates the deployment through the website
+wizard, validates its connection/target/self-managed identity and verifies its
+navigation/reload before CLI login/pull/push. The existing-machine fixture is then
+bound through HTTP and source selection set explicitly empty for this configuration
+case. This keeps the existing-forwarder apply proof and provider-event limitation
+explicit instead of treating browser creation as external infrastructure delivery.
+
+Service/E2E typechecking, Vite/package build, all 128 UI tests/raised coverage gates
+and the real browser/installed CLI/workerd/Docker happy path pass locally. Aggregate
+statements/branches/functions/lines measure 52.68/47.98/51.71/53.05; enforced floors
+rise to 52.5/47.5/51.5/53 with all UI files included. DeployWizard measures
+99/95.18/100/100 and enforces 98/95/100/100. Final aggregate coverage, source/site
+and provider delivery, complete browser matrices, remote cleanup ledgers, managed
+apply, coordinated publication/rollback and staged production rollout remain
+required. Codecov scoped permission approval is pending; public package code and
+production resources are unchanged by this private website/test slice.
+Both after-create and after-runtime injections pass with website-created deployment
+ownership and verified cleanup. Target-selection recovery also has an explicit
+regression test retaining a connection-load error when an available target is
+chosen. Preceding destination head 9e6e410 passes all prior CI gates in terminal
+run 36990142617; only the enforced Codecov upload fails. Pushed-head wizard CI
+still requires independent verification.

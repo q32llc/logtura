@@ -44,6 +44,21 @@ export async function startBrowser(service: { url: string; cookie: string }) {
         await page.getByRole("heading", { name: displayName, exact: true }).waitFor();
         return body.connection.id as string;
       },
+      async createDeployment(connectionId: string, onCreated: (id: string) => void) {
+        await page.goto(`${service.url}/app/connections/${connectionId}/deploy?target=fly`);
+        await page.getByRole("textbox", { name: "Deployment name", exact: true }).fill("Existing fixture forwarder");
+        const created = page.waitForResponse(response => response.url() === service.url + "/api/deployments" && response.request().method() === "POST");
+        await page.getByRole("button", { name: "Create & generate Fly.io bundle", exact: true }).click();
+        const response = await created; assert.equal(response.status(), 200, "website deployment creation must succeed");
+        const body = await response.json(); assert.equal(typeof body.deployment?.id, "string");
+        assert.equal(body.deployment.connectionId, connectionId); assert.equal(body.deployment.targetKind, "fly"); assert.equal(body.deployment.managed, false);
+        onCreated(body.deployment.id);
+        await page.waitForURL(`${service.url}/app/deployments/${body.deployment.id}`);
+        await page.getByRole("heading", { name: "Existing fixture forwarder", exact: true }).waitFor();
+        await page.reload();
+        await page.getByRole("heading", { name: "Existing fixture forwarder", exact: true }).waitFor();
+        return body.deployment.id as string;
+      },
       async approve(code: string) {
         await page.goto(`${service.url}/app/cli?code=${encodeURIComponent(code)}`);
         await page.getByText(code, { exact: true }).waitFor();

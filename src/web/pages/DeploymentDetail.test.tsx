@@ -29,3 +29,18 @@ it("keeps the existing deployment usable when revision status is unavailable",as
 it.each([new ApiError("Deployment not found",404,"not_found"),new Error("Private network error")])("preserves deployment load failures without issuing a revision request",async error=>{
  vi.mocked(api.getDeployment).mockRejectedValue(error);page();await screen.findByText(error instanceof ApiError?"Deployment not found":"Failed to load");expect(api.getDeploymentConfigurationState).not.toHaveBeenCalled();
 });
+it("keeps the other wildcard monitors when one monitor is deselected in Configure", async () => {
+ const wildcard = { ...deployment, monitorIds: null };
+ vi.mocked(api.getDeployment).mockResolvedValue({ deployment: wildcard, latestDeployJob: null, connections: [] });
+ vi.mocked(api.listMonitors).mockResolvedValue({ monitors: [
+  { id: "mon_one", connectionId: null, displayName: "First monitor", enabled: true, filterSteps: [], createdAt: 0, updatedAt: 0 },
+  { id: "mon_two", connectionId: null, displayName: "Second monitor", enabled: true, filterSteps: [], createdAt: 0, updatedAt: 0 },
+ ], sinks: [] });
+ vi.spyOn(api, "updateDeployment").mockResolvedValue({ deployment: { ...wildcard, monitorIds: ["mon_two"] } });
+ page(); await screen.findByRole("heading", { name: "Existing forwarder" }); fireEvent.click(screen.getByRole("tab", { name: "Configure" }));
+ fireEvent.click(await screen.findByRole("button", { name: "Customize" }));
+ fireEvent.click(screen.getByRole("switch", { name: "First monitor" }));
+ expect((screen.getByRole("switch", { name: "Second monitor" }) as HTMLInputElement).checked).toBe(true);
+ fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+ await vi.waitFor(() => expect(api.updateDeployment).toHaveBeenCalledWith("dep_fixture", expect.objectContaining({ monitorIds: ["mon_two"] })));
+});

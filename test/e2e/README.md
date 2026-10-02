@@ -57,14 +57,17 @@ The runner packs every public package and installs them in a private temporary
 consumer. It starts the real bundled service in workerd with a fresh D1 database,
 applies all migrations, and seeds only a disposable identity and signed session.
 The native Workers Assets plugin serves the real built React UI.
-Connection and deployment creation, device approval, configuration changes,
+Connection and deployment creation through the actual browser forms, device approval, configuration changes,
 reporting and deletion use HTTP endpoints. Its queue actually runs discovery.
 Provider requests use strict fixtures and unexpected requests fail verification.
 It never loads `.env` or uses an existing CLI account or production database.
 
 A real Chromium browser checks the anonymous CLI access page and creates the
 Cloudflare connection through the actual provider form, typing both the connection
-name and a private fixture token. The strict provider fixture validates the exact
+name and a private fixture token. It creates the self-managed Fly deployment
+through the website wizard and verifies navigation/reload. HTTP then binds the
+disposable existing-machine fixture and sets explicit empty source selection for
+this configuration/runtime case. The strict provider fixture validates the exact
 Bearer credential received; it does not accept arbitrary input. The browser approves an installed
 CLI login, and observes the pulled/edited/pushed connection label after sign-out,
 a fresh authenticated context and reload. A second CLI login is denied without

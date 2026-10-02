@@ -38,6 +38,7 @@ import type {
 } from "../types";
 
 type Step = "target" | "config";
+const UNAVAILABLE_TARGET_MESSAGE = "This deployment target is unavailable. Choose another target.";
 
 const TARGET_ICONS: Record<string, React.ReactNode> = {
   fly: <IconServer2 size={28} />,
@@ -91,7 +92,14 @@ export function DeployWizard() {
   useEffect(() => {
     api
       .deployTargetDrivers()
-      .then((r) => setDrivers(r.drivers))
+      .then((r) => {
+        setDrivers(r.drivers);
+        if (presetTarget && !r.drivers.some(d => d.id === presetTarget)) {
+          setTargetId(null);
+          setStep("target");
+          setError(UNAVAILABLE_TARGET_MESSAGE);
+        }
+      })
       .catch((e) =>
         setError(e instanceof ApiError ? e.message : "Failed to load targets"),
       );
@@ -128,6 +136,7 @@ export function DeployWizard() {
     !!driver && !!connection && name.trim().length > 0 && (allSourcesSelected || pickedSourceIds.size > 0);
 
   function pickTarget(d: ApiDeployTargetDriver) {
+    setError(previous => previous === UNAVAILABLE_TARGET_MESSAGE ? null : previous);
     setTargetId(d.id);
     if (!d.supportsManaged) setManaged(false);
     setStep("config");
@@ -136,7 +145,7 @@ export function DeployWizard() {
   function toggleSource(id: string, on: boolean) {
     setAllSourcesSelected(false);
     setPickedSourceIds((prev) => {
-      const next = new Set(prev);
+      const next = new Set(allSourcesSelected ? sources.map(source => source.id) : prev);
       if (on) next.add(id);
       else next.delete(id);
       return next;
@@ -146,7 +155,7 @@ export function DeployWizard() {
   function toggleMonitor(id: string, on: boolean) {
     setAllMonitorsSelected(false);
     setPickedMonitorIds((prev) => {
-      const next = new Set(prev);
+      const next = new Set(allMonitorsSelected ? applicableMonitors.map(monitor => monitor.id) : prev);
       if (on) next.add(id);
       else next.delete(id);
       return next;
@@ -390,9 +399,12 @@ function TargetPicker({
         {named.map((d) => (
           <Card
             key={d.id}
+            component="button"
+            type="button"
+            aria-label={`Deploy to ${d.displayName}`}
             withBorder
             p="lg"
-            style={{ cursor: "pointer" }}
+            style={{ cursor: "pointer", textAlign: "left" }}
             onClick={() => onPick(d)}
           >
             <Group gap="sm" mb="xs">
@@ -413,6 +425,10 @@ function TargetPicker({
         ))}
         {DISABLED_TARGETS.map((d) => (
           <Card
+            component="button"
+            type="button"
+            aria-label={`Deploy to ${d.displayName}`}
+            disabled
             key={d.id}
             withBorder
             p="lg"
@@ -434,9 +450,12 @@ function TargetPicker({
         ))}
         {other && (
           <Card
+            component="button"
+            type="button"
+            aria-label={`Deploy to ${other.displayName}`}
             withBorder
             p="lg"
-            style={{ cursor: "pointer" }}
+            style={{ cursor: "pointer", textAlign: "left" }}
             onClick={() => onPick(other)}
           >
             <Group gap="sm" mb="xs">
@@ -452,4 +471,3 @@ function TargetPicker({
     </Stack>
   );
 }
-

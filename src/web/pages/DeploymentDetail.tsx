@@ -1147,7 +1147,7 @@ function ConfigurePanel({
   function toggleMonitor(id: string, on: boolean) {
     setAllMonitors(false);
     setPickedMonitors((prev) => {
-      const next = new Set(prev);
+      const next = new Set(allMonitors ? applicableMonitors.map(monitor => monitor.id) : prev);
       if (on) next.add(id);
       else next.delete(id);
       return next;

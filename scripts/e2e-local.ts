@@ -77,10 +77,12 @@ try {
   website = await startBrowser(service);
   connectionId = await website.createConnection(`e2e-${runId}`, id => { connectionId = id; });
   monitorIds = (await request("/api/monitors")).monitors.map((monitor: any) => monitor.id);
-  deploymentId = (await request("/api/deployments", { connectionId, displayName: "Existing fixture forwarder", targetKind: "fly", managed: false, sourceIds: [], heartbeatTarget: "logtura" }, "POST")).deployment.id;
+  deploymentId = await website.createDeployment(connectionId, id => { deploymentId = id; });
   assert.ok(deploymentId); assert.ok(connectionId);
-  await request(`/api/deployments/${deploymentId}`, { externalId: "fly:e2e-forwarder:abc123" }, "PUT");
-  console.log("Local workerd: migrated fresh D1, created connection through the real website and deployment through HTTP");
+  // Bind the disposable existing-machine fixture and keep provider streams off
+  // for this configuration/runtime journey. Event delivery has separate cases.
+  await request(`/api/deployments/${deploymentId}`, { externalId: "fly:e2e-forwarder:abc123", sourceIds: [] }, "PUT");
+  console.log("Local workerd: migrated fresh D1, created connection and deployment through the real website");
   injectFailure("after-create");
 
   await website.deployment(deploymentId, "No configuration revision has been recorded for this deployment.");
