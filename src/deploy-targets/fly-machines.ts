@@ -1,13 +1,5 @@
-/**
- * Thin client for Fly's Machines API. Just enough to create an app
- * and a single Vector machine. We use `timberio/vector` directly and
- * inject vector.yaml as a `config.files` entry — no per-customer image
- * build needed.
- *
- * Auth: tokens from the cli_session flow may carry `FlyV1 ` or `Bearer `
- * depending on prefix (`fm1r_…`, `fm2_…` use FlyV1; everything else
- * Bearer). flyctl handles this in fly-go/auth.go.
- */
+/** Service-side Fly bootstrap and legacy observation operations.
+ * Managed machine creation/update/leases use the packaged public client. */
 
 const MACHINES_BASE = "https://api.machines.dev";
 const REST_BASE = "https://api.fly.io";
@@ -16,7 +8,6 @@ export class FlyApiError extends Error {
   constructor(
     message: string,
     public readonly status: number,
-    public readonly body: string,
   ) {
     super(message);
     this.name = "FlyApiError";
@@ -25,7 +16,7 @@ export class FlyApiError extends Error {
 
 export function flyAuthHeader(token: string): string {
   for (const part of token.split(",")) {
-    const prefix = part.split("_")[0];
+    const prefix = part.trim().split("_")[0];
     if (prefix === "fm1r" || prefix === "fm2") return `FlyV1 ${token}`;
   }
   return `Bearer ${token}`;
@@ -36,24 +27,24 @@ async function flyFetch(
   authHeader: string,
   init: RequestInit = {},
 ): Promise<Response> {
-  const headers = new Headers(init.headers ?? {});
+  const headers = new Headers();
   headers.set("authorization", authHeader);
   headers.set("accept", "application/json");
-  if (init.body && !headers.has("content-type")) {
+  if (init.body) {
     headers.set("content-type", "application/json");
   }
   console.log("fly_api_request", {
     url,
     method: init.method ?? "GET",
-    auth_scheme: authHeader.split(" ")[0] ?? "?",
+    auth_scheme: authHeader.split(" ")[0],
     auth_header_len: authHeader.length,
   });
   return fetch(url, { ...init, headers });
 }
 
 /**
- * Build a FlyApiError with the response body captured + a structured
- * log line so worker tail / ops_event downstream can correlate failed
+ * Build a status-only FlyApiError with structured diagnostics so each
+ * worker tail / ops_event record can correlate failed
  * Fly calls with the request that triggered them.
  */
 async function flyError(
@@ -61,14 +52,21 @@ async function flyError(
   url: string,
   res: Response,
 ): Promise<FlyApiError> {
-  const body = await res.text();
+  await res.body?.cancel();
   console.warn("fly_api_error", {
     op,
     url,
     status: res.status,
-    body: body.slice(0, 800),
   });
-  return new FlyApiError(`${op} failed: ${res.status}`, res.status, body);
+  return new FlyApiError(`${op} failed: ${res.status}`, res.status);
+}
+
+async function readFlyJson<T>(response: Response): Promise<T> {
+  try {
+    return await response.json() as T;
+  } catch {
+    throw new Error("Invalid Fly response");
+  }
 }
 
 export interface FlyApp {
@@ -85,7 +83,7 @@ export async function getFlyApp(
   const res = await flyFetch(url, authHeader);
   if (res.status === 404) return null;
   if (!res.ok) throw await flyError("getFlyApp", url, res);
-  return (await res.json()) as FlyApp;
+  return await readFlyJson<FlyApp>(res);
 }
 
 export async function createFlyApp(
@@ -111,9 +109,8 @@ export async function createFlyApp(
       op: "createFlyApp",
       url,
       status: res.status,
-      body: body.slice(0, 800),
     });
-    throw new FlyApiError(`createFlyApp 422`, res.status, body);
+    throw new FlyApiError(`createFlyApp failed: ${res.status}`, res.status);
   }
   throw await flyError("createFlyApp", url, res);
 }
@@ -194,50 +191,11 @@ export async function listFlyMachines(
   const url = `${MACHINES_BASE}/v1/apps/${appName}/machines`;
   const res = await flyFetch(url, authHeader);
   if (!res.ok) throw await flyError("listFlyMachines", url, res);
-  return (await res.json()) as FlyMachine[];
-}
-
-export async function createFlyMachine(
-  authHeader: string,
-  input: {
-    appName: string;
-    name: string;
-    region: string;
-    config: FlyMachineConfig;
-  },
-): Promise<FlyMachine> {
-  const url = `${MACHINES_BASE}/v1/apps/${input.appName}/machines`;
-  const res = await flyFetch(url, authHeader, {
-    method: "POST",
-    body: JSON.stringify({
-      name: input.name,
-      region: input.region,
-      config: input.config,
-    }),
-  });
-  if (!res.ok) throw await flyError("createFlyMachine", url, res);
-  return (await res.json()) as FlyMachine;
-}
-
-export async function updateFlyMachine(
-  authHeader: string,
-  input: {
-    appName: string;
-    machineId: string;
-    config: FlyMachineConfig;
-  },
-): Promise<FlyMachine> {
-  const url = `${MACHINES_BASE}/v1/apps/${input.appName}/machines/${input.machineId}`;
-  const res = await flyFetch(url, authHeader, {
-    method: "POST",
-    body: JSON.stringify({ config: input.config }),
-  });
-  if (!res.ok) throw await flyError("updateFlyMachine", url, res);
-  return (await res.json()) as FlyMachine;
+  return await readFlyJson<FlyMachine[]>(res);
 }
 
 /** Transition a machine to `started`. Required after
- *  `updateFlyMachine` because the update endpoint leaves the
+ *  a machine update because the update endpoint leaves the
  *  machine in its prior state. Returns whatever Fly says about the
  *  current state — wait_running is the source of truth for "is it
  *  actually running"; this call's job is just to nudge it. */
@@ -257,16 +215,15 @@ export async function startFlyMachine(
   // already started). Log + soft-succeed; wait_running will tell us
   // if the machine actually fails to reach `started`.
   if (res.status === 412) {
-    console.warn("fly_start_412_soft_ok", { url, body: bodySnippet });
+    console.warn("fly_start_412_soft_ok", { url, status: res.status });
     return { ok: false, status: res.status, bodySnippet };
   }
   console.warn("fly_api_error", {
     op: "startFlyMachine",
     url,
     status: res.status,
-    body: bodySnippet,
   });
-  throw new FlyApiError(`startFlyMachine failed: ${res.status}`, res.status, body);
+  throw new FlyApiError(`startFlyMachine failed: ${res.status}`, res.status);
 }
 
 /**
@@ -295,53 +252,41 @@ export async function resolveFlyOrgSlug(authHeader: string): Promise<string> {
   if (!res.ok) {
     console.warn("fly_resolve_org_slug_http_error", {
       status: res.status,
-      body: bodyText.slice(0, 500),
     });
     throw new FlyApiError(
       `resolveFlyOrgSlug failed: ${res.status}`,
       res.status,
-      bodyText,
     );
   }
-  let data: {
-    data?: {
-      organizations?: { nodes?: Array<{ slug?: string } | null> };
-    };
-    errors?: Array<{ message?: string }>;
-  };
-  try {
-    data = JSON.parse(bodyText);
-  } catch (err) {
-    console.warn("fly_resolve_org_slug_parse_error", {
-      body: bodyText.slice(0, 500),
-    });
-    throw new Error("Fly GraphQL returned non-JSON");
-  }
-  if (data.errors && data.errors.length > 0) {
-    console.warn("fly_resolve_org_slug_graphql_errors", {
-      errors: data.errors,
-      body: bodyText.slice(0, 500),
-    });
-    throw new Error(
-      `Fly GraphQL errors: ${data.errors.map((e) => e.message).join("; ")}`,
-    );
-  }
+  const data = parseGraphql<{
+    data?: { organizations?: { nodes?: Array<{slug?: string} | null> } };
+  }>(bodyText);
   const nodes = data.data?.organizations?.nodes ?? [];
+  if(!Array.isArray(nodes)) throw new Error("Invalid Fly organization inventory");
   // Defensive: nodes may contain null entries when the viewer has
-  // partial visibility into an org. Filter them out and surface the
-  // raw shape if we end up with nothing usable, so we can see why.
+  // partial visibility into an org. Filter them without logging provider data.
   const slugs = nodes
     .filter((n): n is { slug?: string } => n != null)
     .map((n) => n.slug)
     .filter((s): s is string => typeof s === "string" && s.length > 0);
   if (slugs.length === 0) {
-    console.warn("fly_resolve_org_slug_empty", {
-      body: bodyText.slice(0, 500),
-    });
+    console.warn("fly_resolve_org_slug_empty");
     throw new Error("Fly account returned no usable org slugs");
   }
   const personal = slugs.find((s) => s === "personal");
   return personal ?? slugs[0]!;
+}
+
+/** Read only the GraphQL envelope; upstream bodies and error messages can
+ * contain credentials and must never be copied into exception text. */
+function parseGraphql<T>(text: string): T {
+  let value: unknown;
+  try {value=JSON.parse(text);} catch {throw new Error("Fly GraphQL returned non-JSON");}
+  if(!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid Fly GraphQL response");
+  const envelope=value as {errors?: unknown;data?: unknown};
+  if(envelope.errors !== undefined && envelope.errors !== null && (!Array.isArray(envelope.errors) || envelope.errors.length)) throw new Error("Fly GraphQL request failed");
+  if(envelope.data !== undefined && envelope.data !== null && (typeof envelope.data !== "object" || Array.isArray(envelope.data))) throw new Error("Invalid Fly GraphQL response");
+  return value as T;
 }
 
 export interface FlyOrg {
@@ -370,21 +315,14 @@ export async function listFlyOrgs(authHeader: string): Promise<FlyOrg[]> {
     throw new FlyApiError(
       `listFlyOrgs failed: ${res.status}`,
       res.status,
-      bodyText,
     );
   }
-  const data = JSON.parse(bodyText) as {
-    data?: { organizations?: { nodes?: Array<{ id?: string; slug?: string } | null> } };
-    errors?: Array<{ message?: string }>;
-  };
-  if (data.errors?.length) {
-    throw new Error(
-      `Fly GraphQL errors: ${data.errors.map((e) => e.message).join("; ")}`,
-    );
-  }
+  const data = parseGraphql<{data?: {organizations?: {nodes?: Array<{id?: string;slug?: string} | null>}}}>(bodyText);
   const out: FlyOrg[] = [];
-  for (const n of data.data?.organizations?.nodes ?? []) {
-    if (n && typeof n.id === "string" && typeof n.slug === "string") {
+  const nodes=data.data?.organizations?.nodes ?? [];
+  if(!Array.isArray(nodes)) throw new Error("Invalid Fly organization inventory");
+  for (const n of nodes) {
+    if (n && typeof n.id === "string" && n.id && typeof n.slug === "string" && n.slug) {
       out.push({ id: n.id, slug: n.slug });
     }
   }
@@ -398,9 +336,8 @@ export async function listFlyOrgs(authHeader: string): Promise<FlyOrg[]> {
  * "machine_exec". For "read-only org" tokens, flyctl mints with
  * `deploy_organization` and then attenuates the resulting macaroon
  * client-side by appending a `Mask: ActionRead` caveat + recomputing
- * the HMAC chain — we don't do that yet (TODO), so the token this
- * returns is materially safer than the bootstrap (one org vs whole
- * account) but not strictly read-only.
+ * the HMAC chain. The Fly target adapter performs that attenuation before
+ * storing a source credential; this helper only performs the mint request.
  *
  * Returns the FlyV1-formatted header string (`fm2_...,fm2_...`).
  */
@@ -442,36 +379,13 @@ export async function createLimitedAccessToken(
     throw new FlyApiError(
       `createLimitedAccessToken failed: ${res.status}`,
       res.status,
-      bodyText,
     );
   }
-  const data = JSON.parse(bodyText) as {
-    data?: {
-      createLimitedAccessToken?: {
-        limitedAccessToken?: { tokenHeader?: string };
-      };
-    };
-    errors?: Array<{ message?: string }>;
-  };
-  if (data.errors?.length) {
-    throw new Error(
-      `Fly GraphQL errors: ${data.errors.map((e) => e.message).join("; ")}`,
-    );
-  }
+  const data=parseGraphql<{data?: {createLimitedAccessToken?: {limitedAccessToken?: {tokenHeader?: unknown}}}}>(bodyText);
   const tokenHeader =
     data.data?.createLimitedAccessToken?.limitedAccessToken?.tokenHeader;
-  if (!tokenHeader) {
+  if (typeof tokenHeader !== "string" || !tokenHeader) {
     throw new Error("Fly returned no tokenHeader from createLimitedAccessToken");
   }
   return tokenHeader;
-}
-
-/** base64-encode a UTF-8 string (Workers-compatible). */
-export function base64Encode(s: string): string {
-  // btoa works on latin-1; convert to utf-8 bytes first.
-  const bytes = new TextEncoder().encode(s);
-  let bin = "";
-  for (let i = 0; i < bytes.length; i++)
-    bin += String.fromCharCode(bytes[i]!);
-  return btoa(bin);
 }

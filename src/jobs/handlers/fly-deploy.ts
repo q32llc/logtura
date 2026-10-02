@@ -223,7 +223,7 @@ export async function runFlyCreateOrUpdateMachine(
   const machineId=await executeManagedInstall(ctx.env,install,client,ctx.signal);
   await ctx.events.record({kind:target?"fly_machine.updated":"fly_machine.created",message:`Installed managed intent ${install.id} on ${p.appName}`,payload:{installationId:install.id,machineId}});
 
-  // We don't issue /start here. updateFlyMachine returns before Fly
+  // We don't issue /start here. the machine update returns before Fly
   // finishes propagating, so an immediate /start hits a 412 race.
   // wait_running below issues /start on each poll tick that sees
   // state=stopped — once Fly's update propagates, the start sticks.

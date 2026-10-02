@@ -3658,3 +3658,38 @@ per-package gates, provider stream/delivery coverage, durable remote cleanup,
 legacy managed replacement/rollback, coordinated publication and staged
 production rollout remain required. No public package, production resource,
 migration or published npm version changed in this slice.
+
+### Native Fly bootstrap and legacy transport baseline
+
+Deployment lifecycle head `2d2963f` completed its exact
+[private CI run](https://github.com/q32llc/logtura/actions/runs/37062798623).
+
+Fourteen additional native cases exercise actual Fly helper requests with
+controlled outbound HTTP: permission-bundle header classification, app lookup
+and creation races, partial legacy machine inventory, start preconditions,
+organization selection and filtering, and limited-token mint parameters.
+Malformed JSON/GraphQL envelopes, upstream errors, empty/non-string minted
+headers and HTTP failures receive stable errors. Provider bodies and GraphQL
+messages are no longer retained in FlyApiError or copied into diagnostics.
+Successful legacy observation shapes and start results remain compatible.
+
+Unused private machine create/update implementations are removed. Managed
+writes already use the packaged public client, leases, checkpoint and immutable
+image validation; this private helper retains app bootstrap, legacy observation
+and credential minting. Its documentation now describes the actual boundary and
+the existing adapter's read-only macaroon attenuation. The retained helper has
+100% statement, branch, function and line coverage enforced in CI.
+
+Full validation passed 1,346 native/package tests across 119 files, the
+service/package build and application/E2E types. The real local browser,
+installed CLI, workerd and Vector journey passed managed creation, durable
+restart, CLI-edited reapply, website convergence and owned-resource cleanup.
+Aggregate coverage is 94.61% statements, 91.57% branches, 97.08% functions and
+94.72% lines. Separate backend coverage is 93.20%, 89.02%, 96.60% and 92.85%,
+respectively. Aggregate and backend floors rise again. Coverage remains fully
+owned in CI, with reports and changed-line gates and no external coverage service.
+
+Final backend/per-package targets, complete provider stream/delivery coverage,
+durable remote cleanup, legacy managed replacement/rollback, coordinated npm
+publication and staged production rollout remain required. No public package,
+production resource, migration or published npm version changed in this slice.
