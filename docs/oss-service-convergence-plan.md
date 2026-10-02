@@ -4041,3 +4041,60 @@ builds/types, all fifteen packed consumers and both CLI aliases/runtime binary
 passed, as did both repositories' existing real Vector forwarding suite and the new
 custom suite with normal delivery and injected-failure cleanup. Coverage is measured
 and reported by our own CI; no external coverage service is required.
+
+### Shared legacy Fly replacement operation (public backend; adapter work open)
+
+The custom Vector slice completed its exact
+[public test run](https://github.com/logtura/logtura/actions/runs/37078635211) and
+[private image run](https://github.com/q32llc/logtura/actions/runs/37078640949).
+Its exact [private test run](https://github.com/q32llc/logtura/actions/runs/37078640851)
+also completed successfully.
+
+The public core now provides `planFlyReplacement`, `validateFlyReplacementState`
+and `executeFlyReplacement`. A private durable store owns an exclusive claim and
+atomic journal transitions. Complete provider snapshots preserve the old files,
+environment, checks, guest settings and launch settings, and rollback pins the old
+image to its observed OCI digest. A UUID fixes the candidate name and metadata.
+The current operation supports mountless private forwarders; it refuses to copy or
+share attached volumes or proxy-routed services. This matches the managed forwarder
+shape and does not imply automatic migration of every arbitrary Fly machine.
+
+Candidate creation uses the documented `skip_launch` request. After rechecking
+configuration, image digest and checkpoint attachment under both provider leases,
+the operation stops the old process before starting the candidate. Durable phases
+precede each consequential provider step. Lost responses are recovered from exact
+observations. An uncertain create with no matching visible candidate is retained
+without another POST; the journal is not discarded or falsely marked successful.
+Rollback first stops the candidate, then restores the complete old immutable config
+and restarts the old process, even if candidate checkpoint storage is unavailable.
+Both machines remain available for adapter-managed rollback and cleanup.
+
+Native HTTP tests import the compiled public package in separate child processes.
+They kill those processes after fsync at create dispatch, candidate capture, handoff,
+installed state, rollback dispatch and completed rollback. The owned executor lock
+is reaped only after the OS confirms child exit. A real lost create response is
+reconciled without a second creation. These tests prove the shared operation and
+private file journal recovery; they do not prove a service D1 lease or live Fly.
+
+The next adapter slice must persist encrypted replacement intent alongside atomic
+instance issuance, adapt D1 claims/CAS to the public store, allow bounded queue
+continuations without issuing a second instance, bind the new physical target and
+require its accepted runtime report. It must recognize the journal-owned stopped
+old machine on future inventory reads, rather than treating it as a foreign machine
+or deploying a second active forwarder. Explicit rollback must fence the candidate's
+reporting instance, restore/rebind the old physical target and represent legacy
+configuration truthfully; provider health cannot establish a portable applied
+revision. Retained machine cleanup and remote resource-ledger recovery must include
+both identities. Real local queue/browser/CLI replacement and rollback, live canary,
+coordinated publication and staged production rollout remain required.
+
+
+Final validation passed 1,490 private tests across 131 files and 937 independent
+public tests across 79 files, including the real HTTP/native process recovery
+cases. Private coverage is 97.08% statements, 94.45% branches, 98.85% functions and
+97.36% lines; public is 98.36%, 96.53%, 99.43% and 99.11%. The replacement module
+has 98.80% statements, 98.90% branches and 100% functions/lines in both layouts;
+its enforced module floors are 95/95/100/100. Every package and existing stronger
+module gate passes. Both full builds/types and fifteen clean packed consumers,
+both CLI aliases and the runtime binary passed. No migration, npm version or
+production resource changed in this shared operation slice.

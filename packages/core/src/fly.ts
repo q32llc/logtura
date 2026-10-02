@@ -80,10 +80,12 @@ export class FlyMachinesClient {
     return result as FlyCreatedVolume;
   }
   /** Caller persists intent before dispatch. Never automatically retries creation. */
-  async create(app:string,options:{name:string;region:string;config:FlyMachineConfig}):Promise<FlyMachine> {
+  async create(app:string,options:{name:string;region:string;config:FlyMachineConfig;skipLaunch?:true}):Promise<FlyMachine> {
     identifier(options.name);if(!/^[a-z]{3}$/.test(options.region))throw new Error("Invalid Fly machine region");
     immutableFlyImage(options.config.image);canonicalConfigJson(options.config);
-    const result=validateFlyMachine(await this.request(`${identifier(app)}/machines`,"POST",options));
+    if(options.skipLaunch!==undefined && options.skipLaunch!==true)throw new Error("Invalid Fly machine launch setting");
+    const {skipLaunch,...body}=options;
+    const result=validateFlyMachine(await this.request(`${identifier(app)}/machines`,"POST",skipLaunch?{...body,skip_launch:true}:body));
     if(result.region!==options.region || (result as FlyMachine & {name?:string}).name!==options.name || !matchesFlyConfig(result.config,options.config))throw new Error("Fly created a different machine configuration");return result;
   }
   async lease(app:string,id:string):Promise<string> {
@@ -92,6 +94,7 @@ export class FlyMachinesClient {
   }
   async release(app:string,id:string,nonce:string):Promise<void> {await this.request(`${identifier(app)}/machines/${identifier(id)}/lease`,"DELETE",undefined,nonce);}
   async update(app:string,id:string,config:FlyMachineConfig,version:string,nonce:string):Promise<void> {identifier(version);await this.request(`${identifier(app)}/machines/${identifier(id)}`,"POST",{config,current_version:version},nonce);}
+  async stop(app:string,id:string,nonce:string):Promise<void> {await this.request(`${identifier(app)}/machines/${identifier(id)}/stop`,"POST",{signal:"SIGTERM",timeout:"35s"},nonce);}
   async start(app:string,id:string,nonce:string):Promise<void> {await this.request(`${identifier(app)}/machines/${identifier(id)}/start`,"POST",{},nonce);}
 }
 /** Intent must already be durable. A lost update response is recovered by reading

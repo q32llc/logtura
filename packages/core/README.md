@@ -529,3 +529,44 @@ with literal credential arguments. Missing or empty values must be supplied as
 environment variables before any Docker operation; shell substitutions inside
 known or inherited values remain data. The generator uses this renderer for
 `bundle.runCommand`, so both standalone callers and hosted downloads share it.
+
+## Replacing a legacy Fly forwarder
+
+`planFlyReplacement({id, app, org, machine, config, volume, volumes})` prepares
+replacement of a mountless private forwarder with a new machine that has an
+unattached encrypted checkpoint volume. Pass an actual complete provider snapshot
+and the configuration produced by `buildFlyRuntimeConfig()`. The plan retains every
+old setting, file and environment value and pins rollback to the old machine's
+observed OCI digest. Its candidate name and metadata are tied to a UUID. Existing
+attached storage and public proxy services need a separate transfer strategy.
+
+Persist `{plan, phase: "prepared", machineId: null}` privately before calling
+`executeFlyReplacement(store, client, {assertCurrent})`. The `FlyReplacementStore`
+adapter must hold an exclusive durable claim while the operation runs, implement
+atomic `compareAndSwap`, and commit/fsync each transition before returning. Its
+`assertCurrent` callback must recheck ownership, target and the adapter's desired
+instance/revision and live claim. The library rechecks journal state before writes;
+Fly leases independently fence both machines during handoff. Provider requests use
+bounded deadlines and static HTTP errors. Private journal payloads contain secrets.
+
+The operation creates the candidate with `skip_launch: true`, confirms storage and
+configuration under both leases, stops the old process, then starts the candidate.
+Lost responses are reconciled by observation. An unknown create with no visible
+matching candidate is retained for recovery and never repeated automatically. Async
+stop/start transitions leave a resumable journal rather than claiming convergence.
+`installed` means the provider handoff happened; an owning CLI/service adapter must
+still observe the issued runtime's accepted report before reporting success.
+
+`executeFlyReplacement(store, client, {assertCurrent, rollback: true})` stops the
+candidate before restoring the exact immutable old configuration and restarting it.
+Rollback remains available if the candidate's checkpoint becomes unavailable. The
+old machine and candidate are retained; the owning adapter must manage accepted
+report fencing, target rebinding and eventual cleanup. `rolled_back` cannot be
+reinstalled under the same issuance. These operations do not require Logtura's hosted
+service; the managed queue integration is a separate adapter.
+
+Native tests exercise real HTTP with child processes killed after journal fsync at
+create dispatch, candidate capture, handoff and installed phases, and at both
+rollback phases. They also reconcile a real lost create response without dispatching
+another candidate. Run the monorepo build before tests, since the child imports the
+compiled public package rather than a test-only implementation.

@@ -97,3 +97,9 @@ it.each(["injected", "native"])("binds %s fetch to the global receiver required 
   expect(transport).toHaveBeenCalledOnce();
  } finally { vi.unstubAllGlobals(); }
 });
+it("creates a stopped candidate only on explicit skipLaunch and rejects malformed launch requests",async()=>{
+ const current={...machine(),name:"candidate",config:{image}},fetcher=vi.fn<typeof fetch>(async()=>Response.json(current)),client=new FlyMachinesClient({token:"private",fetch:fetcher});
+ await client.create("app",{name:"candidate",region:"ord",config:current.config,skipLaunch:true});
+ expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toEqual({name:"candidate",region:"ord",config:current.config,skip_launch:true});
+ await expect(client.create("app",{name:"candidate",region:"ord",config:current.config,skipLaunch:false as unknown as true})).rejects.toThrow("launch setting");expect(fetcher).toHaveBeenCalledOnce();
+});

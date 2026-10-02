@@ -92,3 +92,6 @@ export { renderFlyToml, renderFlyLaunchScript, flySelfDeployFiles } from "./fly-
 
 export { runtimeAssetFiles } from "./runtime-assets";
 export { renderDockerRunCommand } from "./docker-install";
+
+export {planFlyReplacement,validateFlyReplacementState,executeFlyReplacement} from "./fly-replacement";
+export type {FlyReplacementPlan,FlyReplacementState,FlyReplacementPhase,FlyReplacementStore,FlyReplacementTransaction} from "./fly-replacement";

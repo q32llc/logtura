@@ -69,6 +69,7 @@ export default defineConfig({
         "packages/core/src/metrics.ts": { statements: 99, branches: 95, functions: 100, lines: 100 },
         "packages/cli/src/metrics.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/fly.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/core/src/fly-replacement.ts": { statements: 95, branches: 95, functions: 100, lines: 100 },
         "packages/core/src/fly-runtime.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/fly-apply.ts": { statements: 96, branches: 91, functions: 100, lines: 100 },
         "packages/core/src/runtime-image.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
