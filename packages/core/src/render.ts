@@ -1,3 +1,4 @@
+import { renderDockerRunCommand } from "./docker-install";
 import { VECTOR_VERSION, FORWARDER_NODE_IMAGE } from "./versions";
 import type {
   BundleEnvVar,
@@ -217,7 +218,7 @@ export function generateBundle(input: GenerateInput): GeneratedBundle {
   for (const variable of envVars) {
     if (variable.source === "manual" && input.runtimeEnv?.[variable.name] !== undefined) variable.value = input.runtimeEnv[variable.name]!;
   }
-  const runCommand = renderRunCommand(envVars);
+  const runCommand = renderDockerRunCommand(envVars);
   const sinkCount = input.monitors.reduce(
     (n, m) => n + m.sinks.length,
     0,
@@ -1009,21 +1010,6 @@ EXPOSE 8686
 
 CMD ["--config", "/etc/vector/vector.yaml"]
 `;
-}
-
-function renderRunCommand(envVars: BundleEnvVar[]): string {
-  const flags = envVars.map((v) => {
-    const placeholder =
-      v.value !== null ? v.value : `<${v.name.toLowerCase()}>`;
-    return `  -e ${v.name}="${placeholder}"`;
-  });
-  return [
-    "docker build -t logtura-forwarder .",
-    "",
-    "docker run --rm \\",
-    `${flags.join(" \\\n")} \\`,
-    "  logtura-forwarder",
-  ].join("\n");
 }
 
 // --- helpers ------------------------------------------------------

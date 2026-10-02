@@ -1,6 +1,6 @@
 import type { BundleEnvVar, GeneratedBundle } from "./types";
 import { shellQuote } from "./install";
-import { flyBundleFiles } from "./fly-runtime";
+import { runtimeAssetFiles } from "./runtime-assets";
 import type { TarFile } from "./tar";
 
 /** Shared Fly self-deploy settings for the hosted download and standalone CLI. */
@@ -76,14 +76,12 @@ export function renderFlyLaunchScript(input: {appName: string; region?: string; 
 
 /** Complete self-deploy build context, preserving runtime asset bytes and modes. */
 export function flySelfDeployFiles(input: {bundle: GeneratedBundle; appName: string; region?: string}): TarFile[] {
-  // The provider composer validates asset paths, uniqueness, content and modes.
-  // Keep self-deploy inputs subject to the same rules as linked installation.
-  flyBundleFiles(input.bundle);
+  const assets = runtimeAssetFiles(input.bundle.runtimeAssets);
   return [
     {name: "Dockerfile", content: input.bundle.dockerfile},
     {name: "vector.yaml", content: input.bundle.vectorYaml},
     {name: "fly.toml", content: renderFlyToml({appName: input.appName, region: input.region ?? "iad", envVars: input.bundle.envVars.map(v => v.name)})},
     {name: "deploy.sh", content: renderFlyLaunchScript({appName: input.appName, region: input.region, envVars: input.bundle.envVars}), mode: 0o600},
-    ...input.bundle.runtimeAssets.map(asset => ({name: `assets/${asset.driverId}/${asset.path}`, content: asset.content, mode: asset.mode ?? 0o644})),
+    ...assets.map(file => ({...file, mode: file.mode ?? 0o644})),
   ];
 }

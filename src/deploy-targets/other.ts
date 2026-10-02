@@ -1,3 +1,5 @@
+import { selfDeployFiles } from "@logtura/core";
+import { serializeBundleFiles } from "./bundle-files";
 import type { DeployTargetDriver, TargetBundle } from "./types";
 
 /**
@@ -17,27 +19,11 @@ export const otherDriver: DeployTargetDriver<never> = {
   formFields: [],
 
   generateTargetBundle({ sourceBundle }): TargetBundle {
-    const files = [
-      {
-        name: "Dockerfile",
-        content: sourceBundle.dockerfile,
-        language: "dockerfile",
-      },
-      {
-        name: "vector.yaml",
-        content: sourceBundle.vectorYaml,
-        language: "yaml",
-      },
-      {
-        name: "run.sh",
-        content: `#!/usr/bin/env bash\nset -euo pipefail\n\n${sourceBundle.runCommand}\n`,
-        language: "bash",
-      },
-    ];
+    const files = serializeBundleFiles(selfDeployFiles(sourceBundle), {Dockerfile: "dockerfile", "vector.yaml": "yaml", "run.sh": "bash"});
     const instructions = [
-      "1. Save the files in this bundle to an empty directory.",
+      "1. Save the files in this bundle to an empty directory, preserving the shown assets/ subdirectories and permission modes.",
       "2. Build:    docker build -t logtura-forwarder .",
-      "3. Run:      bash run.sh   (substitute the placeholder env var values first)",
+      "3. Run:      bash run.sh   (set any missing credential environment variables first)",
       "4. Heartbeat (Prometheus) on :9598 inside the container; Vector API on :8686.",
     ].join("\n");
     return { files, selfDeployInstructions: instructions };

@@ -1,3 +1,4 @@
+import { runtimeAssetFiles } from "./runtime-assets";
 import { canonicalConfigJson } from "./config";
 import { validateFlyMachine, immutableFlyImage, type FlyMachine, type FlyVolume, type FlyMachinePlan, type FlyMachineConfig } from "./fly";
 import { verifyLoadedForwarder, type ForwarderRuntimeArtifact } from "./runtime";
@@ -9,14 +10,9 @@ function list(value:unknown):Record<string,unknown>[] {if(value===undefined)retu
 function base64(content:string|Uint8Array):string {const bytes=typeof content==="string"?new TextEncoder().encode(content):content;let binary="";for(const byte of bytes)binary+=String.fromCharCode(byte);return btoa(binary);}
 /** Exact generated runtime inputs shared by hosted and linked installations. */
 export function flyBundleFiles(bundle: GeneratedBundle): {guest_path:string;raw_value:string;mode:number}[] {
-  const seen = new Set<string>();
-  for (const asset of bundle.runtimeAssets) {
-    const path = `${asset.driverId}/${asset.path}`;
-    if (!/^[a-zA-Z0-9_-]+$/.test(asset.driverId) || !asset.path || path.includes("\\") || /[\u0000-\u001f\u007f]/.test(path) || path.split("/").some(part=>part==="" || part==="." || part==="..") || seen.has(path) || (typeof asset.content!=="string" && !(asset.content instanceof Uint8Array)) || (asset.mode!==undefined && (!Number.isSafeInteger(asset.mode) || asset.mode<0 || asset.mode>0o777))) throw new Error("Invalid Fly runtime asset");
-    seen.add(path);
-  }
+  const assets = runtimeAssetFiles(bundle.runtimeAssets);
   return [{guest_path:"/etc/vector/vector.yaml",raw_value:base64(bundle.vectorYaml),mode:0o400},
-    ...bundle.runtimeAssets.map(asset=>({guest_path:`/opt/logtura/assets/${asset.driverId}/${asset.path}`,raw_value:base64(asset.content),mode:asset.mode??0o644}))];
+    ...assets.map(file=>({guest_path:`/opt/logtura/${file.name}`,raw_value:base64(file.content),mode:file.mode??0o644}))];
 }
 /** Checkpoint storage belongs to this one machine. No cross-machine counter sharing.
  * Volume provisioning is an adapter operation and must precede instance issuance. */

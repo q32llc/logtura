@@ -516,3 +516,16 @@ and POSIX modes as `TarFile` values, validates runtime assets using the same
 rules as linked Fly installation, and can be passed directly to `buildTar`.
 Callers exposing these files as JSON must encode binary content explicitly;
 writing a byte array as JSON or decoding it as UTF-8 would corrupt the asset.
+
+`selfDeployFiles(bundle)` provides the complete generic Docker build context
+used by the hosted Other target, including the private `run.sh` and nested
+runtime assets. `runtimeAssetFiles(assets)` supplies one validated layout for
+this context, Fly self-deploy, install archives/CLI writes and provider-mounted
+files. Unsafe paths, duplicate paths, invalid content and permission modes fail
+before a composer emits files.
+
+`renderDockerRunCommand(envVars)` renders the generic Docker build/run workflow
+with literal credential arguments. Missing or empty values must be supplied as
+environment variables before any Docker operation; shell substitutions inside
+known or inherited values remain data. The generator uses this renderer for
+`bundle.runCommand`, so both standalone callers and hosted downloads share it.

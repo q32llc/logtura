@@ -58,6 +58,10 @@ export default defineConfig({
       // Baseline floor; raise these as the planned coverage slices land.
       // Final scope targets are 95% lines/statements/functions and 90% branches.
       thresholds: {
+        "packages/core/src/docker-install.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "src/deploy-targets/other.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "src/deploy-targets/bundle-files.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/core/src/runtime-assets.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/deploy-targets/fly.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/fly-install.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/oci-image.ts": { statements: 100, branches: 98, functions: 100, lines: 100 },

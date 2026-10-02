@@ -53,7 +53,7 @@ export type {
 
 export { DestinationError, ProviderError } from "./types";
 
-export { installBundleFiles, renderEnvFile } from "./install";
+export { installBundleFiles, renderEnvFile, selfDeployFiles } from "./install";
 export { buildTar, type TarFile } from "./tar";
 
 export { parseConfigDocument, normalizeConfigDocument, canonicalConfigJson, hashConfigDocument, ensureSection, ensureListSection, safeId, defaultProviderName } from "./config";
@@ -89,3 +89,6 @@ export {parseMetricsBody, emptySnapshot, applyMetricsToSnapshot, rateFor} from "
 export type {ComponentKind, ComponentMetrics, MetricsSnapshot, ParsedMetric} from "./metrics";
 
 export { renderFlyToml, renderFlyLaunchScript, flySelfDeployFiles } from "./fly-install";
+
+export { runtimeAssetFiles } from "./runtime-assets";
+export { renderDockerRunCommand } from "./docker-install";

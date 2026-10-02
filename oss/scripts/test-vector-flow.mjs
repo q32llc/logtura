@@ -9,13 +9,13 @@ import { spawnSync,execFile } from "node:child_process";
 const root = process.cwd();
 const load = (name) => import(pathToFileURL(join(root, "packages", name, "dist/index.js")));
 const { compileForwarderRuntime, exportDeploymentManifest, createSecretVersioner, hashConfigDocument,
-  verifyLoadedForwarder, runtimeImageFiles, renderDockerfile, FORWARDER_NODE_IMAGE, DeploymentReportingClient, GENERATOR_VERSION, VECTOR_VERSION } = await load("core");
+  verifyLoadedForwarder, runtimeImageFiles, renderDockerfile, selfDeployFiles, flySelfDeployFiles, FORWARDER_NODE_IMAGE, DeploymentReportingClient, GENERATOR_VERSION, VECTOR_VERSION } = await load("core");
 const { runForwarderReporting } = await import(pathToFileURL(join(root, "packages/cli/dist/main.js")));
 const { customVectorProvider } = await load("custom-vector");
 const { webhookDriver } = await load("destination-webhook");
 const temporary = mkdtempSync(join(tmpdir(), "logt-vector-flow-"));
 const name = `logt-e2e-${crypto.randomUUID()}`, supervisedName = `${name}-owned`;
-const legacyImage=`${name}-legacy`, runtimeImage=`${name}-runtime`;
+const legacyImage=`${name}-legacy`, runtimeImage=`${name}-runtime`, assetImages=[];
 const deliveries = [];
 let attempts = 0, appliedCounter = 0, expectedInstance;
 const appliedReports = [];
@@ -95,6 +95,25 @@ try {
   for(const file of runtimeImageFiles(readFileSync(join(root,"packages/cli/dist/runtime-bin.js")))){const path=join(runtimeContext,file.name);mkdirSync(join(path,".."),{recursive:true});writeFileSync(path,file.content,{mode:file.mode});}
   docker(["build","--quiet","--tag",legacyImage,legacyContext]);
   docker(["build","--quiet","--tag",runtimeImage,runtimeContext]);
+  // Both public self-deploy contexts must build and run their generated assets
+  // without host mounts or a Logtura service supplying the missing files.
+  const assetBytes = new Uint8Array([0,255,128,10,13]);
+  const assetBundle = {...bundle, dockerfile: renderDockerfile([],{includeRuntimeAssets:true}), runtimeAssets:[
+    {driverId:"fixture",path:"nested/data.bin",content:assetBytes,mode:0o644},
+    {driverId:"fixture",path:"nested/helper.sh",content:"#!/bin/sh\nprintf 'asset-helper-verified\\n'\n",mode:0o755},
+  ]};
+  for(const [target,files] of [["other",selfDeployFiles(assetBundle)],["fly",flySelfDeployFiles({bundle:assetBundle,appName:"fixture-app"})]]) {
+    const context=join(temporary,`${target}-assets`),image=`${name}-${target}-assets`;assetImages.push(image);
+    mkdirSync(context);
+    for(const file of files){const path=join(context,file.name);mkdirSync(join(path,".."),{recursive:true});writeFileSync(path,file.content,{mode:file.mode});}
+    assert.equal(statSync(join(context,"assets/fixture/nested/helper.sh")).mode&0o777,0o755);
+    assert.equal(statSync(join(context,target==="fly"?"deploy.sh":"run.sh")).mode&0o777,0o600);
+    docker(["build","--quiet","--tag",image,context]);
+    const body=spawnSync("docker",["run","--rm","--entrypoint","cat",image,"/opt/logtura/assets/fixture/nested/data.bin"],{timeout:30_000});
+    assert.equal(body.status,0,body.stderr.toString());assert.deepEqual(body.stdout,Buffer.from(assetBytes));
+    assert.equal(docker(["run","--rm","--entrypoint","/opt/logtura/assets/fixture/nested/helper.sh",image]),"asset-helper-verified");
+  }
+
   assert.match(docker(["run","--rm",runtimeImage,"--version"]),/^vector 0\.55\.0/);
   assert.equal(docker(["run","--rm","--entrypoint","node",runtimeImage,"--version"]),`v${FORWARDER_NODE_IMAGE.match(/^node:(\d+\.\d+\.\d+)/)[1]}`);
   // Artifact presence must never downgrade to direct Vector execution. Exercise
@@ -233,11 +252,11 @@ try {
   const supervisedLogs=docker(["logs",supervisedName],true);
   assert.ok(supervisedLogs.includes('"event":"applied_report"'));
   assert.ok(!supervisedLogs.includes(supervised.artifact.privateKey));
-  console.log("Real Vector flow passed: normalization, error filtering, routing, context, retry delivery, issued runtime integrity, and durable HTTP report recovery, owned PID-1 process supervision, and packaged image startup without Logtura service");
+  console.log("Real Vector flow passed: complete generic/Fly asset build contexts, normalization, error filtering, routing, context, retry delivery, issued runtime integrity, and durable HTTP report recovery, owned PID-1 process supervision, and packaged image startup without Logtura service");
 } finally {
   docker(["rm", "--force", supervisedName], true);
   docker(["rm", "--force", name], true);
-  docker(["image","rm","--force",runtimeImage,legacyImage],true);
+  docker(["image","rm","--force",runtimeImage,legacyImage,...assetImages],true);
   await new Promise((resolve) => server.close(resolve));
   rmSync(temporary, { recursive: true, force: true });
 }

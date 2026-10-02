@@ -65,7 +65,7 @@ describe("shared install files", () => {
   it("rejects NUL in secrets and path traversal in assets", () => {
     expect(() => installBundleFiles(bundle("a\0b"))).toThrow("NUL");
     const b = bundle(); b.runtimeAssets[0]!.path = "../../escape";
-    expect(() => buildTar(installBundleFiles(b))).toThrow("unsafe path");
+    expect(() => installBundleFiles(b)).toThrow("Invalid runtime asset");
   });
 });
 

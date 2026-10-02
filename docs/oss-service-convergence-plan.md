@@ -3406,3 +3406,49 @@ files still fail. All 19 private and 16 standalone reporting/harness guards pass
 The final owned gate measured 100% of changed executable lines (21/21 private,
 4/4 public), with no filename-based coverage exemption. Public composer
 `d62dd9a` and reporting follow-up `ae9b4db` are pushed to `main`.
+
+### Complete generic assets and shared literal-safe Docker workflow (implemented)
+
+The hosted Other target now calls public `@logtura/core.selfDeployFiles`,
+retaining its existing non-managed Docker workflow while adding all nested
+runtime assets and a private (0600) run script. Both target adapters share the
+text/base64 JSON serializer. Generic/Fly self-deploy, install archives and CLI
+file writes, and provider-mounted files now use `runtimeAssetFiles` for the same
+validated paths, bytes and optional permission modes. Invalid fields and duplicate
+paths fail consistently before file composition completes. Install traversal
+rejection happens earlier than the archive writer, with an explicit regression.
+
+The public generator also uses `renderDockerRunCommand` for its generic
+`runCommand`. Known credentials are literal shell arguments; missing/empty
+values require inherited environment values before Docker receives an operation.
+Real Bash/provider-recorder cases cover substitutions, quotes, Unicode, multiline
+values, multiple/missing/no credentials and malformed fields. The new asset
+validator, Docker renderer, Other adapter and shared JSON serializer have 100%
+coverage gates in all dimensions. Existing Fly renderer/adapter gates remain.
+
+Validation passed 1,203 private native/package assertions and 792 standalone
+public assertions, both builds and types, E2E types and installed ESM/declaration
+consumers for all 15 tarballs. Installed consumers exercise the new APIs and
+reject invalid types under NodeNext, Node16 and Bundler resolution. Real Docker
+builds from both generic and Fly contexts preserved arbitrary binary bytes and
+ran the executable asset helper without host asset mounts. In both repository
+layouts, the full Vector flow also passed normalization, filtering, routing,
+retry delivery, runtime integrity, HTTP report recovery and packaged PID-1
+supervision. Public coverage is 95.28% statements, 92.99% branches, 96.95%
+functions and 95.85% lines. Private aggregate coverage is 88.24%, 85.98%, 91.30%
+and 86.77%, respectively; separate backend/per-package final gates remain open.
+The real browser/CLI/workerd/Vector journey also passed managed creation,
+website convergence, durable restart and CLI-edited leased compatible reapply.
+
+The preceding public head `ae9b4db` completed its exact
+[CI run](https://github.com/logtura/logtura/actions/runs/37048535320). Private
+head `bdf1fcc` completed exact
+[test CI](https://github.com/q32llc/logtura/actions/runs/37048602975) and
+[image CI](https://github.com/q32llc/logtura/actions/runs/37048602395). Current
+public source is pushed in `a9ba045`, with 100% changed executable line coverage
+(25/25) verified before pushing.
+
+Full provider delivery/reconnect coverage, final backend/package gates, durable
+remote cleanup, legacy managed replacement/rollback, coordinated npm release and
+staged production rollout remain required. No production resource, migration or
+published npm version changed in this slice.

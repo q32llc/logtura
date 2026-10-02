@@ -1,3 +1,4 @@
+import { serializeBundleFiles } from "./bundle-files";
 import { flySelfDeployFiles } from "@logtura/core";
 import {
   createLimitedAccessToken,
@@ -100,12 +101,7 @@ export const flyDriver: DeployTargetDriver<FlyCredentials> = {
   }): TargetBundle {
     const appName = sanitizeAppName(deploymentName, connectionId);
     const language: Record<string, string> = {Dockerfile: "dockerfile", "vector.yaml": "yaml", "fly.toml": "toml", "deploy.sh": "bash"};
-    const files = flySelfDeployFiles({bundle: sourceBundle, appName, region}).map(file => {
-      if (typeof file.content === "string") return {...file, content: file.content, language: language[file.name]};
-      let binary = "";
-      for (const byte of file.content) binary += String.fromCharCode(byte);
-      return {...file, content: btoa(binary), encoding: "base64" as const};
-    });
+    const files = serializeBundleFiles(flySelfDeployFiles({bundle: sourceBundle, appName, region}), language);
 
     const instructions = [
       "1. Save these files to an empty directory, preserving the shown assets/ subdirectories.",

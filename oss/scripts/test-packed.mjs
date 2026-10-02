@@ -27,7 +27,7 @@ try {
   // Typecheck the installed tarballs with their declarations, without skipLibCheck.
   const typesFile = join(consumer, "consumer.mts");
   writeFileSync(typesFile, packages.map((name, index) => `import * as package${index} from '@logtura/${name}';`).join("\n") + `
-    import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient, FlyMachinesClient, buildFlyRuntimeConfig, flyBundleFiles, resolveFlyImage} from '@logtura/core';
+    import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient, FlyMachinesClient, buildFlyRuntimeConfig, flyBundleFiles, resolveFlyImage, selfDeployFiles, runtimeAssetFiles, renderDockerRunCommand} from '@logtura/core';
     import {type PendingActivation, type PendingFlyApply, activateLinkedDeployment} from '@logtura/cli';
     const typedActivation: (client:LogturaServiceClient,config:string,options?:{resume?:boolean})=>Promise<DeploymentInstanceReceipt> = activateLinkedDeployment;
     // @ts-expect-error Config fields remain required; these exports must not become any.
@@ -38,6 +38,12 @@ try {
     const invalidApply:PendingFlyApply = {schemaVersion:1};
     // @ts-expect-error Generated bundle fields remain required.
     flyBundleFiles({});
+    // @ts-expect-error Generic contexts retain the complete bundle type.
+    selfDeployFiles({});
+    // @ts-expect-error Asset modes retain their number type.
+    runtimeAssetFiles([{driverId:'fixture',path:'helper',content:'text',mode:'755'}]);
+    // @ts-expect-error Environment values remain required, even when null.
+    renderDockerRunCommand([{name:'TOKEN'}]);
     // @ts-expect-error Registry tokens retain their string type.
     resolveFlyImage('registry.test/image@sha256:'+'a'.repeat(64),{token:1});
     // @ts-expect-error Discharged provider authorization only supports its two schemes.
@@ -97,7 +103,7 @@ monitors: []
   assert.equal(bin("logtura",["stats","metrics file.ndjson"]),stats);
   assert.match(stats,/packed_sink\tsink\thttp\t-\t7\t-/);
   const script = `import assert from 'node:assert/strict';
-    import {parseMetricsBody,applyMetricsToSnapshot,rateFor,buildFlyRuntimeConfig,flyBundleFiles,resolveFlyImage,GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,FlyMachinesClient,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit} from '@logtura/core';
+    import {selfDeployFiles,flySelfDeployFiles,runtimeAssetFiles,renderDockerRunCommand,parseMetricsBody,applyMetricsToSnapshot,rateFor,buildFlyRuntimeConfig,flyBundleFiles,resolveFlyImage,GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,FlyMachinesClient,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit} from '@logtura/core';
     import {writeFileSync,readFileSync,statSync} from 'node:fs';
     import {main,applyLinkedFlyDeployment,readPendingFlyApply,activateLinkedDeployment,readPendingActivation,finishLinkedActivation,reportLoadedForwarderFile,runForwarderReporting} from '@logtura/cli';
     import {cloudflareWorkerTailDriver} from '@logtura/driver-cloudflare-worker-tail';
@@ -259,7 +265,11 @@ monitors: []
     const providerFiles=flyBundleFiles({...bundle,runtimeAssets:[{driverId:'fixture',path:'helper.bin',content:new Uint8Array([0,255,1]),mode:0o755},{driverId:'fixture',path:'unicode.txt',content:'héllo'}]});
     assert.deepEqual(providerFiles.slice(1),[{guest_path:'/opt/logtura/assets/fixture/helper.bin',raw_value:'AP8B',mode:0o755},{guest_path:'/opt/logtura/assets/fixture/unicode.txt',raw_value:Buffer.from('héllo').toString('base64'),mode:0o644}]);
     assert.equal(providerFiles[0].mode,0o400);
-    assert.throws(()=>flyBundleFiles({...bundle,runtimeAssets:[{driverId:'fixture',path:'../escape',content:'invalid'}]}),/Invalid Fly runtime asset/);
+    const completeBundle={...bundle,runtimeAssets:[{driverId:'fixture',path:'nested/helper.bin',content:new Uint8Array([0,255,128]),mode:0o700}]};
+    assert.deepEqual(runtimeAssetFiles(completeBundle.runtimeAssets),[{name:'assets/fixture/nested/helper.bin',content:new Uint8Array([0,255,128]),mode:0o700}]);
+    assert.deepEqual(selfDeployFiles(completeBundle).slice(3),flySelfDeployFiles({bundle:completeBundle,appName:'fixture-app'}).slice(4));
+    assert.ok(renderDockerRunCommand([{name:'TOKEN',value:'literal $(payload)'}]).includes("'TOKEN=literal $(payload)'"));
+    assert.throws(()=>flyBundleFiles({...bundle,runtimeAssets:[{driverId:'fixture',path:'../escape',content:'invalid'}]}),/Invalid runtime asset/);
     const observed={files:{'vector.yaml':bundle.vectorYaml,...Object.fromEntries(bundle.runtimeAssets.map(asset=>['assets/'+asset.driverId+'/'+asset.path,asset.content]))},environment:Object.fromEntries(bundle.envVars.map(v=>[v.name,v.value])),generatorVersion:GENERATOR_VERSION,vectorVersion:'0.55.0',ready:true};
     assert.deepEqual(await verifyLoadedForwarder(compiled.artifact,observed),compiled.artifact);
     assert.ok(!JSON.stringify(compiled.artifact).includes('fixture-token'));

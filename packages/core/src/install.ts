@@ -2,13 +2,14 @@
  * belong to the caller (Node CLI or Workers service). */
 import type { BundleEnvVar, GeneratedBundle } from "./types";
 import type { TarFile } from "./tar";
+import { runtimeAssetFiles } from "./runtime-assets";
 
 export function installBundleFiles(bundle: GeneratedBundle, name = "logtura-forwarder", displayName = name): TarFile[] {
   const dirName = name.replace(/[^a-z0-9-]/gi, "-").toLowerCase() || "logtura";
   return [
     { name: `${dirName}/Dockerfile`, content: bundle.dockerfile },
     { name: `${dirName}/vector.yaml`, content: bundle.vectorYaml },
-    ...bundle.runtimeAssets.map((asset) => ({ name: `${dirName}/assets/${asset.driverId}/${asset.path}`, content: asset.content, mode: asset.mode })),
+    ...runtimeAssetFiles(bundle.runtimeAssets).map(file => ({...file, name: `${dirName}/${file.name}`})),
     { name: `${dirName}/manifest.json`, content: JSON.stringify(bundle.componentManifest, null, 2) },
     { name: `${dirName}/.env`, content: renderEnvFile(bundle.envVars), mode: 0o600 },
     { name: `${dirName}/install.sh`, content: renderInstallSh(dirName, bundle.envVars), mode: 0o755 },
@@ -234,4 +235,14 @@ $RUNTIME run -d --name "$CONTAINER_NAME" --restart=always $ENV_FILE_FLAG "$IMAGE
 echo "[install.sh] running. Tail with:  $RUNTIME logs -f $CONTAINER_NAME"
 echo "[install.sh] stop with:           $RUNTIME rm -f $CONTAINER_NAME"
 `;
+}
+
+/** Generic self-deploy build context used by the hosted Other target. */
+export function selfDeployFiles(bundle: GeneratedBundle): TarFile[] {
+  return [
+    {name: "Dockerfile", content: bundle.dockerfile},
+    {name: "vector.yaml", content: bundle.vectorYaml},
+    {name: "run.sh", content: `#!/usr/bin/env bash\nset -euo pipefail\n\n${bundle.runCommand}\n`, mode: 0o600},
+    ...runtimeAssetFiles(bundle.runtimeAssets).map(file => ({...file, mode: file.mode ?? 0o644})),
+  ];
 }
