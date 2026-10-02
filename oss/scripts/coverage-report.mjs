@@ -80,15 +80,19 @@ export function readReports(directories, root = process.cwd()) {
       throw new Error(`LCOV and JSON line counts disagree: ${name}`);
     }
   }
-  const groups = new Map(scopes.map((scope) => [scope, Object.fromEntries(metrics.map((metric) => [metric, { total: 0, covered: 0 }]))]));
+  const emptyCounts = () => Object.fromEntries(metrics.map((metric) => [metric, { total: 0, covered: 0 }]));
+  const groups = new Map(scopes.map((scope) => [scope, emptyCounts()]));
+  const packages = new Map();
   for (const [file, data] of files) {
-    for (const metric of metrics) {
-      const group = groups.get(sourceScope(file))[metric];
-      group.total += data[metric].total;
-      group.covered += data[metric].covered;
+    const packageName = /^packages\/([^/]+)\/src\//.exec(file)?.[1];
+    if (packageName && !packages.has(packageName)) packages.set(packageName, emptyCounts());
+    const targets = [groups.get(sourceScope(file)), ...(packageName ? [packages.get(packageName)] : [])];
+    for (const target of targets) for (const metric of metrics) {
+      target[metric].total += data[metric].total;
+      target[metric].covered += data[metric].covered;
     }
   }
-  return { files, lines, groups, sourceRoot: root };
+  return { files, lines, groups, packages, sourceRoot: root };
 }
 export function changedLines(diff) {
   const changes = new Map();
@@ -155,6 +159,12 @@ export function renderSummary(reports, patch, artifactUrl) {
     "| Scope | Lines | Statements | Functions | Branches |", "| --- | --- | --- | --- | --- |"];
   for (const [scope, data] of reports.groups) {
     if (metrics.some((metric) => data[metric].total > 0)) output.push(`| ${scope} | ${metrics.map((metric) => percentage(data[metric])).join(" | ")} |`);
+  }
+  if (reports.packages.size) {
+    output.push("", "| Package | Lines | Statements | Functions | Branches |", "| --- | --- | --- | --- | --- |");
+    for (const [name, data] of [...reports.packages].sort(([a], [b]) => a.localeCompare(b))) {
+      output.push(`| ${name} | ${metrics.map((metric) => percentage(data[metric])).join(" | ")} |`);
+    }
   }
   output.push("", `Changed executable lines: **${percentage(patch)}**. Required: ${patchFloor}%. **${patch.passed ? "PASS" : "FAIL"}**.`);
   if (!patch.total) output.push("No instrumented executable lines changed.");

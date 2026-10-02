@@ -3807,3 +3807,48 @@ remain required. Per-package floors, durable remote cleanup/SIGKILL recovery,
 legacy managed replacement/rollback, coordinated npm publication and staged
 production rollout remain open. No production resource, migration or published
 npm version changed.
+
+### Independent public package gates and Fly/Cloudflare API baseline
+
+The generated Railway delivery head `3891d76` completed its exact
+[public CI run](https://github.com/logtura/logtura/actions/runs/37067426495).
+The first real Bun runtime head `e423946` completed its exact
+[private CI run](https://github.com/q32llc/logtura/actions/runs/37066585087).
+
+A package-by-package audit found aggregate coverage masked low Fly, Cloudflare,
+CLI, custom Vector and Vercel coverage. Fourteen additional cases cover Fly
+credential headers, organization requests/selection, empty and malformed
+inventories, app name/ID fallback and counts, URL encoding and stable HTTP/JSON/
+GraphQL failures; Cloudflare scope hints versus transport failures, empty
+inventories/selections and multiple selected gateway manifests; and the nullable
+Prometheus token contract. Fly failures no longer copy private provider bodies
+or GraphQL messages; failed app response bodies are cancelled. Valid inventory
+shapes and empty/default behavior remain covered.
+
+The Fly source's generated command requires `jq`. Read-only inspection of the
+pinned Vector base found no `jq` executable, while the driver declared only curl
+and CA certificates. Its runtime dependency declaration now includes `jq`, so
+standalone generated Docker contexts install the tool their command needs.
+
+Fly, both Cloudflare drivers and all four destination packages now have 100%
+statement, branch, function and line gates over their full package source.
+Core and the Supabase driver separately enforce 95% statements/lines/functions
+and 90% branches; existing stronger module gates remain. Together with prior
+shared-helper and Railway gates, twelve of fifteen packages meet independent
+final targets. CLI, custom Vector and Vercel remain required.
+
+Our owned CI summary now publishes sorted per-package totals alongside package/
+backend/UI aggregates. A new report test proves multi-file package totals are
+combined once and a weak CLI stays visible beside a strong core. All 17 owned
+report/coverage-runner tests passed independently in both layouts.
+
+Private validation passed 1,371 tests across 122 files; independent public
+validation passed 818 tests across 70 files. Both layouts passed builds, types
+and clean installed consumers for all 15 packages, CLI aliases and runtime
+binary; private E2E types also passed. Private aggregate coverage is 95.59%
+statements, 92.61% branches, 97.64% functions and 95.96% lines. Public aggregate
+is 95.84%, 93.58%, 97.42% and 96.58%, respectively. This slice's API behavior runs
+against controlled outbound fixtures. Complete live-provider/runtime delivery,
+durable remote cleanup, legacy managed replacement/rollback, coordinated npm
+publication and staged production rollout remain open. No production resource,
+migration or published npm version changed.

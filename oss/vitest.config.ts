@@ -28,6 +28,17 @@ export default defineConfig({
       reporter: ["text", "html", "lcov", "json-summary"],
       // Final aggregate package target met; all production package source stays included.
       thresholds: {
+        // Separate package gates keep aggregate coverage from hiding weak drivers.
+        "packages/core/src/**/*.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
+        "packages/driver-supabase-edge-logs/src/**/*.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
+        "packages/driver-fly-log-tail/src/**/*.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/driver-cloudflare-ai-gateway/src/**/*.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/driver-cloudflare-worker-tail/src/**/*.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/destination-prometheus-remote-write/src/**/*.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/destination-datadog-metrics/src/**/*.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/destination-slack/src/**/*.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/destination-webhook/src/**/*.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+
         "packages/core/src/docker-install.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/runtime-assets.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/fly-install.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },

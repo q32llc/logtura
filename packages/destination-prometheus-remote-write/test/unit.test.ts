@@ -52,3 +52,10 @@ describe("runtimeEnvVars + envVarValue", () => {
     ).toBe("tok");
   });
 });
+
+it("keeps the nullable-token runtime contract usable without auth",()=>{
+ const config={endpoint:"https://fixture.invalid/write",bearerToken:null};
+ expect(prometheusRemoteWriteDriver.runtimeEnvVars({config,envVarName:"PROM_URL",displayName:"Fixture"}).map(variable=>variable.name)).toEqual(["PROM_URL"]);
+ expect(prometheusRemoteWriteDriver.envVarValue(config,"PROM_URL")).toBe(config.endpoint);
+ expect(prometheusRemoteWriteDriver.envVarValue(config,"PROM_URL_TOKEN")).toBe("");
+});

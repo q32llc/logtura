@@ -29,7 +29,7 @@ export interface FlyCredentials {
  *  shape the user pasted. */
 export function flyAuthHeader(token: string): string {
   for (const part of token.split(",")) {
-    const prefix = part.split("_")[0];
+    const prefix = part.trim().split("_")[0];
     if (prefix === "fm1r" || prefix === "fm2") return `FlyV1 ${token}`;
   }
   return `Bearer ${token}`;
@@ -58,25 +58,32 @@ async function listFlyOrgSlugs(authHeader: string): Promise<string[]> {
   const bodyText = await res.text();
   if (!res.ok) {
     throw new ProviderError(
-      `Fly listFlyOrgs failed: ${res.status} ${bodyText.slice(0, 200)}`,
+      `Fly listFlyOrgs failed: ${res.status}`,
       res.status,
     );
   }
-  const data = JSON.parse(bodyText) as {
+  const data = parseFlyResponse(bodyText) as {
     data?: { organizations?: { nodes?: Array<FlyOrgNode | null> } };
-    errors?: Array<{ message?: string }>;
+    errors?: unknown;
   };
-  if (data.errors?.length) {
-    throw new ProviderError(
-      `Fly GraphQL errors: ${data.errors.map((e) => e.message).join("; ")}`,
-      400,
-    );
+  if (data.errors !== undefined && data.errors !== null && (!Array.isArray(data.errors) || data.errors.length)) {
+    throw new ProviderError("Fly GraphQL request failed", 400);
   }
+  const nodes = data.data?.organizations?.nodes ?? [];
+  if (!Array.isArray(nodes)) throw new ProviderError("Invalid Fly organization inventory", 502);
   const out: string[] = [];
-  for (const n of data.data?.organizations?.nodes ?? []) {
-    if (n && typeof n.slug === "string") out.push(n.slug);
+  for (const n of nodes) {
+    if (n && typeof n.slug === "string" && n.slug) out.push(n.slug);
   }
   return out;
+}
+
+/** Keep private upstream bodies out of library errors. */
+function parseFlyResponse(text: string): Record<string, unknown> {
+  let value: unknown;
+  try { value = JSON.parse(text); } catch { throw new ProviderError("Invalid Fly JSON response", 502); }
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new ProviderError("Invalid Fly response", 502);
+  return value as Record<string, unknown>;
 }
 
 export const flyLogTailDriver: ProviderDriver<FlyCredentials> = {
@@ -107,20 +114,21 @@ export const flyLogTailDriver: ProviderDriver<FlyCredentials> = {
       headers: { authorization: flyAuthHeader(credentials.apiToken) },
     });
     if (!res.ok) {
-      const body = await res.text();
+      await res.body?.cancel();
       throw new ProviderError(
-        `Fly apps list failed: ${res.status} ${body.slice(0, 200)}`,
+        `Fly apps list failed: ${res.status}`,
         res.status,
       );
     }
-    const data = (await res.json()) as {
+    const data = parseFlyResponse(await res.text()) as {
       apps?: Array<{ id?: string; name?: string; machine_count?: number }>;
     };
     const apps = data.apps ?? [];
+    if (!Array.isArray(apps)) throw new ProviderError("Invalid Fly app inventory", 502);
     const sources: DiscoveredSource[] = [];
     for (const app of apps) {
-      const name = app.name ?? app.id;
-      if (!name) continue;
+      const name = app?.name ?? app?.id;
+      if (typeof name !== "string" || !name) continue;
       sources.push({
         sourceKind: "fly_app",
         externalId: name,
@@ -202,7 +210,7 @@ export const flyLogTailDriver: ProviderDriver<FlyCredentials> = {
         {
           install:
             "curl -L https://fly.io/install.sh | sh && cp /root/.fly/bin/flyctl /usr/local/bin/flyctl",
-          aptPackages: ["curl", "ca-certificates"],
+          aptPackages: ["curl", "ca-certificates", "jq"],
         },
       ],
       manifest,

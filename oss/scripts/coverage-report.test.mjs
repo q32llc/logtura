@@ -194,3 +194,23 @@ test("omitted interface/type-only modules are non-executable; mixed runtime modu
   rmSync(join(root,file));
   assert.throws(()=>patchCoverage(changed,reports),/missing from coverage/);
 });
+
+
+test("package totals expose weak packages and combine their measured files exactly once",t=>{
+  const root=fixture(t);
+  report(root,"coverage",{
+    "packages/core/src/one.ts":[true,true,true],
+    "packages/core/src/two.ts":[true,false],
+    "packages/cli/src/main.ts":[false,false,false,true],
+    "src/worker.ts":[true],
+  });
+  const measured=readReports(["coverage"],root);
+  assert.deepEqual(measured.packages.get("core").lines,{covered:4,total:5});
+  assert.deepEqual(measured.packages.get("cli").lines,{covered:1,total:4});
+  assert.deepEqual(measured.groups.get("Public packages").lines,{covered:5,total:9});
+  assert.equal(measured.packages.size,2);
+  const summary=renderSummary(measured,{total:0,covered:0,uncovered:[],passed:true});
+  assert.match(summary,/\| cli \| 25.00% \(1\/4\)/);
+  assert.match(summary,/\| core \| 80.00% \(4\/5\)/);
+  assert.ok(summary.indexOf("| cli |")<summary.indexOf("| core |"));
+});
