@@ -2510,3 +2510,70 @@ timeout is still not proven to be sustained D1 capacity exhaustion. Production
 query/load verification, remaining provider/managed-apply capabilities, the final
 private coverage target and coordinated publication/rollout/rollback remain part
 of the active full shipping goal.
+
+### Managed Fly queue baseline and shared generated file installation
+
+The existing managed deployment chain now has a native D1/workerd baseline that
+runs persisted parent and child jobs through the production queue dispatcher.
+Tests use Cloudflare's native inbound message batches and verify explicit ack/no
+retry results, real job terminal states, sibling scheduling, progress and audit
+rows. The workerd test project keeps its native Queue producer binding but
+removes automatic consumers: inbound batches are invoked explicitly, preventing
+background jobs and delayed polls from racing another test's outbound HTTP mocks.
+Production Queue configuration and the separate full local runtime runner remain
+unchanged; this suite does not claim automatic broker/redelivery timing coverage.
+
+Twenty native cases cover the parent/three-step chain, create/reuse app and
+organization resolution/fallback, immutable image resolution, create/update a
+named machine, Railway helper installation, healthy completion, no-checks and
+critical-check polling, recent/old exits, transient stopped-machine start refusal,
+missing/deadline-expired machines, invalid identifiers/targets/credentials, stale
+Cloudflare credentials, missing/empty generated environment values, and website
+edits during installation or health polling. Only outbound provider HTTP is
+stubbed. They do not create live Fly resources or prove provider log delivery.
+
+`@logtura/core` exports `flyBundleFiles`, used directly by the managed service
+handler and by `planFlyRuntime` for linked CLI installs. It encodes exact UTF-8
+and binary generated asset bytes, preserves executable modes, defaults ordinary
+asset permissions and makes Vector YAML private. Duplicate or escaping paths,
+invalid asset data and invalid modes are rejected. Previously the managed
+handler shipped only vector.yaml; drivers such as Railway referenced helper
+files that were not installed. Native tests now inspect the actual generated
+provider request's executable Railway helper bytes. Public core regressions cover
+binary/Unicode files, default/explicit modes, no mutation and malformed paths.
+Installed tarball checks exercise the exported helper and reject a missing bundle
+at compile time under NodeNext, Node16 and Bundler without skipLibCheck.
+
+Managed assembly is read under the stable account configuration fence. After the
+provider update, recording machine identity/digest uses a guarded transaction; a
+website edit during installation fails the stale attempt without recording it as
+current. New health-poll jobs carry the committed graph version, and clearing the
+outdated marker requires that version still match. Operational status writes now
+update only status/time, rather than rewriting configuration fields from an
+application read. Pre-fence queued poll jobs may still record machine health but
+retain an outdated marker they cannot verify. These are graph/legacy health
+fences, not issued-runtime acknowledgement. A provider update can succeed before
+the graph fence rejects its stale attempt; durable managed install recovery and
+shared issued descriptors/persistent reporter storage are still required.
+
+The managed handler measures 98.18 statements / 86.44 branches / 100 functions /
+98.09 lines and enforces 97/80/100/97. All 1,019 private backend/package tests across
+95 files pass at 86.93/84.28/90.25/85.26, raising aggregate floors to
+86.5/84/90/85. Shared Fly runtime code remains 100% in all four measures with its
+existing strict gate. Independent public build/types and all 699 tests across
+60 files pass at 95.07/92.62/96.83/95.70, retaining 95/92/96.5/95.5 gates. Both
+layouts pass installed tarball checks for all 15 packages and both CLI aliases.
+All 280 website/native API tests pass with 93/90/95/94 gates.
+The final service/package build and browser/installed CLI/native workerd/Docker
+journey pass, including desired/applied convergence, current metrics, restart
+reporting, graceful stop and owned-resource cleanup. The public standalone real
+Vector flow passes delivery/routing/retry, issued integrity, durable report
+recovery and packaged PID-1 startup without the service.
+
+The preceding cron/outbox head bde55e4 completes all code, package, runtime and
+coverage steps in terminal private CI run 37007196586; only enforced Codecov
+upload fails. Scoped app permission approval is still pending. No npm publication,
+new schema migration or production provider/database changes are made by this
+slice. Managed issued runtime/apply recovery, volume provisioning, live Fly image
+identity proof, remaining live provider matrices, remote cleanup ledgers and
+coordinated package publication/migrations/rollout/rollback remain required.

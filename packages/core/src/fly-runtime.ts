@@ -7,6 +7,17 @@ export const FLY_RUNTIME_DIRECTORY="/var/lib/logtura";
 function record(value:unknown):Record<string,unknown> {if(!value || typeof value!=="object" || Array.isArray(value))throw new Error("Invalid Fly machine settings");return value as Record<string,unknown>;}
 function list(value:unknown):Record<string,unknown>[] {if(value===undefined)return [];if(!Array.isArray(value))throw new Error("Invalid Fly machine settings");return value.map(record);}
 function base64(content:string|Uint8Array):string {const bytes=typeof content==="string"?new TextEncoder().encode(content):content;let binary="";for(const byte of bytes)binary+=String.fromCharCode(byte);return btoa(binary);}
+/** Exact generated runtime inputs shared by hosted and linked installations. */
+export function flyBundleFiles(bundle: GeneratedBundle): {guest_path:string;raw_value:string;mode:number}[] {
+  const seen = new Set<string>();
+  for (const asset of bundle.runtimeAssets) {
+    const path = `${asset.driverId}/${asset.path}`;
+    if (!/^[a-zA-Z0-9_-]+$/.test(asset.driverId) || !asset.path || path.includes("\\") || /[\u0000-\u001f\u007f]/.test(path) || path.split("/").some(part=>part==="" || part==="." || part==="..") || seen.has(path) || (typeof asset.content!=="string" && !(asset.content instanceof Uint8Array)) || (asset.mode!==undefined && (!Number.isSafeInteger(asset.mode) || asset.mode<0 || asset.mode>0o777))) throw new Error("Invalid Fly runtime asset");
+    seen.add(path);
+  }
+  return [{guest_path:"/etc/vector/vector.yaml",raw_value:base64(bundle.vectorYaml),mode:0o400},
+    ...bundle.runtimeAssets.map(asset=>({guest_path:`/opt/logtura/assets/${asset.driverId}/${asset.path}`,raw_value:base64(asset.content),mode:asset.mode??0o644}))];
+}
 /** Checkpoint storage belongs to this one machine. No cross-machine counter sharing.
  * Volume provisioning is an adapter operation and must precede instance issuance. */
 export function validateFlyRuntimeVolume(machine:FlyMachine,volumes:FlyVolume[],requested?:string):string {
@@ -34,8 +45,7 @@ export async function planFlyRuntime(options:{app:string;machine:FlyMachine;volu
   if(!environment.LOGTURA_HEARTBEAT_TOKEN || artifact.document.heartbeat?.kind!=="logtura" || artifact.document.heartbeat.deploymentId!==artifact.deploymentId || artifact.document.heartbeat.appUrl!==artifact.service)throw new Error("Fly runtime reporting must match the linked deployment");
   if(list(machine.config.containers).length || list(machine.config.processes).length || list(machine.config.volumes).length || (machine.config.standbys!==undefined && (!Array.isArray(machine.config.standbys) || machine.config.standbys.length)) || machine.config.schedule || machine.config.auto_destroy)throw new Error("Linked apply requires one continuously running forwarder process");
   const installed=list(machine.config.files).filter(file=>{if(typeof file.guest_path!=="string")throw new Error("Invalid Fly installed file");return !["/etc/vector/vector.yaml","/etc/vector/logtura-runtime.json"].includes(file.guest_path) && !file.guest_path.startsWith("/opt/logtura/assets/");});
-  installed.push({guest_path:"/etc/vector/vector.yaml",raw_value:base64(options.bundle.vectorYaml),mode:0o400},{guest_path:"/etc/vector/logtura-runtime.json",raw_value:base64(descriptor),mode:0o400});
-  for(const asset of options.bundle.runtimeAssets)installed.push({guest_path:`/opt/logtura/assets/${asset.driverId}/${asset.path}`,raw_value:base64(asset.content),mode:asset.mode??0o644});
+  installed.push(...flyBundleFiles(options.bundle),{guest_path:"/etc/vector/logtura-runtime.json",raw_value:base64(descriptor),mode:0o400});
   const mounts=list(machine.config.mounts);if(!mounts.some(mount=>mount.path===FLY_RUNTIME_DIRECTORY))mounts.push({path:FLY_RUNTIME_DIRECTORY,volume:options.volume});
   const previousEnv={...(machine.config.env===undefined?{}:record(machine.config.env))};
   for(const name of ["NODE_OPTIONS","NODE_PATH","LD_PRELOAD","LD_LIBRARY_PATH"]){delete previousEnv[name];if(environment[name]!==undefined)throw new Error("Fly runtime environment overrides a reserved launch setting");}

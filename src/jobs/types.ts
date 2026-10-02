@@ -108,6 +108,8 @@ export interface FlyWaitRunningPayload {
   machineId: string;
   /** ms epoch by which the machine must be running, else fail. */
   pollDeadline: number;
+  /** Graph base installed by this attempt; absent only on pre-fence queued jobs. */
+  configurationVersion?: number;
 }
 
 export interface FlyDeployResult {

@@ -122,6 +122,7 @@ export interface FlyMachineFile {
   guest_path: string;
   /** raw_value MUST be base64-encoded utf-8. */
   raw_value: string;
+  mode?: number;
 }
 
 /** A health probe Fly runs from outside the container. `kind:

@@ -53,3 +53,13 @@ it("rejects private environment settings that conflict with the supervised launc
  for(const name of ["NODE_OPTIONS","VECTOR_CONFIG","VECTOR_LOG"]){const value="conflicting-setting",artifact={...f.artifact,environment:{...f.artifact.environment,[name]:await version(`runtime-env:${name}`,value)}},bundle={...f.bundle,envVars:[...f.bundle.envVars,{name,value,description:"Conflict",source:"manual" as const}]};await expect(planFlyRuntime({...f,artifact,bundle})).rejects.toThrow("reserved launch setting");}
  const name="VECTOR_LOG",value="info",artifact={...f.artifact,environment:{...f.artifact.environment,[name]:await version(`runtime-env:${name}`,value)}},bundle={...f.bundle,envVars:[...f.bundle.envVars,{name,value,description:"Controlled log",source:"manual" as const}]};expect(await planFlyRuntime({...f,artifact,bundle})).toBeTruthy();
 });
+
+it("shares exact binary/Unicode asset bytes and modes between hosted and issued Fly file preparation",async()=>{
+ const {flyBundleFiles}=await import("../src/index"),f=await fixture(),before=structuredClone(f.bundle),files=flyBundleFiles(f.bundle);
+ expect(files.map(file=>file.guest_path)).toEqual(["/etc/vector/vector.yaml","/opt/logtura/assets/runtime-fixture/helper.bin","/opt/logtura/assets/runtime-fixture/other.txt"]);
+ expect(files[0]!.mode).toBe(0o400);expect(files[1]).toMatchObject({raw_value:"AP8B",mode:0o755});expect(files[2]).toMatchObject({raw_value:Buffer.from("héllo").toString("base64"),mode:0o644});expect(f.bundle).toEqual(before);
+ const asset=f.bundle.runtimeAssets[0]!;
+ for(const change of [{driverId:"../escape"},{path:""},{path:"/absolute"},{path:"a/../b"},{path:"a/./b"},{path:"a\\b"},{path:"a\u0000b"},{mode:-1},{mode:0o1000},{mode:1.5},{content:[] as unknown as Uint8Array}])expect(()=>flyBundleFiles({...f.bundle,runtimeAssets:[{...asset,...change}]})).toThrow("Invalid Fly runtime asset");
+ expect(()=>flyBundleFiles({...f.bundle,runtimeAssets:[asset,asset]})).toThrow("Invalid Fly runtime asset");
+ expect(flyBundleFiles({...f.bundle,runtimeAssets:[]})).toHaveLength(1);
+});

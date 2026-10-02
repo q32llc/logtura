@@ -27,7 +27,7 @@ try {
   // Typecheck the installed tarballs with their declarations, without skipLibCheck.
   const typesFile = join(consumer, "consumer.mts");
   writeFileSync(typesFile, packages.map((name, index) => `import * as package${index} from '@logtura/${name}';`).join("\n") + `
-    import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient} from '@logtura/core';
+    import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient, flyBundleFiles} from '@logtura/core';
     import {type PendingActivation, type PendingFlyApply, activateLinkedDeployment} from '@logtura/cli';
     const typedActivation: (client:LogturaServiceClient,config:string,options?:{resume?:boolean})=>Promise<DeploymentInstanceReceipt> = activateLinkedDeployment;
     // @ts-expect-error Config fields remain required; these exports must not become any.
@@ -36,6 +36,8 @@ try {
     const invalidPending:PendingActivation = {schemaVersion:1};
     // @ts-expect-error Apply intent retains its required private fields.
     const invalidApply:PendingFlyApply = {schemaVersion:1};
+    // @ts-expect-error Generated bundle fields remain required.
+    flyBundleFiles({});
     void invalidApply;void typedActivation;void invalidInput;void invalidPending;
   `);
   for (const [module, resolution] of [["NodeNext", "NodeNext"], ["Node16", "Node16"], ["ESNext", "Bundler"]]) {
@@ -85,7 +87,7 @@ monitors: []
   assert.equal(bin("logtura",["stats","metrics file.ndjson"]),stats);
   assert.match(stats,/packed_sink\tsink\thttp\t-\t7\t-/);
   const script = `import assert from 'node:assert/strict';
-    import {parseMetricsBody,applyMetricsToSnapshot,rateFor,GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,FlyMachinesClient,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit} from '@logtura/core';
+    import {parseMetricsBody,applyMetricsToSnapshot,rateFor,flyBundleFiles,GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,FlyMachinesClient,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit} from '@logtura/core';
     import {writeFileSync,readFileSync,statSync} from 'node:fs';
     import {main,applyLinkedFlyDeployment,readPendingFlyApply,activateLinkedDeployment,readPendingActivation,finishLinkedActivation,reportLoadedForwarderFile,runForwarderReporting} from '@logtura/cli';
     import {cloudflareWorkerTailDriver} from '@logtura/driver-cloudflare-worker-tail';
@@ -228,6 +230,10 @@ monitors: []
     assert.equal(GENERATOR_VERSION,JSON.parse(readFileSync('node_modules/@logtura/core/package.json','utf8')).version);
     const compiled=await compileForwarderRuntime({service:'https://service.test',deploymentId:'fixture',document:exported.document,instance:instanceReceipt,env:exported.secretValues,providers:input.providers,destinations:input.destinations});
     assert.deepEqual(compiled.bundle,bundle);
+    const providerFiles=flyBundleFiles({...bundle,runtimeAssets:[{driverId:'fixture',path:'helper.bin',content:new Uint8Array([0,255,1]),mode:0o755},{driverId:'fixture',path:'unicode.txt',content:'héllo'}]});
+    assert.deepEqual(providerFiles.slice(1),[{guest_path:'/opt/logtura/assets/fixture/helper.bin',raw_value:'AP8B',mode:0o755},{guest_path:'/opt/logtura/assets/fixture/unicode.txt',raw_value:Buffer.from('héllo').toString('base64'),mode:0o644}]);
+    assert.equal(providerFiles[0].mode,0o400);
+    assert.throws(()=>flyBundleFiles({...bundle,runtimeAssets:[{driverId:'fixture',path:'../escape',content:'invalid'}]}),/Invalid Fly runtime asset/);
     const observed={files:{'vector.yaml':bundle.vectorYaml,...Object.fromEntries(bundle.runtimeAssets.map(asset=>['assets/'+asset.driverId+'/'+asset.path,asset.content]))},environment:Object.fromEntries(bundle.envVars.map(v=>[v.name,v.value])),generatorVersion:GENERATOR_VERSION,vectorVersion:'0.55.0',ready:true};
     assert.deepEqual(await verifyLoadedForwarder(compiled.artifact,observed),compiled.artifact);
     assert.ok(!JSON.stringify(compiled.artifact).includes('fixture-token'));

@@ -1,12 +1,11 @@
 import { assembleDeploymentBundle } from "../../bundle-assembly";
+import { flyBundleFiles } from "@logtura/core";
+import { commitConfiguration, readStableConfiguration } from "../../config-version";
 import {
   decryptDeployTargetCredentials,
   getDeployTargetById,
-  markDeploymentDeployed,
-  updateDeployment,
 } from "../../db";
 import {
-  base64Encode,
   createFlyApp,
   createFlyMachine,
   flyAuthHeader,
@@ -129,11 +128,9 @@ export async function runFlyCreateOrUpdateMachine(
   await ctx.progress({ label: "Assembling Vector config" });
   const flyAuth = await loadDischargedAuth(ctx.env, ctx.job.userId, parent);
 
-  const assembled = await assembleDeploymentBundle(
-    ctx.env,
-    ctx.job.userId,
-    parent.deploymentId,
-  );
+  const snapshot = await readStableConfiguration(ctx.env.DB, ctx.job.userId,
+    () => assembleDeploymentBundle(ctx.env, ctx.job.userId, parent.deploymentId));
+  const assembled = snapshot.value;
   if (!assembled.credentialIsFresh) {
     throw new Error(
       `connection credential is unusable: ${assembled.credentialStaleReason ?? "stale"}`,
@@ -143,7 +140,7 @@ export async function runFlyCreateOrUpdateMachine(
 
   const env_: Record<string, string> = {};
   for (const v of bundle.envVars) {
-    if (v.value === null) {
+    if (v.value === null || v.value === "") {
       throw new Error(
         `env var ${v.name} has no value — connect/configure the source before deploying`,
       );
@@ -168,12 +165,7 @@ export async function runFlyCreateOrUpdateMachine(
   const machineConfig: FlyMachineConfig = {
     image: imageRef,
     env: env_,
-    files: [
-      {
-        guest_path: "/etc/vector/vector.yaml",
-        raw_value: base64Encode(bundle.vectorYaml),
-      },
-    ],
+    files: flyBundleFiles(bundle),
     // NOTE: the timberio/vector base image has ENTRYPOINT ["vector"],
     // so we pass only the args here. Including "vector" again makes
     // the final exec `vector vector --config …` and crash-loops with
@@ -238,10 +230,10 @@ export async function runFlyCreateOrUpdateMachine(
   // wait_running below issues /start on each poll tick that sees
   // state=stopped — once Fly's update propagates, the start sticks.
 
-  await updateDeployment(ctx.env.DB, ctx.job.userId, deployment.id, {
-    externalId: `fly:${p.appName}:${machineId}`,
-    imageDigest: digest,
-  });
+  const committed = await commitConfiguration(ctx.env.DB, ctx.job.userId, snapshot.version, [
+    ctx.env.DB.prepare("UPDATE deployments SET external_id=?,image_digest=?,updated_at=? WHERE id=? AND user_id=?")
+      .bind(`fly:${p.appName}:${machineId}`, digest, Date.now(), deployment.id, ctx.job.userId),
+  ]);
 
   await ctx.enqueueSibling({
     kind: "fly_deploy.wait_running",
@@ -250,6 +242,7 @@ export async function runFlyCreateOrUpdateMachine(
       appName: p.appName,
       machineId,
       pollDeadline: Date.now() + RUN_TIMEOUT_MS,
+      configurationVersion: committed.version,
     } as unknown as Record<string, unknown>,
     delaySecs: POLL_DELAY_SECS,
   });
@@ -298,19 +291,19 @@ export async function runFlyWaitRunning(
   });
 
   if (m.state === "started" && checksPassing && !recentExit) {
-    await updateDeployment(ctx.env.DB, ctx.job.userId, parent.deploymentId, {
-      status: "running",
-    });
+    await ctx.env.DB.prepare("UPDATE deployments SET status='running',updated_at=? WHERE id=? AND user_id=?")
+      .bind(Date.now(), parent.deploymentId, ctx.job.userId).run();
     // The new bundle is now running on Fly — clear the out-of-date
     // flag the UI uses for the Redeploy CTA. (We don't clear via
     // markUserDeploymentsOutdated's inverse because the user might
     // have changed config OF ANOTHER deployment mid-deploy here;
     // we only clear this specific deployment.)
-    await markDeploymentDeployed(
-      ctx.env.DB,
-      ctx.job.userId,
-      parent.deploymentId,
-    );
+    if (p.configurationVersion !== undefined) {
+      await commitConfiguration(ctx.env.DB, ctx.job.userId, p.configurationVersion, [
+        ctx.env.DB.prepare("UPDATE deployments SET bundle_outdated=0,updated_at=? WHERE id=? AND user_id=?")
+          .bind(Date.now(), parent.deploymentId, ctx.job.userId),
+      ]);
+    }
     await ctx.events.record({
       kind: "fly_machine.running",
       message: `Machine ${p.machineId} is running (checks: ${checkSummary})`,
