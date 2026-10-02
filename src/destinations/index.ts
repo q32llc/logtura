@@ -33,7 +33,7 @@ export function listDestinationDriversForFlow(
 }
 
 export function getDestinationDriver(id: string): DestinationDriver | null {
-  return REGISTRY[id] ?? null;
+  return Object.hasOwn(REGISTRY, id) ? REGISTRY[id]! : null;
 }
 
 export function listDestinationDrivers(): DestinationDriver[] {
@@ -43,7 +43,7 @@ export function listDestinationDrivers(): DestinationDriver[] {
 export function getDestinationConnect(
   id: string,
 ): DestinationConnectAdapter | null {
-  return CONNECT[id] ?? null;
+  return Object.hasOwn(CONNECT, id) ? CONNECT[id]! : null;
 }
 
 export type { DestinationConnectAdapter } from "./connect/types";

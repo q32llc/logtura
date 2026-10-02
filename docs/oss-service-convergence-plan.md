@@ -3614,3 +3614,47 @@ Final backend/per-package targets, full provider stream/delivery coverage,
 durable remote cleanup, legacy managed replacement/rollback, coordinated npm
 publication and staged production rollout remain open. No public package,
 production resource, migration or published npm version changed in this slice.
+
+
+### Native deployment lifecycle and job-view baseline
+
+Inventory head `47e0184` completed its exact
+[private CI run](https://github.com/q32llc/logtura/actions/runs/37060630534).
+
+Twelve additional native request cases cover deployment creation/defaults,
+explicit empty/null selectors, owned list/detail/anchor views, deletion,
+mark-as-deployed, partial configuration and bookkeeping updates, metrics target
+ownership/flow compatibility, managed target scope/kind/capability checks and
+queued/deduplicated deploy requests. Child-chain views cover queued, running,
+succeeded, failed and stale children, latest result/progress, page reload
+rehydration and foreign/missing job rejection. Worker requests, D1 writes,
+queue publication and job claim/progress/completion all use real native bindings.
+
+Deployment creation/update/enqueue now validate JSON, allowed fields, types,
+selectors, status, heartbeat and region before writes. Target/region identity
+validation consumes the packaged public target validator. Valid defaults,
+partial updates, null/empty selector distinctions and idempotent delete behavior
+remain covered. Inherited object keys such as `constructor` previously escaped
+registry unknown-driver checks; provider, destination, connect and target lookups
+now accept only registered own properties. Those three registry modules and the
+new deployment parser have 100% gates in all four coverage dimensions.
+
+A stale standalone running job previously appeared to run forever in the job
+API because the no-child branch skipped stale detection. It now returns a
+failed derived view and a stale explanation while preserving the actual running
+row and attempt ownership. Chain aggregation also remains a derived view, as
+proved by checking the persisted parent after each child state.
+
+Full validation passed 1,332 native/package tests across 118 files, all
+285 website tests, the service/package build and application/E2E types. The
+real local browser/installed CLI/workerd/Vector journey also passed managed
+creation, website convergence, durable restart, CLI-edited leased reapply and
+owned-resource cleanup.
+Aggregate coverage is 94.03% statements, 91.13% branches, 96.54% functions and
+94.05% lines. Separate backend coverage is 91.90%, 87.97%, 95.27% and 91.43%,
+respectively. Aggregate and backend floors rise again; backend functions now
+enforce the final 95% target. Final backend lines/statements/branches and
+per-package gates, provider stream/delivery coverage, durable remote cleanup,
+legacy managed replacement/rollback, coordinated publication and staged
+production rollout remain required. No public package, production resource,
+migration or published npm version changed in this slice.

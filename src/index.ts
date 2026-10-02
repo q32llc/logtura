@@ -1,3 +1,4 @@
+import { DeploymentInputError, parseDeploymentCreation, parseDeploymentMutation, parseManagedDeployInput } from "./deployment-input";
 import { GraphInputError, parseMonitorMutation, parseSinkMutation } from "./graph-input";
 import { exchangeSlackWebhook, readSlackOAuthState } from "./destinations/slack-oauth";
 import { readProviderOAuthState } from "./providers/oauth-state";
@@ -1273,23 +1274,9 @@ apiAuth.get("/connections/:id/deployments", async (c) => {
 
 apiAuth.post("/deployments", async (c) => {
   const user = c.get("user")!;
-  const body = (await c.req.json()) as {
-    /** Optional anchor connection — used as deployments.connection_id
-     *  for app naming + as the fallback when sourceIds is null. The
-     *  real connection set is derived from the selected sources;
-     *  this field just seeds the deployment in the common "I just
-     *  connected CF, deploy with all its sources" wizard flow. */
-    connectionId?: string;
-    displayName?: string;
-    targetKind?: string;
-    managed?: boolean;
-    sourceIds?: string[] | null;
-    monitorIds?: string[] | null;
-    heartbeatTarget?: string | null;
-  };
-  if (!body.connectionId || !body.displayName || !body.targetKind) {
-    return c.json({ error: "missing_fields" }, 400);
-  }
+  let body;
+  try {body=parseDeploymentCreation(await c.req.json());}
+  catch(error){return c.json({error:error instanceof DeploymentInputError ? error.code : "invalid_form"},400);}
   if (!getDeployTargetDriver(body.targetKind)) {
     return c.json({ error: "unknown_target" }, 400);
   }
@@ -1363,16 +1350,10 @@ apiAuth.get("/deployments/:id", async (c) => {
 apiAuth.put("/deployments/:id", async (c) => {
   const user = c.get("user")!;
   const id = c.req.param("id");
-  const body = (await c.req.json()) as {
-    displayName?: string;
-    managed?: boolean;
-    sourceIds?: string[] | null;
-    monitorIds?: string[] | null;
-    heartbeatTarget?: string | null;
-    metricsTarget?: string | null;
-    status?: string;
-    externalId?: string | null;
-  };
+  if(!await getDeployment(c.env.DB,user.id,id)) return c.json({error:"not_found"},404);
+  let body;
+  try {body=parseDeploymentMutation(await c.req.json());}
+  catch(error){return c.json({error:error instanceof DeploymentInputError ? error.code : "invalid_form"},400);}
   // Sanity-check target values. heartbeat is currently logs+ping
   // only ("logtura" | "none"); metrics can target any destination
   // whose driver declares the "metrics" flow.
@@ -1397,7 +1378,7 @@ apiAuth.put("/deployments/:id", async (c) => {
       );
     }
   }
-  const updated = await updateDeployment(c.env.DB, user.id, id, body as never);
+  const updated = await updateDeployment(c.env.DB, user.id, id, body);
   if (!updated) return c.json({ error: "not_found" }, 404);
   // Treat anything that changed the bundle inputs as making the
   // running container stale. status/externalId-only updates are
@@ -1437,13 +1418,9 @@ apiAuth.post("/deployments/:id/deploy", async (c) => {
   const deployment = await getDeployment(c.env.DB, user.id, id);
   if (!deployment) return c.json({ error: "not_found" }, 404);
 
-  const body = (await c.req.json().catch(() => ({}))) as {
-    deployTargetId?: string;
-    region?: string;
-  };
-  if (!body.deployTargetId) {
-    return c.json({ error: "missing_deploy_target" }, 400);
-  }
+  let body;
+  try {body=parseManagedDeployInput(await c.req.json());}
+  catch(error){return c.json({error:error instanceof DeploymentInputError ? error.code : "invalid_form"},400);}
   const target = await getDeployTargetById(
     c.env.DB,
     user.id,
@@ -1461,6 +1438,7 @@ apiAuth.post("/deployments/:id/deploy", async (c) => {
     );
   }
 
+  if(!getDeployTargetDriver(target.kind)?.supportsManaged) return c.json({error:"managed_deploy_unsupported"},400);
   const driver = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
   const { job, deduped } = await driver.enqueue({
     userId: user.id,
@@ -2376,7 +2354,7 @@ async function aggregateJobWithKids(
   parent: JobRecord,
 ): Promise<{ job: JobRecord; kids: JobRecord[] }> {
   const kids = await jobs.listChildren(parent.id);
-  if (!kids.length) return { job: parent, kids };
+  if (!kids.length) return {job: isStaleRunningJob(parent) ? {...parent,status:"failed",lastError:parent.lastError ?? staleRunningJobMessage(parent)} : parent, kids};
   const aggregated: JobRecord = {
     ...parent,
     status: aggregateStatus(parent, kids),

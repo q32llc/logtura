@@ -40,7 +40,7 @@ const CONNECT: Record<string, ProviderConnectAdapter> = {
 };
 
 export function getProvider(id: string): ProviderDriver | null {
-  return REGISTRY[id] ?? null;
+  return Object.hasOwn(REGISTRY, id) ? REGISTRY[id]! : null;
 }
 
 export function listProviders(): ProviderDriver[] {
@@ -50,7 +50,7 @@ export function listProviders(): ProviderDriver[] {
 export function getProviderConnect(
   id: string,
 ): ProviderConnectAdapter | null {
-  return CONNECT[id] ?? null;
+  return Object.hasOwn(CONNECT, id) ? CONNECT[id]! : null;
 }
 
 export type { ProviderConnectAdapter } from "./connect/types";

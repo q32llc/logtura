@@ -8,7 +8,7 @@ const REGISTRY: Record<string, DeployTargetDriver> = {
 };
 
 export function getDeployTargetDriver(id: string): DeployTargetDriver | null {
-  return REGISTRY[id] ?? null;
+  return Object.hasOwn(REGISTRY, id) ? REGISTRY[id]! : null;
 }
 
 export function listDeployTargetDrivers(): DeployTargetDriver[] {
