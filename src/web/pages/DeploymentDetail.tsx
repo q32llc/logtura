@@ -1,3 +1,4 @@
+import { DeploymentRevisionStatus } from "../components/DeploymentRevisionStatus";
 import { deploymentSourceSummary } from "../deployment-selection";
 import {
   Alert,
@@ -77,6 +78,7 @@ export function DeploymentDetail() {
     );
   };
   const [deployment, setDeployment] = useState<ApiDeployment | null>(null);
+  const [configurationRefreshKey,setConfigurationRefreshKey]=useState(0);
   const [bundle, setBundle] = useState<ApiTargetBundle | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"delete" | null>(null);
@@ -97,6 +99,7 @@ export function DeploymentDetail() {
       setDeployment(dep.deployment);
       setBundle(bun);
       setInitialDeployJob(dep.latestDeployJob);
+      setConfigurationRefreshKey(value=>value+1);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load");
     }
@@ -186,6 +189,8 @@ export function DeploymentDetail() {
       {deployment.bundleOutdated && (
         <OutdatedBanner deployment={deployment} onRefresh={refetch} />
       )}
+
+      <DeploymentRevisionStatus deploymentId={deployment.id} refreshKey={configurationRefreshKey}/>
 
       <Tabs value={activeTab} onChange={setActiveTab}>
         <Tabs.List>

@@ -1,3 +1,4 @@
+import { validateDeploymentConfigurationState,type DeploymentConfigurationState } from "@logtura/core";
 import type {
   ApiBundle,
   ApiConnection,
@@ -60,6 +61,11 @@ export interface CliDevice {userCode: string;label: string;expiresAt: number;dec
 export interface CliAccountToken {id: string;label: string;created_at: number;expires_at: number;revoked_at: number | null;}
 
 export const api = {
+  getDeploymentConfigurationState: async(id:string):Promise<DeploymentConfigurationState|null> => {
+    const result=await request<{state:unknown}>(`/deployments/${encodeURIComponent(id)}/config/state`,{signal:AbortSignal.timeout(20_000)});
+    if(!result || typeof result!=="object" || Array.isArray(result) || Object.keys(result).some(key=>key!=="state") || !("state" in result))throw new ApiError("Invalid configuration status",200,"invalid_config_state");
+    try{return result.state===null?null:await validateDeploymentConfigurationState(result.state);}catch{throw new ApiError("Invalid configuration status",200,"invalid_config_state");}
+  },
   cliDevice: (code: string) => request<CliDevice>(`/cli/devices/${encodeURIComponent(code)}`),
   decideCliDevice: (code: string, approve: boolean) => request<{ok: boolean}>(`/cli/devices/${encodeURIComponent(code)}/decision`, {method: "POST",body: JSON.stringify({approve})}),
   cliTokens: () => request<{tokens: CliAccountToken[]}>("/cli/tokens"),

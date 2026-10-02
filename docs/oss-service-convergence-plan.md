@@ -1204,3 +1204,47 @@ rollout also remain outstanding. Migration 0025 joins 0018–0024 as unapplied p
 work. The previously verified Codecov activation/access blocker remains unresolved;
 no new green CI, npm release or production deployment is claimed. The complete goal
 remains active.
+
+
+### Website desired/applied revision display (implemented)
+
+The deployment detail page now displays desired and last applied revision identities,
+the applied-report time and configuration status. It distinguishes legacy unissued
+state, waiting for the current forwarder, an older applied revision, configuration
+changed since issuance and a current report matching the desired revision. Instance
+replacement preserves historical applied information but does not display “In sync”
+until the replacement reports. Status wording describes forwarder reports; it does
+not claim runtime verification that has not yet been implemented.
+
+The browser reader validates the shared packaged state contract and actual desired
+manifest hash, uses session authentication, encodes deployment IDs and bounds reads
+with a 20-second timeout. The card renders no manifest payloads or instance IDs.
+Malformed/private-bearing replies and status read failures remain local to the card,
+with a value-free error and manual retry; they do not disable the existing page.
+Requests are keyed to deployment and refresh generation. Late replies after navigation
+or unmount cannot replace current status. Website saves and deployment-page reloads
+refresh the revision card; users can explicitly refresh after an external CLI update.
+There is no continuous polling. Existing bundle-outdated, image and heartbeat/status
+bookkeeping remains separate from this public configuration-revision display.
+
+Validation passes 27 UI tests across five files. UI coverage rises to
+19.52% statements, 16.42% branches, 16.12% functions and 17.77% lines; enforced
+aggregate floors rise to 19/16/16/17. The revision component enforces 100% across all
+four metrics. Tests cover state meanings, private/error isolation, retry, late-response
+and unmount handling, authenticated/encoded API reads, malformed replies and network
+errors. Actual deployment-page integration tests cover initial status, a website save
+refreshing the card, keeping the page usable on status failure and deployment-load
+failure behavior. Typecheck and the service build pass. The backend protocol was
+unchanged by this slice; its preceding 753 private/503 public tests and packed checks
+are separate evidence, not a claim of a new real-browser/remote forwarder journey.
+
+Rechecked protocol-head CI fails only at Codecov upload (`Repository not found`):
+private run 36952896188, public run 36952893098. The private forwarder-image build
+passed. External Codecov activation/access remains unresolved and enforced.
+
+Actual loaded-configuration verification, durable forwarder report counters/retries,
+CLI/service apply orchestration, complete real local/workerd/remote/browser E2E and
+remote cleanup remain required. Final backend/public 95/90 and UI 90/85 coverage,
+provider/telemetry hardening, dependency updates, publication and staged production
+rollout also remain outstanding. No package release, production migration or deployment
+is claimed. The full shipping goal remains active.
