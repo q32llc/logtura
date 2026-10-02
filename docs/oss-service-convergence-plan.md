@@ -1688,3 +1688,60 @@ Both failed only Codecov upload with `Repository not found`; image publication
 36976846236 succeeded. No coverage gate has been disabled. New-head checks must
 verify the terminal slice independently. Production and npm remain unchanged, and
 all remaining outcome and release gates still apply.
+
+
+### Installed CLI → real workerd → packaged runtime journey (implemented)
+
+`pnpm test:e2e:local` now packs and installs all 15 public packages in a private
+consumer, bundles the real service into a local workerd server with fresh D1 and
+queues, applies every migration and seeds only a disposable identity/session.
+Connection/deployment creation and queued discovery use actual HTTP/service jobs.
+The installed CLI performs device login with browser-session HTTP approval, pull,
+connection-label edit and push. The website API then exposes the same new desired
+revision. The initial deployment is legitimately legacy with no desired state;
+the first push establishes it, rather than pre-seeding an artificial current state.
+
+A strict Machines API fixture installs the actual planned private files into a
+Docker image containing the runtime executable from the installed CLI tarball.
+Its PID-1 supervisor owns real Vector. The service receives actual applied reports,
+heartbeat and nonempty component metrics through HTTP and stores them in D1.
+Assertions require matching desired/applied revision and sequence, current state,
+completed local apply, a private rollback archive and exactly one provider update.
+The fixture checks the running container's actual Docker image ID. Restarting the
+same container with its named checkpoint volume must advance the service report
+counter; graceful stop must exit zero. No handcrafted accepted observation or
+simulated service state completes this journey.
+
+The local fixture maps an immutable-looking registry reference to that verified
+Docker configuration ID, not a real registry manifest/index digest. Its Fly API
+is a controlled provider boundary, not actual Fly infrastructure. The topology
+has an explicitly empty provider-source selection and real heartbeat/metrics.
+This proves connection-label synchronization and installed runtime convergence;
+source/site update delivery, complete provider event flows, browser rendering,
+owned remote journeys and real Fly image/volume/lease behavior remain required.
+
+Ownership cleanup deletes and verifies the created deployment, connection and
+default monitor through HTTP; kills outstanding children; removes the unique
+container, persistent checkpoint volume and image tag; disposes workerd; and
+removes private temporary files. Cleanup errors fail the run. Explicit failures
+after resource creation and after runtime installation/reporting pass only when
+the intended boundary was reached and cleanup succeeds. `after-push` is also
+available for diagnosis. This is handled failure teardown, not a persistent
+ledger for a SIGKILL of the E2E coordinator.
+
+The happy path and both required injected-failure cases pass locally, including
+actual metrics shape and restart counter assertions. New Node-specific E2E types
+and existing service types pass. Miniflare 4.20260507.1 and Node types 22.19.19 are
+explicit dev dependencies using versions already present in the lockfile. The
+private push/PR workflow requires all three scenarios after actual Vector flow;
+Linux Docker host networking and registry access are prerequisites, with missing
+capabilities failing rather than silently skipping. Documentation lives in
+`test/e2e/README.md`. Product coverage floors remain enforced and unchanged.
+
+Preceding terminal heads 327e19a and b27080d passed every code, package, type,
+real Vector flow and coverage artifact step in private CI 36977614021 and public
+CI 36977610771. Both failed only the Codecov upload (`Repository not found`);
+image publication 36977613898 succeeded. New-head CI must verify this real-service
+journey on a clean runner. This private test infrastructure adds no unpublished
+public API and changes no production forwarder, npm release or production schema.
+The full convergence, high-coverage and staged shipping goal remains active.

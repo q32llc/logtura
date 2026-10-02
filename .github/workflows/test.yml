@@ -45,6 +45,13 @@ jobs:
       - name: real Vector delivery flow
         run: pnpm test:flow
 
+      - name: installed CLI and real local workerd runtime journey
+        run: |
+          pnpm typecheck:e2e
+          pnpm test:e2e:local
+          LOGT_E2E_INJECT_FAILURE=after-create pnpm test:e2e:local
+          LOGT_E2E_INJECT_FAILURE=after-runtime pnpm test:e2e:local
+
       - name: test
         # Runs every vitest project: workerd integration tests (real
         # D1 + Queues, only external HTTP mocked), @logtura/core unit
