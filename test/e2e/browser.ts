@@ -21,9 +21,16 @@ export async function startBrowser(service: { url: string; cookie: string }) {
   try {
     const anonymous = await browser.newContext();
     const visitor = await anonymous.newPage(); visitor.setDefaultTimeout(15_000);
+    visitor.on("pageerror", error => errors.push(error.message));
     await visitor.goto(service.url + "/app/cli");
     await visitor.getByText("Sign in to authorize the CLI for your Logtura account.", { exact: true }).waitFor();
     assert.match(await visitor.getByRole("main").getByRole("link", { name: "Sign in with GitHub" }).getAttribute("href") ?? "", /^\/login\/github\?return_to=/);
+    await visitor.getByRole("banner").getByRole("link", { name: "logtura", exact: true }).waitFor();
+    await visitor.getByRole("banner").getByRole("link", { name: "Sign in with GitHub", exact: true }).waitFor();
+    await visitor.goto(service.url + "/docs/open-source");
+    await visitor.getByRole("heading", { name: "Open source", exact: true }).waitFor();
+    await visitor.getByRole("banner").getByRole("link", { name: "Docs", exact: true }).waitFor();
+    await visitor.getByRole("banner").getByRole("link", { name: "Sign in with GitHub", exact: true }).waitFor();
     await anonymous.close();
     await signedIn();
     return {

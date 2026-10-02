@@ -54,7 +54,11 @@ scenario does not silently skip runtime checks. Private CI pins the verified Ubu
 CI installs Chromium and its system libraries using `playwright install --with-deps chromium`. On a local Linux host missing browser libraries, use the same `--with-deps` option. See the [official Playwright CI setup](https://playwright.dev/docs/ci).
 
 The runner packs every public package and installs them in a private temporary
-consumer. It starts the real bundled service in workerd with a fresh D1 database,
+consumer. Before starting workerd, it extracts the public open-source documentation's YAML
+example and runs the installed CLI's environment check, validation and bundle
+commands with disposable provider values. The generated bundle must contain the
+documented Worker and a mode-0600 environment file, without a service login.
+It then starts the real bundled service in workerd with a fresh D1 database,
 applies all migrations, and seeds only a disposable identity and signed session.
 The native Workers Assets plugin serves the real built React UI.
 Connection and deployment creation through the actual browser forms, device approval, configuration changes,
@@ -62,7 +66,9 @@ reporting and deletion use HTTP endpoints. Its queue actually runs discovery.
 Provider requests use strict fixtures and unexpected requests fail verification.
 It never loads `.env` or uses an existing CLI account or production database.
 
-A real Chromium browser checks the anonymous CLI access page and creates the
+A real Chromium browser checks anonymous CLI access, the public header and
+documentation access, and captures anonymous-page JavaScript
+errors as well as authenticated-page errors. It creates the
 Cloudflare connection through the actual provider form, typing both the connection
 name and a private fixture token. It creates the self-managed Fly deployment
 through the website wizard and verifies navigation/reload. HTTP then binds the

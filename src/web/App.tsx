@@ -188,13 +188,12 @@ function AppShellLayout({
       navbar={
         showNavbar
           ? { width: 220, breakpoint: "sm" }
-          : { width: 0, breakpoint: "sm" }
+          : { width: 0, breakpoint: "sm", collapsed: { desktop: true, mobile: true } }
       }
       padding={isAppRoute ? "lg" : 0}
       styles={(t) => ({
         main: { backgroundColor: t.colors.dark[8] },
       })}
-      disabled={!showNavbar}
     >
       <AppShell.Header>
         <Group h="100%" px="lg" justify="space-between">

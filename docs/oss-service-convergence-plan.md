@@ -2171,3 +2171,54 @@ remains pending. No existing published package version is overwritten and no
 production resource is changed by this source slice. Remaining capabilities,
 provider/source/site delivery, managed apply, remote ledgers, coordinated package
 publication/rollback and staged production rollout remain required.
+
+### Application routes, public documentation and standalone example baseline
+
+The real application shell and public pages gain 31 interaction cases, bringing
+the UI suite to 269 across 19 files. Protected connections, configuration,
+destinations, monitors and deployment routes must withhold account content until
+authentication resolves and redirect anonymous users through the expected return
+message. Tests cover auth failures without private details, account identity and
+logout, real navigation/active links, anonymous CLI device return URLs, unknown
+routes, public documentation, deployment-badge polling/recovery/unmount and API
+error-message fallbacks. Public-page cases cover signed-in/anonymous actions,
+known/unknown auth returns, all four documentation routes, unknown-slug recovery,
+navigation, real tables/screenshots/captions and supported CLI instructions.
+
+The UI test configuration now uses the same MDX provider and GFM transform as the
+production Vite build, so documentation renders actual source rather than mocked
+components. These tests expose a shell bug: disabling AppShell when no sidebar
+was needed also hid the header on public routes. The shell now collapses only the
+sidebar; public pages retain the logo, Docs navigation and sign-in control.
+
+The open-source guide is updated to the current packaged CLI/configuration shape.
+It removes the unsupported install-zip command, inaccurate vector-validation claim
+and environment-only heartbeat linking instructions. It describes standalone
+provider references, private environment files, validated/bundled Docker runtime,
+portable graphs/local stats and explicit desired/applied behavior for linked
+deployments. Linked Fly requirements point to the current CLI documentation.
+
+The local runner extracts the guide's actual YAML example and runs the installed
+CLI's environment check, validation and bundle operations with disposable values
+before starting workerd or logging into Logtura. Its generated Worker selection
+and mode-0600 environment file are verified. The real anonymous browser checks
+the CLI return page and public docs header; anonymous JavaScript errors are now
+captured alongside signed-in errors. The full browser/CLI/workerd/Docker journey
+passes, including runtime convergence, restart reporting, shutdown and cleanup.
+Both after-create and after-runtime cleanup injections pass with verified owned
+service/runtime removal, including the additional private documentation bundle.
+
+Service/E2E types, Vite/package builds and all 269 UI tests/raised gates pass.
+Aggregate statements/branches/functions/lines measure 89.96/89.67/86.34/90.87 and
+enforce 89.5/89.5/86/90.5 without changing the source inclusion rules. App, Home and
+Docs each measure and enforce 100 across all four dimensions. The final aggregate
+target remains incomplete, especially website API function coverage; private and
+public backend/provider coverage and remaining capability matrices also need work.
+
+Preceding metrics heads d93bfa7/private and 303f507/public pass all prior test CI
+gates in terminal runs 36996894402 and 36996861004; only enforced Codecov upload
+fails. Forwarder image run 36996894403 succeeds. Scoped app permission approval
+remains pending. This slice does not change public package source or production
+resources. Final coverage, provider/source/site delivery, managed apply, remote
+ledgers, coordinated package publication/rollback and staged production rollout
+remain required.

@@ -63,6 +63,17 @@ try {
   await run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", ...archives]);
   const core = await import(pathToFileURL(join(consumer, "node_modules/@logtura/core/dist/index.js")).href);
   const bin = join(consumer, "node_modules/.bin/logt");
+  const documentation = readFileSync(join(root, "src/web/docs/open-source.mdx"), "utf8");
+  const example = documentation.match(/```yaml\n([\s\S]*?)\n```/)?.[1];
+  assert.ok(example, "public documentation must contain the standalone YAML example");
+  const documentationConfig = join(consumer, "documentation.yaml"), documentationBundle = join(consumer, "documentation bundle");
+  writeFileSync(documentationConfig, example, { mode: 0o600 });
+  const documentationEnvironment = { ...environment, CLOUDFLARE_ACCOUNT_ID: "fixture-documentation-account", CLOUDFLARE_API_TOKEN: "fixture-documentation-token", SLACK_WEBHOOK_URL: "https://hooks.slack.com/services/fixture/documentation/webhook" };
+  await start(bin, ["-c", documentationConfig, "env", "--check"], consumer, documentationEnvironment).result;
+  assert.match((await start(bin, ["-c", documentationConfig, "validate"], consumer, documentationEnvironment).result).stdout, /ok: 1 source/);
+  await start(bin, ["-c", documentationConfig, "bundle", "-o", documentationBundle], consumer, documentationEnvironment).result;
+  assert.ok(readFileSync(join(documentationBundle, "vector.yaml"), "utf8").includes("api-worker"));
+  assert.equal(statSync(join(documentationBundle, ".env")).mode & 0o777, 0o600);
   local = await startLocalService();
   const service = local;
   const request = async (path: string, body?: unknown, method = "GET") => {

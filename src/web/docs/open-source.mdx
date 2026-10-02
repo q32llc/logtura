@@ -1,123 +1,138 @@
 # Open source
 
-The forwarder is published as a set of npm packages and a CLI.
+The CLI and libraries work without a Logtura account or hosted service. They use
+your provider credentials to build a forwarder that sends logs to your destinations.
 
 Repository: [github.com/logtura/logtura](https://github.com/logtura/logtura)
 
-## Packages
+## Install the CLI
 
-| Package                                    | Role                                                       |
-| ------------------------------------------ | ---------------------------------------------------------- |
-| `@logtura/core`                            | Driver contracts, renderer, Vector topology types          |
-| `@logtura/cli`                             | `logtura validate` / `bundle` / `install-zip`              |
-| `@logtura/driver-cloudflare-worker-tail`   | Cloudflare Workers tail                                    |
-| `@logtura/driver-cloudflare-ai-gateway`    | Cloudflare AI Gateway logs                                 |
-| `@logtura/driver-fly-log-tail`             | Fly NATS log stream                                        |
-| `@logtura/driver-railway-logs`             | Railway logs                                               |
-| `@logtura/driver-supabase-edge-logs`       | Supabase edge function logs                                |
-| `@logtura/driver-vercel-logs`              | Vercel log drain receiver                                  |
-| `@logtura/destination-slack`               | Slack webhook                                              |
-| `@logtura/destination-webhook`             | Generic HTTP POST                                          |
-| `@logtura/destination-datadog-metrics`     | Datadog Metrics API                                        |
-| `@logtura/destination-prometheus-remote-write` | Prometheus remote-write                                |
-| `@logtura/custom-vector`                   | Pass-through escape hatch for any Vector source or sink    |
+```sh
+npm install -g @logtura/cli
+logt --help
+```
 
-## CLI
+`logt` is the primary command; `logtura` is an alias. The default configuration is
+`logt.yaml`, with `logtura.yaml` accepted for existing projects.
 
-The CLI reads a `logtura.yaml` file and produces a Vector bundle.
-
-### Example config
+## Standalone configuration
 
 ```yaml
+schema_version: 1
+providers:
+  cloudflare:
+    provider: cloudflare
+    display_name: My Cloudflare account
+    account_id: env:CLOUDFLARE_ACCOUNT_ID
+    credentials:
+      api_token: env:CLOUDFLARE_API_TOKEN
+
 sources:
   workers:
-    provider: cloudflare-worker-tail
-    account_id: env:CLOUDFLARE_ACCOUNT_ID
-    api_token: env:CLOUDFLARE_API_TOKEN
-    scripts:
-      - dirtsignal
-      - ipogrid
+    source: cloudflare-worker-tail
+    provider: cloudflare
+    scripts: [api-worker]
 
 sinks:
-  slack:
-    type: slack
+  alerts:
+    sink: slack
     webhook_url: env:SLACK_WEBHOOK_URL
-    channel: "#alerts"
 
 monitors:
   - name: worker-errors
-    filter:
-      - errors
-      - rollup:
-          window_secs: 30
-          group_by: [script]
-          max_samples: 5
-    sinks: [slack]
+    filter: [errors]
+    sinks: [alerts]
 
 metrics: none
 ```
 
-### Validate
+Keep credentials in your environment or a private companion `.env` file. The
+configuration uses references instead of embedding tokens or webhook URLs.
 
-```bash
-CLOUDFLARE_ACCOUNT_ID=acct \
-CLOUDFLARE_API_TOKEN=token \
-SLACK_WEBHOOK_URL=https://hooks.slack.com/... \
-logtura validate -c logtura.yaml
+You can write this file yourself or use `logt init`, `logt connect cloudflare`,
+`logt source add cloudflare-worker-tail`, and the sink/monitor commands. Connect
+verifies credentials and discovers inventory locally; it does not require signing
+in to the hosted service.
+
+### Validate and bundle
+
+```sh
+logt -c logt.yaml env --check
+logt -c logt.yaml validate
+logt -c logt.yaml bundle -o dist/logtura-forwarder
 ```
 
-`validate` checks the config against driver schemas, renders the Vector topology, and runs `vector validate` against it. Exit code is non-zero on any error.
+Validation parses the configuration, checks driver requirements and renders the
+Vector topology. It does not claim that provider log delivery has been tested.
+The bundle contains a Dockerfile, Vector configuration, component manifest,
+required runtime assets, and a private environment file. Protect that directory
+because it includes credentials.
 
-### Bundle
+### Run the forwarder
 
-```bash
-logtura bundle -c logtura.yaml -o dist/logtura-forwarder
-```
-
-Produces a directory with `vector.yaml`, a `Dockerfile`, and the driver helper binaries the topology needs.
-
-### Install-zip
-
-```bash
-logtura install-zip -c logtura.yaml -o logtura-forwarder.tgz
-```
-
-Same contents as `bundle`, packed into a tarball suitable for copying to a server.
-
-## Running the bundle
-
-```bash
+```sh
 docker build -t logtura-forwarder dist/logtura-forwarder
-docker run --rm \
-  -e CLOUDFLARE_ACCOUNT_ID=acct \
-  -e CLOUDFLARE_API_TOKEN=token \
-  -e SLACK_WEBHOOK_URL=https://hooks.slack.com/... \
-  logtura-forwarder
+docker run --rm --env-file dist/logtura-forwarder/.env logtura-forwarder
 ```
 
-Set `LOGTURA_HEARTBEAT_URL` if you want the bundle to report to the hosted control plane. Leave it unset for a fully detached run.
+The standalone bundle does not require hosted heartbeat, metrics or configuration
+reporting. `logt deploy fly` also supports standalone deployment through your local
+Fly CLI. See the [CLI documentation](https://github.com/logtura/logtura/tree/main/packages/cli)
+for provider setup and deployment options.
 
-## Writing a driver
+### Portable graphs and local metrics
 
-A driver implements the `ProviderDriver<Credentials>` interface from `@logtura/core`. The minimum surface is:
-
-```ts
-export const myDriver: ProviderDriver<MyCreds> = {
-  id: "my-driver",
-  displayName: "My provider",
-  sourceLabel: "Service",
-  capabilities: { selection: "list" },
-
-  async verifyCredentials(creds) { /* ... */ },
-  async checkCredentialFreshness(creds) { /* ... */ },
-  async discoverSources({ credentials }) { /* returns DiscoveredSource[] */ },
-  generatePipeline({ connection, selection }) {
-    return {
-      components: [/* VectorComponent[] */],
-      manifest: [/* helper binaries this driver needs */],
-    };
-  },
-};
+```sh
+logt -c logt.yaml config export -o portable.yaml
+logt -c portable.yaml config hash
+logt stats --metrics metrics.ndjson
 ```
 
-Register it in `packages/cli/src/registry.ts` and in the control plane's driver registry. Driver packages must not depend on the control plane.
+Portable graphs retain stable connection, source, monitor and sink identities.
+Private payloads remain in environment references. Local stats read Vector's
+internal-metrics JSON or NDJSON without contacting the hosted service.
+
+## Use a website deployment from the CLI
+
+```sh
+logt login --service https://logtura.com
+logt pull dep_your_deployment -o linked.yaml
+logt -c linked.yaml config status
+logt -c linked.yaml source select con_your_connection your-worker
+logt -c linked.yaml push
+```
+
+Use the deployment and connection IDs belonging to your account. Login requires
+browser approval; pull writes the portable graph and private companion files.
+Push updates the existing website deployment's desired configuration. Website
+configuration changes are captured by a later pull, so both interfaces operate on
+the same deployment. Review local edits before using `pull --force` to replace them.
+
+Push does not restart the forwarder. A linked Fly update requires an immutable
+runtime image, an existing checkpoint volume and a supported single-machine
+existing deployment. The CLI waits for an accepted applied report; the website
+shows whether the forwarder is waiting, has an update pending, or is in sync.
+See the [linked Fly apply instructions](https://github.com/logtura/logtura/tree/main/packages/cli#applying-a-linked-fly-forwarder)
+for requirements and recovery commands.
+
+## Libraries and drivers
+
+| Package | Role |
+| --- | --- |
+| `@logtura/core` | Portable configuration, topology generation, manifests, metrics and runtime contracts |
+| `@logtura/cli` | Standalone and linked configuration/deployment commands |
+| `@logtura/driver-cloudflare-worker-tail` | Cloudflare Workers tail |
+| `@logtura/driver-cloudflare-ai-gateway` | AI Gateway logs |
+| `@logtura/driver-fly-log-tail` | Fly logs |
+| `@logtura/driver-railway-logs` | Railway logs |
+| `@logtura/driver-supabase-edge-logs` | Supabase edge function logs |
+| `@logtura/driver-vercel-logs` | Vercel logs |
+| `@logtura/destination-slack` | Slack incoming webhooks |
+| `@logtura/destination-webhook` | Generic HTTPS delivery |
+| `@logtura/destination-datadog-metrics` | Datadog metrics |
+| `@logtura/destination-prometheus-remote-write` | Prometheus remote write |
+| `@logtura/custom-vector` | Custom Vector source, transform and sink fragments |
+
+Drivers implement the public contracts in `@logtura/core`. They must not depend
+on the hosted control plane. See the [core library documentation](https://github.com/logtura/logtura/tree/main/packages/core)
+for typed inputs, rendering and driver integration.
