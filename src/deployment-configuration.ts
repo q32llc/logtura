@@ -1,17 +1,10 @@
-import { hashConfigDocument,parseDeploymentManifest,canonicalConfigJson,type DeploymentManifest } from "@logtura/core";
+import { hashConfigDocument,parseDeploymentManifest,canonicalConfigJson,type DeploymentManifest,type DeploymentConfigurationState } from "@logtura/core";
 import { commitConfiguration } from "./config-version";
 
 export class DeploymentRevisionConflict extends Error {
   constructor(){super("Deployment revision changed; pull before retrying");this.name="DeploymentRevisionConflict";}
 }
-export interface DeploymentConfigurationState {
-  desired:{sequence:number;revision:string;document:DeploymentManifest;configurationVersion:number};
-  applied:{sequence:number;revision:string;at:number}|null;
-  activeInstanceId:string|null;
-  lastReportSequence:number;
-  /** A website/configuration writer changed the graph after this revision. */
-  stale:boolean;
-}
+export type { DeploymentConfigurationState } from "@logtura/core";
 function validatedDocument(value:unknown):DeploymentManifest {
   parseDeploymentManifest(value);return JSON.parse(canonicalConfigJson(value)) as DeploymentManifest;
 }

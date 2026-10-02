@@ -1146,3 +1146,61 @@ Also outstanding: real local/workerd/remote/browser journeys and remote cleanup,
 final coverage targets, provider/telemetry hardening, dependency updates, publication
 and staged production rollout. No production target, image, migration or running
 forwarder was modified by this slice. The full shipping goal remains active.
+
+
+### Account instance activation and authenticated applied reports (implemented)
+
+The shared package now owns desired/applied state, activation/receipt and report
+schemas and validators. State validation checks the actual desired document hash,
+safe counters, known fields, instance identity and matching revisions when applied
+and desired sequences coincide. The service uses these packaged contracts.
+
+Owned session/account-token endpoints expose `GET config/state` (null for legacy
+unissued deployments), `POST config/instances` and `GET config/instances/:requestId`.
+Activation requires the account version, desired sequence/revision and prior active
+instance identity. A new server-issued UUID and immutable activation receipt commit
+in one guarded D1 batch. Migration 0025 adds receipts without rewriting existing
+forwarders, ciphertext/grants, runtime values, reporting tokens, image digests,
+telemetry or desired/applied history. Receipt writes and activation do not advance
+account configuration versions. Identical concurrent requests and response-loss
+retries return the same receipt; conflicting request-ID reuse is rejected. Historical
+receipts never reactivate retired instances. Receipt-write failure rolls activation
+back. Receipts are retained until their deployment/account is deleted.
+
+`POST /api/applied/:id` uses the deployment reporting token and a fresh storage lookup
+to honor token rotation immediately. It rejects account credentials/session-only
+requests and validates bounded streamed JSON (8 KiB), safe report counters and issued
+revision identities. Accepted reports advance applied history from the active instance;
+unknown revisions, retired instances, replays and regressions are ignored without
+changing graph versions. Existing heartbeat and metrics endpoints remain independent.
+These new endpoints use no-store replies and sanitized storage/validation failures.
+
+The account SDK reads state, activates instances and looks up receipts. A separate
+`DeploymentReportingClient` rejects account tokens and posts applied reports with
+caller-supplied fetch, no cookies/redirects and a bounded timeout. It performs no
+implicit deployment, activation, acknowledgement or retry. A runtime caller must
+report its actually loaded configuration; the packaged transport itself cannot prove
+that a generated file has been loaded.
+
+Validation passes 753 private tests across 74 files and 503 public tests across 42
+files, with zero unhandled workerd errors. Coverage is 76.04/72.23/79.55/73.66 privately
+and 82.44/79.57/81.73/80.95 publicly (statements/branches/functions/lines); floors rise
+to 76/72/79/73 and 82/79/81/80. Shared contracts, SDK/reporting transport and route
+handlers enforce 100% across all metrics. Instance transaction code enforces
+97% statements, 95% branches and 100% functions/lines; its unexercised defensive path
+is a successful batch reporting zero receipt changes despite a successful CAS.
+Tests cover actual workerd/D1 response-loss recovery, concurrent activations,
+replacement/fences, token rotation, bounded/malformed streams, storage rollback,
+immutable/corrupt receipts, ownership/authentication and schema-24 upgrade preservation.
+Both package layouts build/typecheck and pass all 15 packed consumer checks; the
+service build passes. The installed SDK exercises state, activation/receipt and
+reporting exports through injected transports.
+
+Forwarder runtime activation metadata, durable report counters/retries, actual loaded
+configuration verification, CLI/service apply orchestration and website desired/applied
+UI remain required. Full real local/workerd/remote/browser E2E, final coverage targets,
+provider/telemetry hardening, dependency updates, npm publication and staged production
+rollout also remain outstanding. Migration 0025 joins 0018–0024 as unapplied production
+work. The previously verified Codecov activation/access blocker remains unresolved;
+no new green CI, npm release or production deployment is claimed. The complete goal
+remains active.

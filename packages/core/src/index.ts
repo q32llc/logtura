@@ -70,3 +70,8 @@ export type { GraphInventory, DeploymentChangePlan, StoredConnection, StoredSour
 
 export { validateDeploymentTarget } from "./deployment-target";
 export type { DeploymentTarget } from "./deployment-target";
+
+export { isInstanceId, validateDeploymentActivation, validateDeploymentInstanceReceipt, validateDeploymentAppliedReport, validateDeploymentConfigurationState } from "./deployment-state";
+export type { DeploymentConfigurationState, DeploymentInstanceActivation, DeploymentInstanceReceipt, DeploymentAppliedReport } from "./deployment-state";
+
+export { DeploymentReportingClient } from "./deployment-reporting";

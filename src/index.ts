@@ -1,3 +1,4 @@
+import { deploymentStateRoutes,deploymentAppliedRoutes } from "./deployment-state-routes";
 import { exportDeploymentTarget } from "./deployment-target";
 import { createPushReceiptIntent,readPushReceipt,PushReceiptConflict,PushReceiptUnavailable,type PushReceiptIntent } from "./deployment-push-receipts";
 import { parseDeploymentPush,resolveOwnedDeploymentManifest,DeploymentPushError } from "./deployment-push";
@@ -124,6 +125,7 @@ const app = new Hono<AppContext>();
 
 app.use("/api/deployments/:id/config",async(c,next)=>{c.header("cache-control","no-store");await next();});
 app.use("/api/deployments/:id/config/*",async(c,next)=>{c.header("cache-control","no-store");await next();});
+app.use("/api/applied/:id",async(c,next)=>{c.header("cache-control","no-store");await next();});
 app.use("*", attachOptionalUser);
 
 type DeploymentIngestCacheEntry = {
@@ -486,6 +488,7 @@ const apiAuth = new Hono<AppContext>();
 apiAuth.use("/deployments/:id/config",async(c,next)=>{c.header("cache-control","no-store");if(!c.get("user"))return c.json({error:"auth_required"},401);await next();});
 apiAuth.use("/deployments/:id/config/*",async(c,next)=>{c.header("cache-control","no-store");if(!c.get("user"))return c.json({error:"auth_required"},401);await next();});
 apiAuth.use("*", requireAuth);
+apiAuth.route("/",deploymentStateRoutes());
 
 apiAuth.get("/connections", async (c) => {
   const user = c.get("user")!;
@@ -2733,6 +2736,7 @@ apiAuth.get("/jobs/:id", async (c) => {
   return c.json({ job: toApiJob(aggregated), kids: kids.map(toApiJob) });
 });
 
+api.route("/",deploymentAppliedRoutes());
 api.route("/", apiAuth);
 app.route("/api", api);
 

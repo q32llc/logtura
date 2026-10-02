@@ -1,3 +1,4 @@
+import { isInstanceId,validateDeploymentActivation,validateDeploymentInstanceReceipt,validateDeploymentConfigurationState,type DeploymentConfigurationState,type DeploymentInstanceActivation,type DeploymentInstanceReceipt } from "./deployment-state";
 import { validateDeploymentTarget,type DeploymentTarget } from "./deployment-target";
 import type { DeploymentManifest } from "./manifest";
 import { normalizeDeploymentManifest,parseDeploymentManifest } from "./manifest";
@@ -84,6 +85,21 @@ export class LogturaServiceClient {
       (includeSecrets && (!result.secretValues || typeof result.secretValues!=="object" || Array.isArray(result.secretValues) || Object.values(result.secretValues).some(value=>typeof value!=="string"))))throw new ServiceError(200,"invalid_config_response");
     if(result.target!==undefined)try{result.target=validateDeploymentTarget(result.target);}catch{throw new ServiceError(200,"invalid_config_response");}
     return result;
+  }
+  async getDeploymentConfigurationState(id:string):Promise<DeploymentConfigurationState|null>{
+    if(!id)throw new Error("Deployment identity is required");
+    const response=await this.request<{state:unknown}>(`/deployments/${encodeURIComponent(id)}/config/state`);
+    try{if(!response || typeof response!=="object" || Array.isArray(response) || Object.keys(response).some(key=>key!=="state") || !("state" in response))throw new Error();return response.state===null?null:await validateDeploymentConfigurationState(response.state);}catch{throw new ServiceError(200,"invalid_config_state");}
+  }
+  async activateDeploymentInstance(id:string,input:DeploymentInstanceActivation):Promise<DeploymentInstanceReceipt>{
+    if(!id)throw new Error("Deployment identity is required");const intent=validateDeploymentActivation(input);
+    const result=await this.request<DeploymentInstanceReceipt>(`/deployments/${encodeURIComponent(id)}/config/instances`,{method:"POST",body:JSON.stringify(intent)});
+    try{const receipt=validateDeploymentInstanceReceipt(result);if(receipt.requestId!==intent.requestId || receipt.configurationVersion!==intent.expectedConfigurationVersion || receipt.sequence!==intent.expectedSequence || receipt.revision!==intent.revision)throw new Error();return receipt;}catch{throw new ServiceError(200,"invalid_instance_receipt");}
+  }
+  async getDeploymentInstanceReceipt(id:string,requestId:string):Promise<DeploymentInstanceReceipt|null>{
+    if(!id || !isInstanceId(requestId))throw new Error("Deployment and activation request identities are required");
+    let result:unknown;try{result=await this.request(`/deployments/${encodeURIComponent(id)}/config/instances/${requestId}`);}catch(error){if(error instanceof ServiceError && error.status===404 && error.code==="receipt_not_found")return null;throw error;}
+    try{const receipt=validateDeploymentInstanceReceipt(result);if(receipt.requestId!==requestId)throw new Error();return receipt;}catch{throw new ServiceError(200,"invalid_instance_receipt");}
   }
   async pushDeploymentConfig(id:string,input:DeploymentConfigPush):Promise<DeploymentConfigCommit>{
     if(!id)throw new Error("Deployment identity is required");

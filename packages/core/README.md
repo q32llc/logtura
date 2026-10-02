@@ -316,9 +316,37 @@ and may be older than the current desired configuration. They contain no resolve
 private values or request fingerprints. The service stores a keyed request digest
 and retains receipts until the deployment is deleted. Receipt storage and graph
 mutations commit atomically, including graph no-ops. The service must have migration
-0024 and these endpoints before consumers rely on recovery. The CLI push/recovery
-consumer is a subsequent capability; the SDK never retries writes implicitly.
+0024 and these endpoints before consumers rely on recovery. The packaged CLI supplies durable pending-request recovery; the SDK never retries
+writes implicitly.
 
 The library also exports `isDeploymentPushRequestId` and
 `validateDeploymentConfigCommit` for validating request identities and canonical
 public commit responses without contacting a service.
+
+
+### Deployment instance and applied revision transport
+
+The optional account SDK exposes `getDeploymentConfigurationState(id)`,
+`activateDeploymentInstance(id, intent)` and `getDeploymentInstanceReceipt(id,
+requestId)`. Legacy deployments return null state until a desired revision is
+issued. Activation requires a caller-retained UUIDv4 request ID, configuration
+version, desired sequence/revision and the prior active instance ID (or null).
+The service requires migration 0025 and the corresponding endpoints, and issues
+the new instance ID. Retrying the same intent returns its
+immutable receipt; changing that intent under the same request ID is rejected.
+A historical receipt proves activation and does not replace a newer active instance.
+
+`DeploymentReportingClient({url, token, fetch})` is separate from account transport.
+It rejects account tokens and sends `reportApplied(id, {instanceId, sequence,
+revision, reportSequence})` using the deployment reporting token. It returns a
+boolean: accepted reports advance applied history; ignored replays, unknown
+revisions and retired instances return false. Reports use increasing positive
+safe-integer counters. The caller must report the configuration actually loaded
+by its runtime and retain/retry reports as needed; this SDK does not automatically
+activate, deploy, acknowledge a generated file or retry requests.
+
+Both clients require an explicit fetch implementation, disable redirects and
+cookies, and use a bounded request timeout. Reporting-token rotation is honored
+immediately by the report endpoint. Shared public validators are exported for
+configuration state, activation intent/receipt and applied-report records. These
+optional transports are not needed for standalone parsing, rendering or deployment.

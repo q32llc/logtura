@@ -111,3 +111,17 @@ it("validates optional deployment target identity on exports",async()=>{
  expect((await transport(base).pullDeploymentConfig("dep_target")).target).toEqual(base.target);
  await expect(transport({...base,target:{...base.target,credentials:"private"}}).pullDeploymentConfig("dep_target")).rejects.toMatchObject({code:"invalid_config_response"});
 });
+
+it("reads desired/applied state, activates once, and looks up the durable instance receipt",async()=>{
+ const document={kind:"logtura.deployment",schema_version:1,connections:[],monitors:[],runtimeEnv:null},revision=await hashConfigDocument(document),requestId="00000000-0000-4000-8000-000000000001",instanceId="00000000-0000-4000-8000-000000000002";
+ const intent={requestId,expectedConfigurationVersion:3,expectedSequence:1,revision,expectedInstanceId:null},receipt={requestId,instanceId,configurationVersion:3,sequence:1,revision},state={desired:{sequence:1,revision,document,configurationVersion:3},applied:null,activeInstanceId:null,lastReportSequence:0,stale:false};
+ const transport=client([Response.json({state:null}),Response.json({state}),Response.json(receipt),Response.json(receipt),Response.json({error:"receipt_not_found"},{status:404})]);
+ expect(await transport.client.getDeploymentConfigurationState("dep id")).toBeNull();expect(await transport.client.getDeploymentConfigurationState("dep id")).toEqual(state);
+ expect(await transport.client.activateDeploymentInstance("dep id",intent)).toEqual(receipt);const [url,init]=transport.fetch.mock.calls[2]! as unknown as [string,RequestInit];expect(url).toContain("dep%20id/config/instances");expect(init.method).toBe("POST");expect(JSON.parse(init.body as string)).toEqual(intent);
+ expect(await transport.client.getDeploymentInstanceReceipt("dep id",requestId)).toEqual(receipt);expect(await transport.client.getDeploymentInstanceReceipt("dep id",requestId)).toBeNull();
+ for(const method of [()=>transport.client.getDeploymentConfigurationState(""),()=>transport.client.activateDeploymentInstance("",intent),()=>transport.client.getDeploymentInstanceReceipt("",requestId),()=>transport.client.getDeploymentInstanceReceipt("dep","bad")])await expect(method()).rejects.toThrow("identit");
+ for(const body of [null,0,2,[],{}, {state:null,extra:true},{state:{}}])await expect(client([Response.json(body)]).client.getDeploymentConfigurationState("dep")).rejects.toThrow();
+ for(const body of [{}, {...receipt,requestId:instanceId},{...receipt,configurationVersion:4},{...receipt,sequence:2},{...receipt,revision:`sha256:${"b".repeat(64)}`}])await expect(client([Response.json(body)]).client.activateDeploymentInstance("dep",intent)).rejects.toMatchObject({code:"invalid_instance_receipt"});
+ for(const body of [{}, {...receipt,requestId:instanceId}])await expect(client([Response.json(body)]).client.getDeploymentInstanceReceipt("dep",requestId)).rejects.toMatchObject({code:"invalid_instance_receipt"});
+ for(const [status,error] of [[404,"not_found"],[401,"auth_required"],[503,"configuration_unavailable"]] as const)await expect(client([Response.json({error},{status})]).client.getDeploymentInstanceReceipt("dep",requestId)).rejects.toMatchObject({status,code:error});
+});
