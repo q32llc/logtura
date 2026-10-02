@@ -1011,9 +1011,17 @@ function ConfigurePanel({
   const [pickedSources, setPickedSources] = useState<Set<string>>(
     new Set(deployment.sourceIds ?? []),
   );
-  const [legacyNullToExpand, setLegacyNullToExpand] = useState(
-    deployment.sourceIds === null,
-  );
+  const [catalogStatus, setCatalogStatus] = useState<"loading" | "ready" | "failed">("loading");
+  const [catalogRetry, setCatalogRetry] = useState(0);
+  const modernSources = !!deployment.graphSelection && !deployment.graphSelection.legacySources;
+  const sourceBaseline = useMemo(() => new Set(
+    modernSources
+      ? deployment.graphSelection!.connections.flatMap(connection =>
+          connection.selectAll || connection.discoverSources
+            ? allUserSources.filter(source => source.connectionId === connection.id).map(source => source.id)
+            : connection.sourceIds)
+      : deployment.sourceIds ?? allUserSources.filter(source => source.connectionId === deployment.connectionId).map(source => source.id),
+  ), [deployment, allUserSources, modernSources]);
   const [allMonitors, setAllMonitors] = useState(
     deployment.monitorIds === null,
   );
@@ -1031,58 +1039,45 @@ function ConfigurePanel({
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    api
-      .listAllSources()
-      .then((r) => {
-        setAllUserSources(r.sources);
-        setAllUserConnections(r.connections);
-        // Legacy deployment with sourceIds=null: expand to the
-        // anchor connection's current sources so the UI shows
-        // them ticked. The user's next Save writes the explicit
-        // array, retiring the null forever.
-        if (legacyNullToExpand) {
-          const seeded = new Set(
-            r.sources
-              .filter((s) => s.connectionId === deployment.connectionId)
-              .map((s) => s.id),
-          );
-          setPickedSources(seeded);
-          setLegacyNullToExpand(false);
-        }
+    let active = true;
+    setCatalogStatus("loading");
+    Promise.all([api.listAllSources(), api.listMonitors(), api.listDestinations()])
+      .then(([sources, monitors, destinations]) => {
+        if (!active) return;
+        setAllUserSources(sources.sources);
+        setAllUserConnections(sources.connections);
+        setMonitors(monitors.monitors);
+        setDestinations(destinations.destinations);
+        setCatalogStatus("ready");
       })
-      .catch(() => {});
-    api
-      .listMonitors()
-      .then((r) => setMonitors(r.monitors))
-      .catch(() => {});
-    api
-      .listDestinations()
-      .then((r) => setDestinations(r.destinations))
-      .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+      .catch(() => { if (active) setCatalogStatus("failed"); });
+    return () => { active = false; };
+  }, [catalogRetry]);
 
   // When the deployment row reloads (e.g. after Save), rehydrate local
   // state to match.
   useEffect(() => {
     setName(deployment.displayName);
-    setPickedSources(new Set(deployment.sourceIds ?? []));
+    setPickedSources(new Set(sourceBaseline));
     setAllMonitors(deployment.monitorIds === null);
     setPickedMonitors(new Set(deployment.monitorIds ?? []));
     setHeartbeatTarget(deployment.heartbeatTarget ?? "logtura");
     setMetricsTarget(deployment.metricsTarget ?? "none");
-  }, [deployment]);
+  }, [deployment, sourceBaseline]);
 
-  // Which connections this deployment actually uses, derived from
-  // selected sources. Sources fully determine the connection set;
-  // there's no separate "join" anymore.
+  // Retain modern graph connections while their discovery policy is unchanged,
+  // including connections that currently have no sources. Explicit edits derive
+  // connections from the selected source owners.
   const derivedConnectionIds = useMemo(() => {
     const ids = new Set<string>();
+    if (modernSources && setsEqual(pickedSources, sourceBaseline)) {
+      for (const connection of deployment.graphSelection!.connections) ids.add(connection.id);
+    }
     for (const s of allUserSources) {
       if (pickedSources.has(s.id)) ids.add(s.connectionId);
     }
     return ids;
-  }, [pickedSources, allUserSources]);
+  }, [pickedSources, allUserSources, modernSources, sourceBaseline, deployment]);
 
   // Applicable monitors: user-scoped null (apply to all) OR
   // scoped to one of the derived connections.
@@ -1105,24 +1100,28 @@ function ConfigurePanel({
     // A legacy NULL we've expanded locally is always "dirty" so the
     // Save button is enabled — saving migrates the row to an
     // explicit array. Otherwise compare the picked set verbatim.
-    legacyNullToExpand ||
-    deployment.sourceIds === null ||
-    !setsEqual(pickedSources, new Set(deployment.sourceIds ?? [])) ||
+    (!modernSources && deployment.sourceIds === null) ||
+    !setsEqual(pickedSources, sourceBaseline) ||
     allMonitors !== (deployment.monitorIds === null) ||
     !setsEqual(pickedMonitors, new Set(deployment.monitorIds ?? [])) ||
     heartbeatTarget !== (deployment.heartbeatTarget ?? "logtura") ||
     metricsTarget !== (deployment.metricsTarget ?? "none");
 
   async function save() {
+    if (catalogStatus !== "ready" || saving || !dirty || !name.trim()) return;
     setSaving(true);
     setErr(null);
     try {
       await api.updateDeployment(deployment.id, {
         displayName: name.trim(),
-        // Always an explicit array now; the legacy NULL semantic is
-        // gone from the data model going forward.
-        sourceIds: [...pickedSources],
-        monitorIds: allMonitors ? null : [...pickedMonitors],
+        // Only edited modern sections switch to the website's flat selectors.
+        // Preserve CLI discovery policies and monitor ordering on unrelated saves.
+        ...(!modernSources || !setsEqual(pickedSources, sourceBaseline)
+          ? { sourceIds: [...pickedSources] } : {}),
+        ...(!deployment.graphSelection || deployment.graphSelection.legacyMonitors ||
+          allMonitors !== (deployment.monitorIds === null) ||
+          !setsEqual(pickedMonitors, new Set(deployment.monitorIds ?? []))
+          ? { monitorIds: allMonitors ? null : [...pickedMonitors] } : {}),
         heartbeatTarget,
         metricsTarget: metricsTarget === "none" ? null : metricsTarget,
       });
@@ -1152,6 +1151,13 @@ function ConfigurePanel({
       else next.delete(id);
       return next;
     });
+  }
+
+  if (catalogStatus === "loading") {
+    return <Group><Loader size="xs" aria-label="Loading deployment configuration" /><Text>Loading deployment configuration…</Text></Group>;
+  }
+  if (catalogStatus === "failed") {
+    return <Alert color="red"><Stack gap="sm"><Text>Could not load configuration data. Retry before saving.</Text><Button onClick={() => setCatalogRetry(value => value + 1)}>Retry configuration data</Button></Stack></Alert>;
   }
 
   return (
@@ -1484,6 +1490,7 @@ function SourcePickerByConnection({
       </Group>
       <TextInput
         size="xs"
+        aria-label="Filter sources"
         placeholder="Filter by name or kind…"
         value={filter}
         onChange={(e) => setFilter(e.currentTarget.value)}
@@ -1505,7 +1512,8 @@ function SourcePickerByConnection({
                   </Group>
                   <Switch
                     size="xs"
-                    label={groupAllOn ? "All" : "All"}
+                    label="All"
+                    aria-label={`All sources from ${conn.displayName}`}
                     checked={groupAllOn}
                     onChange={(e) =>
                       toggleGroup(items, e.currentTarget.checked)
@@ -1522,6 +1530,7 @@ function SourcePickerByConnection({
                         </Text>
                       </Stack>
                       <Switch
+                        aria-label={s.displayName}
                         checked={picked.has(s.id)}
                         onChange={(e) => toggle(s.id, e.currentTarget.checked)}
                         size="sm"

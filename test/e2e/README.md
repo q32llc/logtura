@@ -67,7 +67,10 @@ Cloudflare connection through the actual provider form, typing both the connecti
 name and a private fixture token. It creates the self-managed Fly deployment
 through the website wizard and verifies navigation/reload. HTTP then binds the
 disposable existing-machine fixture and sets explicit empty source selection for
-this configuration/runtime case. The strict provider fixture validates the exact
+this configuration/runtime case. The installed CLI then enables automatic source
+discovery against the empty provider fixture. A later website metrics save must
+preserve that policy through CLI pull/push and runtime convergence. No provider
+log streams exist in this scenario, so it does not prove log delivery. The strict provider fixture validates the exact
 Bearer credential received; it does not accept arbitrary input. The browser approves an installed
 CLI login, and observes the pulled/edited/pushed connection label after sign-out,
 a fresh authenticated context and reload. A second CLI login is denied without
@@ -102,8 +105,8 @@ workerd. Assertions require accepted applied state, matching desired revision,
 checkpoint recovery after a container restart and graceful shutdown. The runtime
 executable comes from the installed CLI tarball, with no host Node/package mount.
 
-This case has an explicitly empty provider source selection. It proves heartbeat/
-metrics, connection-label/metrics-target synchronization and the browser flows above. Provider event delivery, source/site update behavior,
+This case enables discovery against an empty provider catalog. It proves heartbeat/
+metrics, connection-label/metrics-target/discovery-policy synchronization and the browser flows above. Provider event delivery, source/site update behavior,
 complete browser/provider flows and actual Fly resources remain required.
 The fixture maps an immutable-looking image reference to a verified Docker image
 configuration ID; real Fly registry/index/platform digest behavior remains a

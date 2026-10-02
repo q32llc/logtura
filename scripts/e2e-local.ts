@@ -97,12 +97,13 @@ try {
   await run(bin, ["pull", deploymentId, "--service", service.url, "--output", config]);
   const before = await request(`/api/deployments/${deploymentId}/config/state`);
   const edits = join(consumer, "edits.json");
-  writeFileSync(edits, JSON.stringify([{ kind: "connection.update", id: connectionId, patch: { displayName: "CLI-updated account" } }]));
+  writeFileSync(edits, JSON.stringify([{ kind: "connection.update", id: connectionId, patch: { displayName: "CLI-updated account" }, discoverSources: true }]));
   await run(bin, ["--config", config, "config", "edit", edits]);
   await run(bin, ["--config", config, "push"]);
   let desired = (await request(`/api/deployments/${deploymentId}/config/state`)).state;
   assert.ok(desired.desired.sequence > (before.state?.desired.sequence ?? 0));
   assert.equal(desired.desired.document.connections[0].connection.displayName, "CLI-updated account");
+  assert.equal(desired.desired.document.connections[0].discoverSources, true);
   assert.equal((await request("/api/connections")).connections.find((item: any) => item.id === connectionId).displayName, "CLI-updated account");
   assert.equal(desired.applied, null);
   const previousCredentialVersion = desired.desired.document.connections[0].credentials.version;
@@ -136,6 +137,8 @@ try {
   await run(bin, ["--config", config, "push"]);
   desired = (await request(`/api/deployments/${deploymentId}/config/state`)).state;
   assert.ok(desired.desired.sequence > previousSequence);
+  assert.equal(desired.desired.document.connections[0].discoverSources, true, "website metrics edits must preserve CLI discovery mode");
+  assert.deepEqual(desired.desired.document.connections[0].selectedSources, [], "the provider fixture has no streams to deliver");
   assert.notEqual(desired.desired.document.connections[0].credentials.version, previousCredentialVersion);
   assert.ok(readFileSync(join(dirname(config), ".env"), "utf8").includes(rotatedProviderToken), "CLI pull must capture the replacement provider credential");
   assert.ok(!JSON.stringify(desired).includes(rotatedProviderToken), "public state must not disclose the replacement credential");

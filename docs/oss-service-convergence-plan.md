@@ -2073,3 +2073,55 @@ remains pending. Final coverage, remaining browser/provider/source/site cases,
 remote persistent ledgers, managed apply, coordinated release/rollback and staged
 production rollout remain required. Public package source and production resources
 are unchanged by this private website/test slice.
+
+### Deployment configuration safety and CLI policy preservation
+
+The deployment configuration page gains 27 interaction cases, bringing the UI
+suite to 221 across 16 files. Cases exercise initial selections and monitor
+applicability, delayed and failed catalogs with retry, legacy anchor expansion,
+cross-connection selections, individual/group/bulk source changes, case-insensitive
+name/kind filtering, visible-only bulk changes and explicit clearing. They also
+cover CLI native-all/discovery modes, unchanged modern section preservation,
+explicit mode conversion when sources are edited, connection-scoped monitors for
+empty discovery catalogs, absent catalog IDs, existing legacy overrides, save
+failures/draft preservation, duplicate saves, saved-state rehydration, trimmed/empty
+names, metrics-capable destination filtering and independent heartbeat/metrics
+settings. APIs are mocked in these interaction cases.
+
+Configuration catalogs previously failed silently. A failed source lookup could
+therefore let the user save an empty explicit list over a legacy wildcard. The
+page now loads sources, monitors and destinations together, exposes a bounded
+request failure through retry controls, and withholds editable configuration until
+all catalogs succeed. Saves are guarded while data is unavailable or a mutation
+is pending. Legacy null selectors expand only to the anchor connection's current
+sources before an explicit save. Source controls gain accessible names.
+
+Modern CLI graphs now seed the picker from graph selections: native all-source
+and discovery modes show the current catalog, while explicit IDs are retained
+even when absent from that catalog. Unchanged modern source/monitor sections are
+omitted from website saves, preserving discovery policy and monitor ordering.
+Source edits write an explicit list; monitor edits update their own section.
+Unchanged discovery connections with no current sources still contribute their
+connection-scoped applicable monitors.
+
+The real installed-CLI/browser/workerd/Docker journey now enables source discovery
+through a packaged CLI graph edit. Website metrics changes, subsequent CLI
+pull/push and actual runtime convergence must preserve that discovery flag. The
+provider fixture returns an empty catalog, so this remains a configuration and
+runtime reporting case, not provider event delivery. The happy path passes,
+including credential rotation, restart reporting, graceful shutdown and cleanup.
+Both after-create and after-runtime cleanup injections pass with verified removal
+of all owned service resources and runtime/container assets.
+
+Service/E2E typechecking, Vite/package build, all 221 UI cases and higher gates
+pass locally. Aggregate statements/branches/functions/lines measure
+75.28/73.36/71.08/75.97 and enforce 75/73/71/75.5. DeploymentDetail measures
+61.91/51.95/67.16/63.90 and enforces 61.5/51.5/67/63.5. No UI files are excluded
+to obtain these results; metrics/bundle/lifecycle and route-level coverage still
+need work toward the final aggregate target.
+
+Preceding polling head 4faa225 passes all prior CI gates in terminal run
+36994323622; only enforced Codecov upload fails. Scoped app approval remains
+pending. Public package source and production resources are unchanged. Provider
+delivery, remaining capabilities and coverage, remote ownership ledgers, managed
+apply, coordinated release/rollback and staged production rollout remain required.
