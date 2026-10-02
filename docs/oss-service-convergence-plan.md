@@ -3010,3 +3010,78 @@ new managed Vector reporting; those integrations remain required. Final private
 coverage and coordinated production publication/rollout are still outstanding.
 The preceding checkpoint CI completed its build/test steps and failed only at the
 still-pending Codecov app upload.
+
+### Managed issued-install queue recovery and accepted-report completion (implemented)
+
+Managed queue recovery now recognizes schema-2 issued intent and invokes the
+atomic physical-target binder after the packaged provider recovery operation.
+It retains the same private config, instance and receipt; acknowledgement loss
+does not allocate another machine or instance. The health poll verifies the full
+planned configuration and OCI platform digest, then checks that the current,
+un-stale desired state and active instance still match the issued runtime. A
+healthy machine with no accepted matching report stays pending and requeues with
+an explicit runtime-acknowledgement progress label. Its deadline error explains
+that acknowledgement is pending. Superseded instances or graph changes fail
+without clearing the outdated bundle marker.
+
+`completeIssuedManagedDeployment` makes accepted-report conditions load-bearing
+inside the graph-fenced D1 mutation. Both the operational deployment update and
+journal completion require the owned installed machine, exact physical target,
+active issued UUID, positive accepted-report counter, matching desired/applied
+sequence, revision and current graph base. This additionally fences instance
+replacement between polling and completion, since active-instance replacement
+does not advance the account graph clock. Status, bundle marker and journal
+completion share the transaction. Legacy queued installs retain their compatible
+health-based behavior; they do not acquire issued-runtime convergence claims.
+
+Eight new native cases consume official inbound queue batches, assert explicit
+ack/no transport retry, and exercise recovery/pending/completion through native
+D1. A positive case runs the packaged `reportLoadedForwarder` engine against the
+exact provider-fixture bytes and private environment, then sends its report to the
+real worker `/api/applied` endpoint. Only its accepted report permits the next poll
+to clear the marker and complete the journal. Cases cover lost provider response
+(one create), missing report timeout, graph/instance replacement, SQL completion
+with absent or superseded acknowledgement, rejected old-instance reports, and
+invalid completion intent. These are provider-fixture observations and real API
+acceptance, not proof of a managed Vector process or live Fly machine.
+
+This completes issued recovery/completion integration, not fresh managed creation.
+The parent creation chain still prepares legacy installs. The next slice must
+add checkpoint provisioning to that chain and call issued preparation for new
+machines and already-compatible mounts. Legacy machines without persistent storage
+need the separately safe replacement/rollback transition. The full real managed
+browser/queue/Vector journey and live rollout remain required. No production schema,
+forwarder, npm version or public package source changes in this slice.
+
+The recurring `onUserConsoleLog` teardown failure appeared again while all test
+assertions and coverage gates passed. The workerd project now uses Vitest's
+[documented synchronous logging option](https://vitest.dev/config/disableconsoleintercept),
+`disableConsoleIntercept: true`, to keep native diagnostic output visible without
+buffered console RPCs at Durable Object teardown. It does not enable ignored
+unhandled errors, silence output or remove assertions/coverage. This changes the
+logging transport, not the underlying upstream race. Public Node/UI projects keep
+their existing console interception. Subsequent full native runs verify visible
+job diagnostics and inspect stderr for teardown errors; reliability still needs
+continued CI evidence, not a claim that an upstream bug was fixed.
+
+Validation: 1,111 assertions pass across 103 files with all existing private
+coverage floors retained (87.56 statements / 85.49 branches / 90.55 functions /
+85.86 lines in the repeated full run). The completion module measures/enforces
+100% across all four metrics; the managed handler measures 99.25/96.55/100/100,
+retaining its 99/90/100/100 floors. The 41-case targeted queue/issued/legacy group,
+private types/service build and full local browser/installed-CLI/workerd/Docker
+journey pass. The real Docker journey still exercises self-managed installation;
+its success does not establish fresh managed creation or a managed Vector process.
+
+With native logging, the first full run completed without teardown errors. The
+second retained visible diagnostics and emitted no `onUserConsoleLog` errors but
+still emitted `EnvironmentTeardownError` for a pending `resolve` RPC. Both returned
+zero with all assertions/gates passed. Do not claim fully clean/reliable runner
+teardown or an upstream fix: resolving that remaining failure is required for the
+final baseline. Registry inspection reports Vitest 5.0.3 and the Cloudflare worker
+pool 0.22.0 currently available; evaluate their peers/runtime requirements and the
+full suite in the dependency/harness slice rather than suppressing unhandled
+errors or weakening gates. The preceding atomic-runtime CI completed build/test
+steps and failed at the pending Codecov upload. Final private coverage, Codecov
+configuration, complete managed creation/replacement, live provider verification,
+remote ownership cleanup and coordinated publication/rollout remain open.

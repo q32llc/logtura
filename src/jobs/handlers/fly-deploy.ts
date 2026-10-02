@@ -15,6 +15,9 @@ import {
   type FlyMachineConfig,
 } from "../../deploy-targets/fly-machines";
 import { readManagedInstall,prepareManagedInstall,executeManagedInstall,completeManagedInstall,recordManagedInstallVersion } from "../../managed-installations";
+import { bindInstalledManagedRuntime } from "../../managed-issued-installations";
+import { readDeploymentConfiguration } from "../../deployment-configuration";
+import { completeIssuedManagedDeployment } from "../../managed-runtime-completion";
 import { dischargeBundle } from "../../deploy-targets/fly-macaroon";
 import type { Env } from "../../env";
 import type { JobHandlerCtx } from "../queue";
@@ -133,7 +136,7 @@ export async function runFlyCreateOrUpdateMachine(
     const client=managedClient(flyAuth,ctx.signal),machineId=await executeManagedInstall(ctx.env,activeInstall,client,ctx.signal);
     const expectedVersion=activeInstall.installedConfigurationVersion??activeInstall.configurationVersion;
     const digest=activeInstall.payload.after.image.split("@")[1]!;
-    const committed=await commitConfiguration(ctx.env.DB,ctx.job.userId,expectedVersion,[
+    const committed=activeInstall.runtime?{version:await bindInstalledManagedRuntime(ctx.env,ctx.job.userId,parent.deploymentId,activeInstall.id)}:await commitConfiguration(ctx.env.DB,ctx.job.userId,expectedVersion,[
       ctx.env.DB.prepare("UPDATE deployments SET external_id=?,image_digest=?,updated_at=? WHERE id=? AND user_id=?").bind(`fly:${p.appName}:${machineId}`,digest,Date.now(),parent.deploymentId,ctx.job.userId),
       recordManagedInstallVersion(ctx.env.DB,activeInstall.id,ctx.job.userId),
     ]);
@@ -280,26 +283,35 @@ export async function runFlyWaitRunning(
   const recentExit = (m.events ?? []).find(
     (e) => e.type === "exit" && now - e.timestamp < RECENT_EXIT_WINDOW_MS,
   );
+  let reportAccepted=true;
+  if(install?.runtime){
+    const state=await readDeploymentConfiguration(ctx.env.DB,ctx.job.userId,parent.deploymentId),instance=install.runtime.instance;
+    if(!state || state.stale || state.activeInstanceId!==instance.instanceId || state.desired.sequence!==instance.sequence || state.desired.revision!==instance.revision)throw new Error("Managed issued instance changed while waiting for its report");
+    reportAccepted=state.lastReportSequence>0 && state.applied?.sequence===instance.sequence && state.applied.revision===instance.revision;
+  }
 
   await ctx.progress({
-    label: "Waiting for machine to start",
-    detail: `state=${m.state} checks=${checkSummary}${recentExit ? " recent_exit" : ""}`,
+    label: reportAccepted?"Waiting for machine to start":"Waiting for runtime acknowledgement",
+    detail: `state=${m.state} checks=${checkSummary}${recentExit ? " recent_exit" : ""}${reportAccepted?"":" report_pending"}`,
   });
 
-  if (m.state === "started" && checksPassing && !recentExit) {
-    await ctx.env.DB.prepare("UPDATE deployments SET status='running',updated_at=? WHERE id=? AND user_id=?")
-      .bind(Date.now(), parent.deploymentId, ctx.job.userId).run();
-    // The new bundle is now running on Fly — clear the out-of-date
-    // flag the UI uses for the Redeploy CTA. (We don't clear via
-    // markUserDeploymentsOutdated's inverse because the user might
-    // have changed config OF ANOTHER deployment mid-deploy here;
-    // we only clear this specific deployment.)
-    if (p.configurationVersion !== undefined) {
-      await commitConfiguration(ctx.env.DB, ctx.job.userId, p.configurationVersion, [
-        ctx.env.DB.prepare("UPDATE deployments SET bundle_outdated=0,updated_at=? WHERE id=? AND user_id=?")
-          .bind(Date.now(), parent.deploymentId, ctx.job.userId),
-        ...(install?[completeManagedInstall(ctx.env.DB,install.id,ctx.job.userId)]:[]),
-      ]);
+  if (m.state === "started" && checksPassing && !recentExit && reportAccepted) {
+    if(install?.runtime){await completeIssuedManagedDeployment(ctx.env,install,p.configurationVersion!);}
+    else {
+      await ctx.env.DB.prepare("UPDATE deployments SET status='running',updated_at=? WHERE id=? AND user_id=?")
+        .bind(Date.now(), parent.deploymentId, ctx.job.userId).run();
+      // The new bundle is now running on Fly — clear the out-of-date
+      // flag the UI uses for the Redeploy CTA. (We don't clear via
+      // markUserDeploymentsOutdated's inverse because the user might
+      // have changed config OF ANOTHER deployment mid-deploy here;
+      // we only clear this specific deployment.)
+      if (p.configurationVersion !== undefined) {
+        await commitConfiguration(ctx.env.DB, ctx.job.userId, p.configurationVersion, [
+          ctx.env.DB.prepare("UPDATE deployments SET bundle_outdated=0,updated_at=? WHERE id=? AND user_id=?")
+            .bind(Date.now(), parent.deploymentId, ctx.job.userId),
+          ...(install?[completeManagedInstall(ctx.env.DB,install.id,ctx.job.userId)]:[]),
+        ]);
+      }
     }
     await ctx.events.record({
       kind: "fly_machine.running",
@@ -318,7 +330,7 @@ export async function runFlyWaitRunning(
 
   if (Date.now() >= p.pollDeadline) {
     throw new Error(
-      `machine ${p.machineId} did not reach healthy 'started' within ${RUN_TIMEOUT_MS / 1000}s (last state: ${m.state}, checks: ${checkSummary}${recentExit ? `, recent exit at ${new Date(recentExit.timestamp).toISOString()}` : ""})`,
+      `machine ${p.machineId} did not reach healthy 'started' within ${RUN_TIMEOUT_MS / 1000}s (last state: ${m.state}, checks: ${checkSummary}${reportAccepted?"":", runtime acknowledgement pending"}${recentExit ? `, recent exit at ${new Date(recentExit.timestamp).toISOString()}` : ""})`,
     );
   }
 

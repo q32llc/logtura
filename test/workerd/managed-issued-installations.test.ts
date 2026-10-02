@@ -1,23 +1,15 @@
 import {env} from "cloudflare:test";
 import {expect,it} from "vitest";
-import {createSecretVersioner,exportDeploymentManifest,FlyMachinesClient,type FlyMachineConfig} from "@logtura/core";
-import {railwayLogsDriver} from "@logtura/driver-railway-logs";
-import {createConnection,createDeployment} from "../../src/db";
-import {readConfigurationVersion} from "../../src/config-version";
-import {issueDeploymentConfiguration,readDeploymentConfiguration,activateDeploymentInstance} from "../../src/deployment-configuration";
+import {FlyMachinesClient,type FlyMachineConfig} from "@logtura/core";
+import {activateDeploymentInstance} from "../../src/deployment-configuration";
 import {readDeploymentInstanceReceipt} from "../../src/deployment-instances";
 import {prepareIssuedManagedInstall,bindInstalledManagedRuntime} from "../../src/managed-issued-installations";
 import {prepareManagedInstall,readManagedInstall,executeManagedInstall} from "../../src/managed-installations";
 import {validateManagedRuntime} from "../../src/managed-runtime-inputs";
-import {mockFetch,seedUser} from "./_setup";
+import {mockFetch} from "./_setup";
+import {managedIssuedFixture as fixture} from "./_managed-issued-fixture";
 const image=`registry.test/forwarder@sha256:${"a".repeat(64)}`;
-async function fixture(issue=true){
- const {userId}=await seedUser(),connection=await createConnection(env.DB,env,{userId,provider:"railway-logs",displayName:"Source",externalAccountId:"project:production",credentials:{apiToken:"private-source-token"}}),deployment=await createDeployment(env.DB,{userId,connectionId:connection.id,targetKind:"fly",displayName:"Managed",managed:true});
- const exported=await exportDeploymentManifest({providers:[railwayLogsDriver],destinations:[],monitors:[],connections:[{connection:{id:connection.id,provider:railwayLogsDriver.id,displayName:"Source",externalAccountId:"project:production"},credentials:{apiToken:"private-source-token"},selectedSources:[{id:"source",externalId:"service",displayName:"App",sourceKind:"railway_service",metadata:{environment_id:"production",service_id:"service"}}]}],heartbeat:{kind:"logtura",deploymentId:deployment.id,appUrl:env.APP_URL},runtimeEnv:{LOGTURA_HEARTBEAT_TOKEN:deployment.heartbeat_token}},await createSecretVersioner("fixture"));
- let version=await readConfigurationVersion(env.DB,userId);if(issue)version=(await issueDeploymentConfiguration(env.DB,userId,deployment.id,version,0,exported.document)).configurationVersion;
- const input={userId,deploymentId:deployment.id,app:"app",org:"personal",region:"ord",configurationVersion:version,base:{image,guest:{cpu_kind:"shared",cpus:2,memory_mb:4096}} as FlyMachineConfig,machine:null,volume:"vol_checkpoint",service:env.APP_URL,document:exported.document,env:exported.secretValues,providers:[railwayLogsDriver],destinations:[]};
- return {userId,deployment,input,version,prepare:()=>prepareIssuedManagedInstall(env,input),state:()=>readDeploymentConfiguration(env.DB,userId,deployment.id)};
-}
+
 it("atomically activates a server instance, persists its receipt and encrypts the exact issued provider config",async()=>{
  const f=await fixture(),install=await f.prepare(),runtime=install.runtime!;expect(install.payload.schemaVersion).toBe(2);expect(await f.state()).toMatchObject({activeInstanceId:runtime.instance.instanceId,lastReportSequence:0,stale:false});
  expect(await readDeploymentInstanceReceipt(env.DB,f.userId,f.deployment.id,runtime.instance.requestId)).toEqual(runtime.instance);expect(install.payload.after).toMatchObject({image,mounts:[{path:"/var/lib/logtura",volume:"vol_checkpoint"}],stop_config:{signal:"SIGTERM",timeout:"35s"}});
