@@ -221,6 +221,7 @@ try {
     return Number.isFinite(detail.lastSeenAt) && detail.lastSeenAt > 0 && Number.isFinite(detail.metricsSnapshot?.updatedAt) && Object.keys(detail.metricsSnapshot.byComponent).length > 0;
   }, "actual Vector heartbeat and metrics HTTP delivery");
   await website.applied(deploymentId, desired.desired.sequence, desired.desired.revision);
+  await website.metrics(deploymentId);
   await website.revoke();
   await assert.rejects(run(bin, ["whoami"]), /invalid_account_token \(HTTP 401\)/);
   website.assertNoErrors();

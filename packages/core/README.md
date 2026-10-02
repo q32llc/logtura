@@ -440,5 +440,7 @@ keeps per-field rates, sums per-error-type counters, and preserves lifetime tota
 across individual and process resets. Duplicate/older counter samples cannot replace
 newer values. New error labels are capped at 32 per component and components at 256.
 Prototype-like identities are stored as data keys. `rateFor` returns events per minute
-or `null` before a usable prior sample. The hosted service and standalone CLI stats
+or `null` before a usable prior sample, for invalid counters/clocks, or when the
+result cannot be represented as a finite number. Large representable rates avoid
+intermediate multiplication overflow. A counter reset returns zero. The hosted service and standalone CLI stats
 use these same public operations; persistence/checkpoint scheduling stays in adapters.

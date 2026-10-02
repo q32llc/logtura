@@ -68,3 +68,27 @@ it("keeps process identity stable under tolerated uptime jitter rather than forc
  for(const skew of [1,-1,100,30_000]){snap=applyMetricsToSnapshot(snap,parsed([uptime(60,epoch+skew)]));expect(snap.processStartAt).toBe(boot);}
  const restarted=applyMetricsToSnapshot(snap,parsed([uptime(1,epoch+120_000)]));expect(restarted.processStartAt).toBe(epoch+119_000);
 });
+
+it("keeps large representable rates finite and marks overflowing rates unavailable",()=>{
+ const component:ComponentMetrics={kind:"source",type:"exec",sent:1e308,lastSeen:60_000,prev:{sent:0,sampleAt:0}};
+ expect(rateFor(component,"sent")).toBe(1e308);
+ expect(rateFor({...component,lastSeen:1},"sent")).toBeNull();
+ expect(rateFor({...component,sent:0},"sent")).toBe(0);
+ expect(rateFor({...component,sent:Number.MIN_VALUE},"sent")).toBe(Number.MIN_VALUE);
+ expect(rateFor({...component,sent:Number.MIN_VALUE,lastSeen:Number.MIN_VALUE},"sent")).toBe(60_000);
+});
+it.each([NaN,Infinity,-Infinity,-1])("rejects invalid current or previous counters (%s)",value=>{
+ const component:ComponentMetrics={kind:"sink",type:"http",sent:10,lastSeen:60_000,prev:{sent:5,sampleAt:0}};
+ expect(rateFor({...component,sent:value},"sent")).toBeNull();
+ expect(rateFor({...component,prev:{sent:value,sampleAt:0}},"sent")).toBeNull();
+});
+it.each([NaN,Infinity,-Infinity])("rejects invalid sample clocks including field-specific clocks (%s)",value=>{
+ const component:ComponentMetrics={kind:"sink",type:"http",sent:10,lastSeen:60_000,prev:{sent:5,sampleAt:0}};
+ expect(rateFor({...component,lastSeen:value},"sent")).toBeNull();
+ expect(rateFor({...component,prev:{sent:5,sampleAt:value}},"sent")).toBeNull();
+ expect(rateFor({...component,sampleAtByField:{sent:value}},"sent")).toBeNull();
+ expect(rateFor({...component,prev:{sent:5,sampleAt:0,sampleAtByField:{sent:value}}},"sent")).toBeNull();
+});
+it("rejects an overflowing clock interval instead of reporting a zero rate",()=>{
+ expect(rateFor({kind:"sink",type:"http",sent:10,lastSeen:Number.MAX_VALUE,prev:{sent:5,sampleAt:-Number.MAX_VALUE}},"sent")).toBeNull();
+});

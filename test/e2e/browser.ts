@@ -205,6 +205,27 @@ export async function startBrowser(service: { url: string; cookie: string }) {
         await page.reload();
         await card.getByText("In sync", { exact: true }).waitFor();
       },
+      async metrics(id: string) {
+        await page.goto(service.url + `/app/deployments/${id}`);
+        const card = page.getByRole("region", { name: "Pipeline metrics" });
+        await card.getByRole("button", { name: "Rate", exact: true }).waitFor();
+        assert.equal(await card.getByText("0 /min", { exact: true }).count(), 3, "empty provider discovery must not count internal traffic as logs");
+        await card.getByRole("button", { name: /^Show per-component/ }).click();
+        await card.getByRole("checkbox", { name: "Show plumbing" }).check();
+        const plumbing = card.getByRole("table", { name: "Internal plumbing metrics" });
+        await plumbing.waitFor();
+        assert.ok(await plumbing.getByRole("row").count() > 1, "real Vector must report internal components");
+        await card.getByRole("button", { name: "Total", exact: true }).click();
+        await card.getByText("Totals since the current Vector process started.", { exact: true }).waitFor();
+        for (const label of ["Events received", "Events sent", "Errors"]) {
+          await card.getByText(label, { exact: true }).locator("..").getByText("0", { exact: true }).waitFor();
+        }
+        await card.getByRole("button", { name: "Hide per-component", exact: true }).click();
+        assert.equal(await card.getByRole("table").count(), 0);
+        await page.reload();
+        await card.getByRole("button", { name: "Rate", exact: true }).waitFor();
+        assert.equal(await card.getByText("0 /min", { exact: true }).count(), 3);
+      },
       async revoke() {
         await page.goto(service.url + "/app/cli");
         await page.getByRole("button", { name: "Revoke", exact: true }).click();

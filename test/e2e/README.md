@@ -91,7 +91,10 @@ The website also enables metrics through Configure/Save;
 the revision card becomes stale, and CLI pull/push establishes a new desired
 revision before apply. Configure tab selection and metrics settings survive reload.
 After actual runtime apply, the browser shows matching desired/applied revisions
-and “In sync” across reload. Browser client revocation persists across reload and
+and “In sync” across reload. It inspects metrics delivered by actual Vector,
+requires zero user-log headline rates for the empty provider catalog, opens the
+internal-component drilldown, switches to explicitly labeled current-process
+totals, hides the table and rechecks rates after reload. Browser client revocation persists across reload and
 the saved CLI token receives HTTP 401. The separately authenticated forwarder
 continues reporting after a container restart. Unhandled browser JavaScript errors
 fail the scenario. Only identity/session establishment is seeded; GitHub OAuth and

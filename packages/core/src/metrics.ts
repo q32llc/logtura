@@ -480,11 +480,16 @@ export function rateFor(
   const cur = comp[field];
   const prev = comp.prev?.[field];
   if (cur === undefined || prev === undefined || !comp.prev) return null;
+  if (!Number.isFinite(cur) || cur < 0 || !Number.isFinite(prev) || prev < 0) return null;
   const prevSampleAt = comp.prev.sampleAtByField?.[field] ?? comp.prev.sampleAt;
   const curSampleAt = comp.sampleAtByField?.[field] ?? comp.lastSeen;
+  if (!Number.isFinite(prevSampleAt) || !Number.isFinite(curSampleAt)) return null;
   const dt = curSampleAt - prevSampleAt;
-  if (dt <= 0) return null;
+  if (!Number.isFinite(dt) || dt <= 0) return null;
   const dv = cur - prev;
   if (dv < 0) return 0; // restart edge case
-  return (dv * 60_000) / dt;
+  // Scale the interval first to avoid intermediate counter overflow/underflow.
+  // Sub-millisecond intervals use division first so scaling cannot round to zero.
+  const rate = dt < 1 ? (dv / dt) * 60_000 : dv / (dt / 60_000);
+  return Number.isFinite(rate) ? rate : null;
 }

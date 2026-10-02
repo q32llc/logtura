@@ -2090,7 +2090,7 @@ settings. APIs are mocked in these interaction cases.
 
 Configuration catalogs previously failed silently. A failed source lookup could
 therefore let the user save an empty explicit list over a legacy wildcard. The
-page now loads sources, monitors and destinations together, exposes a bounded
+page now loads sources, monitors and destinations together, exposes
 request failure through retry controls, and withholds editable configuration until
 all catalogs succeed. Saves are guarded while data is unavailable or a mutation
 is pending. Legacy null selectors expand only to the anchor connection's current
@@ -2125,3 +2125,49 @@ Preceding polling head 4faa225 passes all prior CI gates in terminal run
 pending. Public package source and production resources are unchanged. Provider
 delivery, remaining capabilities and coverage, remote ownership ledgers, managed
 apply, coordinated release/rollback and staged production rollout remain required.
+
+### Shared metrics numerical integrity and deployment drilldown baseline
+
+The public core rate helper now rejects invalid current/previous counters and
+sample clocks, overflowing intervals and unrepresentable results. Interval-scaled
+arithmetic avoids intermediate overflow/underflow for large and subnormal values
+while retaining per-counter timestamp fallback, unavailable first observations
+and zero-rate reset behavior. Nine additional core cases cover these contracts;
+installed tarball checks verify the public export on large, overflowing and invalid
+counter observations. Core metrics coverage is 100 statements/functions/lines and
+99.23 branches; the existing strict file gates remain enforced.
+
+The actual deployment page gains 17 metrics interactions, bringing the UI suite
+to 238 across 17 files. Cases verify user-only rates and totals, child-source
+deduplication, internal traffic exclusion, source/sink/transform throughput,
+per-counter timing, rate formatting, current-process totals excluding global
+restart offsets, first-observation availability, unknown/orphan components,
+throughput sorting, source collapse/expand, optional plumbing, empty sections,
+process metadata and sorted error-type tooltips. Nonfinite or overflowing displays
+render unavailable rather than Infinity/NaN. The Total view explicitly describes
+its current-process scope. Metrics sections and tables gain accessible names.
+
+The real browser/runtime scenario inspects metrics delivered by actual packaged
+Vector to workerd/D1. It requires zero user-log headline rates for the empty
+discovery catalog, visible internal-component rows after opening plumbing, labeled
+zero current-process totals, table hiding and unchanged rates after reload. This
+tests real metrics presentation; it does not substitute internal traffic for
+provider log delivery. The final happy path and after-runtime cleanup injection
+pass with runtime restart reporting, graceful shutdown and verified owned-resource
+cleanup. Pushed-head CI remains a separate required check.
+
+Service/E2E types and package/Vite builds pass. All 872 backend/workerd cases pass
+at aggregate statements/branches/functions/lines 80.13/77.72/82.15/77.13. The public
+checkout passes builds/types, 620 cases and coverage gates at
+87.69/85.65/85.83/86.18, installed checks for all 15 packages and declarations,
+and the existing standalone Vector delivery/runtime fixture. All 238 UI cases pass
+at 84.62/86.32/77.10/85.06, enforcing 84.5/86/77/85. DeploymentDetail measures
+88.35/85.36/89.55/90.06 and enforces 88/85/89/90. Final aggregate coverage still
+requires further route/API, CLI/provider and private service work.
+
+Preceding configuration head 06989cf passes all prior CI gates in terminal run
+36995485340; only enforced Codecov upload fails. Scoped app permission approval
+remains pending. No existing published package version is overwritten and no
+production resource is changed by this source slice. Remaining capabilities,
+provider/source/site delivery, managed apply, remote ledgers, coordinated package
+publication/rollback and staged production rollout remain required.

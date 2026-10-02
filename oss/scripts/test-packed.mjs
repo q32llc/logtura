@@ -90,6 +90,10 @@ monitors: []
     import {main,applyLinkedFlyDeployment,readPendingFlyApply,activateLinkedDeployment,readPendingActivation,finishLinkedActivation,reportLoadedForwarderFile,runForwarderReporting} from '@logtura/cli';
     import {cloudflareWorkerTailDriver} from '@logtura/driver-cloudflare-worker-tail';
     const metrics=applyMetricsToSnapshot(null,parseMetricsBody(readFileSync('metrics file.ndjson','utf8')));assert.equal(metrics.byComponent.packed_sink.sent,7);assert.equal(rateFor(metrics.byComponent.packed_sink,'sent'),null);
+    const largeMetric={kind:'source',type:'exec',sent:1e308,lastSeen:60000,prev:{sent:0,sampleAt:0}};
+    assert.equal(rateFor(largeMetric,'sent'),1e308);
+    assert.equal(rateFor({...largeMetric,lastSeen:1},'sent'),null);
+    assert.equal(rateFor({...largeMetric,sent:NaN},'sent'),null);
     const input={providers:[cloudflareWorkerTailDriver],destinations:[],monitors:[],
       connections:[{connection:{id:'fixture',provider:cloudflareWorkerTailDriver.id,displayName:'Fixture',externalAccountId:'fixture-account'},
         selectedSources:[{id:'worker',externalId:'fixture-worker',displayName:'fixture-worker',sourceKind:'worker',metadata:null}],credentials:{apiToken:'fixture-token'}}]};

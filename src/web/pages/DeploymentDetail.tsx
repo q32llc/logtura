@@ -380,7 +380,7 @@ function MetricsCard({
 
   if (!snap || snap.updatedAt === 0) {
     return (
-      <Card withBorder p="lg">
+      <Card withBorder p="lg" component="section" aria-label="Pipeline metrics">
         <Stack gap={4}>
           <Text fw={600}>Pipeline metrics</Text>
           <Text size="sm" c="dimmed">
@@ -415,7 +415,7 @@ function MetricsCard({
         };
 
   return (
-    <Card withBorder p="lg">
+    <Card withBorder p="lg" component="section" aria-label="Pipeline metrics">
       <Stack gap="md">
         <Group justify="space-between" align="center">
           <Group gap={6}>
@@ -476,6 +476,8 @@ function MetricsCard({
             </Text>
           </Stack>
         </Group>
+
+        {mode === "total" && <Text size="xs" c="dimmed">Totals since the current Vector process started.</Text>}
 
         <Group justify="space-between">
           <Text size="xs" c="dimmed">
@@ -684,6 +686,7 @@ function Section({
         </Badge>
       </Group>
       <Table
+        aria-label={`${title} metrics`}
         striped
         verticalSpacing={4}
         horizontalSpacing="xs"
@@ -960,6 +963,7 @@ function perComponentRate(c: ApiMetricsComponent) {
 }
 
 function fmt1(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return "—";
   if (n === 0) return "0";
   if (n < 0.1) return n.toFixed(2);
   if (n < 10) return n.toFixed(1);
@@ -967,6 +971,7 @@ function fmt1(n: number): string {
 }
 
 function fmtN(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return "—";
   return Math.round(n).toLocaleString();
 }
 
