@@ -27,6 +27,23 @@ export async function startBrowser(service: { url: string; cookie: string }) {
     await anonymous.close();
     await signedIn();
     return {
+      async createConnection(displayName: string, onCreated: (id: string) => void) {
+        await page.goto(service.url + "/app/connections/new?provider=cloudflare-worker-tail");
+        await page.getByRole("textbox", { name: "Provider", exact: true }).waitFor();
+        await page.getByRole("textbox", { name: "Connection name", exact: true }).fill(displayName);
+        await page.getByRole("button", { name: "Or create the token manually", exact: true }).click();
+        await page.getByLabel(/^Paste the token Cloudflare gave you/).fill("fixture-private-provider-token");
+        const created = page.waitForResponse(response => response.url() === service.url + "/api/connections" && response.request().method() === "POST");
+        await page.getByRole("button", { name: "Verify & continue", exact: true }).click();
+        const response = await created;
+        assert.equal(response.status(), 200, "website connection creation must succeed");
+        const body = await response.json();
+        assert.equal(typeof body.connection?.id, "string");
+        onCreated(body.connection.id);
+        await page.waitForURL(`${service.url}/app/connections/${body.connection.id}`);
+        await page.getByRole("heading", { name: displayName, exact: true }).waitFor();
+        return body.connection.id as string;
+      },
       async approve(code: string) {
         await page.goto(`${service.url}/app/cli?code=${encodeURIComponent(code)}`);
         await page.getByText(code, { exact: true }).waitFor();

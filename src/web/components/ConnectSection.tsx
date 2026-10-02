@@ -165,8 +165,10 @@ export function renderField(
     description: f.description,
     required: f.required,
     value: values[f.name] ?? "",
-    onChange: (e: React.ChangeEvent<HTMLInputElement>) =>
-      setValues((s) => ({ ...s, [f.name]: e.currentTarget.value })),
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
+      const value = e.currentTarget.value;
+      setValues((s) => ({ ...s, [f.name]: value }));
+    },
   };
   return f.type === "password" ? (
     <PasswordInput {...props} autoComplete="off" />

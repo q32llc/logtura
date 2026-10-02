@@ -73,16 +73,15 @@ try {
   };
   ownedRequest = request;
   assert.equal((await request("/api/me")).user.id, service.userId);
-  const form = new FormData(); form.set("provider", "cloudflare-worker-tail"); form.set("display_name", `e2e-${runId}`); form.set("api_token", "fixture-private-provider-token");
-  connectionId = (await request("/api/connections", form, "POST")).connection.id;
+  website = await startBrowser(service);
+  connectionId = await website.createConnection(`e2e-${runId}`, id => { connectionId = id; });
   monitorIds = (await request("/api/monitors")).monitors.map((monitor: any) => monitor.id);
   deploymentId = (await request("/api/deployments", { connectionId, displayName: "Existing fixture forwarder", targetKind: "fly", managed: false, sourceIds: [], heartbeatTarget: "logtura" }, "POST")).deployment.id;
   assert.ok(deploymentId); assert.ok(connectionId);
   await request(`/api/deployments/${deploymentId}`, { externalId: "fly:e2e-forwarder:abc123" }, "PUT");
-  console.log("Local workerd: migrated fresh D1 and created owned connection/deployment through HTTP");
+  console.log("Local workerd: migrated fresh D1, created connection through the real website and deployment through HTTP");
   injectFailure("after-create");
 
-  website = await startBrowser(service);
   await website.deployment(deploymentId, "No configuration revision has been recorded for this deployment.");
   const login = start(bin, ["login", "--service", service.url, "--no-browser"]);
   // Attach rejection handling immediately while awaiting the approval code.

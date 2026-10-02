@@ -22,6 +22,10 @@ export async function startLocalService() {
     outboundService(request: Request) {
       const url = new URL(request.url);
       if (url.origin === "https://api.cloudflare.com") {
+        if (request.headers.get("authorization") !== "Bearer fixture-private-provider-token") {
+          unexpected.push("invalid_cloudflare_fixture_credential");
+          return Response.json({ success: false, errors: [{ message: "Invalid fixture credential" }] }, { status: 401 });
+        }
         const path = url.pathname;
         if (path === "/client/v4/user/tokens/verify") return Response.json({ success: true, result: { status: "active" } });
         if (path === "/client/v4/accounts") return Response.json({ success: true, result: [{ id: "fixture-account", name: "Fixture" }] });

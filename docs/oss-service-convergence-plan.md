@@ -1827,3 +1827,48 @@ Service typechecking, the Vite build, all 44 UI tests with the raised coverage g
 and the full installed CLI/browser/workerd/Docker convergence journey pass locally
 with these editor changes. The E2E journey also verifies graceful runtime shutdown
 and disposable-resource cleanup. Clean pushed-head CI remains a separate gate.
+
+### Provider connection website baseline and credential isolation
+
+Private head 8a95537 passes code, packaging, types, the three real local browser/
+CLI/runtime cases, unit/UI coverage and artifact gates in clean CI run
+36987084772. The sole failed step remains the enforced Codecov upload; scoped
+GitHub App installation is still awaiting permission approval.
+
+The next slice covers NewConnection, shared provider connection controls/credential
+fields and the account connection dashboard. The UI suite has 70 tests across ten
+files. Cases include disabled loading/empty-catalog state, direct and guided token
+entry, manual instructions, provider selection, optional identity lookup failures,
+verification retries, compatible scoped bootstrap minting and retries, normalized
+Vercel/Railway installation returns, OAuth connection-name/installation encoding,
+error display, discovery-time summaries and connection navigation. Provider tests
+use synthetic credentials and mocked APIs; they do not authorize live third-party
+accounts or claim provider integration coverage.
+
+The tests revealed and fix two product defects: changing source providers retained
+the previous provider's token and authorization/manual state, and credential field
+state updaters read React event.currentTarget after dispatch, which can throw when
+the updater runs later. Provider changes now clear credential/authorization/manual/
+error state; credential changes capture the input value before scheduling state.
+
+The real Chromium/workerd E2E now creates its source connection through the actual
+website form instead of direct HTTP setup. It types a fixture token, verifies and
+navigates to the new connection before the existing installed CLI/Docker revision
+journey. The outbound Cloudflare fixture requires the exact expected Bearer token.
+This validates the real form, handler and shared provider verification path while
+retaining the explicit empty source selection and all existing provider/runtime
+limitations. The returned connection ID is captured before page-navigation
+assertions so later browser errors retain ownership for cleanup.
+
+UI statements/branches/functions/lines measure 33.68/34.06/31.42/32.63. Aggregate CI
+floors rise to 33.5/34/31/32.5, with no new coverage exclusions. ConnectSection and
+Dashboard each enforce 100% in all measures. NewConnection enforces 95/94/100/97
+(measured 95.23/94.89/100/97.84). Final aggregate UI coverage, broader provider and
+source/site journeys, remote cleanup ledgers, managed apply, release and production
+rollout remain required; these incremental baselines do not complete those phases.
+Service/E2E types, the actual Vite/package build, all 70 UI tests with the raised
+coverage gates and the complete real website/installed CLI/workerd/Docker happy
+path pass locally. Both after-create and after-runtime cleanup injections pass.
+The final happy-path run also passes the stricter exact provider token check.
+Clean pushed-head CI remains a separate verification gate. Public package source
+and production resources/schema are unchanged by this private website/test slice.

@@ -209,7 +209,14 @@ export function NewConnection() {
                 })) ?? []
               }
               value={providerId}
-              onChange={setProviderId}
+              onChange={(nextProviderId) => {
+                if (nextProviderId === providerId) return;
+                setProviderId(nextProviderId);
+                setFieldValues({});
+                setConnectClicked(false);
+                setShowManual(false);
+                setError(null);
+              }}
               required
               disabled={!providers}
             />
