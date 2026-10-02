@@ -256,7 +256,7 @@ export const railwayLogsDriver: ProviderDriver<RailwayCredentials> = {
         components.push({
           key: serviceKey,
           kind: "transform",
-          yaml: railwayServiceFilterYaml(normalizeKey, railwayServiceId(source)),
+          yaml: railwayServiceFilterYaml(normalizeKey, railwayServiceId(source), railwayEnvironmentId(connection, source)),
         });
       }
     }
@@ -559,22 +559,18 @@ function groupSourcesByEnvironment(
       throw new Error(`Unknown Railway source kind: ${source.sourceKind}`);
     }
     assertSafeRailwayId(railwayServiceId(source), "service id");
-    const environmentId = String(
-      source.metadata?.environment_id ??
-        source.metadata?.environmentId ??
-        connection.externalAccountId ??
-        "",
-    );
-    if (!environmentId) {
-      throw new Error(
-        `Railway source ${source.externalId} is missing environment id`,
-      );
-    }
+    const environmentId = railwayEnvironmentId(connection, source);
     const list = out.get(environmentId) ?? [];
     list.push(source);
     out.set(environmentId, list);
   }
   return out;
+}
+
+function railwayEnvironmentId(connection: ConnectionRef, source: SourceRef): string {
+  const environmentId = String(source.metadata?.environment_id ?? source.metadata?.environmentId ?? connection.externalAccountId ?? "");
+  if (!environmentId) throw new Error(`Railway source ${source.externalId} is missing environment id`);
+  return environmentId;
 }
 
 function railwayExecSourceYaml(
@@ -908,12 +904,12 @@ function railwayNormalizeYaml(inputKeys: string[]): string {
   ].join("\n");
 }
 
-function railwayServiceFilterYaml(inputKey: string, serviceId: string): string {
+function railwayServiceFilterYaml(inputKey: string, serviceId: string, environmentId: string): string {
   return [
     "    type: filter",
     `    inputs: ["${inputKey}"]`,
     "    condition: |-",
-    `      (string(.serviceId) ?? "") == ${JSON.stringify(serviceId)}`,
+    `      (string(.serviceId) ?? "") == ${JSON.stringify(serviceId)} && (string(.environmentId) ?? "") == ${JSON.stringify(environmentId)}`,
   ].join("\n");
 }
 

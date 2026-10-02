@@ -2267,3 +2267,52 @@ remains pending. This slice changes neither public package source nor production
 resources. Backend/package coverage, provider/source/site delivery, shared managed
 apply, remote ownership ledgers, coordinated package publication/rollback and staged
 production rollout remain required; the full goal remains active.
+
+### Railway provider discovery, emitted helper and environment routing baseline
+
+The public Vitest project list omitted the Railway package even though its source
+was included in aggregate coverage. Both repositories now run it. The provider
+baseline expands from five to 45 cases across four files, covering credential
+freshness, project/account/OAuth query paths, scoped headers, project/environment
+selection precedence, workspace/personal fallback, missing projects, incomplete
+and empty catalogs, deployment metadata and HTTP/GraphQL/JSON/network failures.
+Fixtures assert the actual fixed endpoint, request method, headers, GraphQL
+operation and variables; unexpected operations fail.
+
+Selecting the same Railway service in production and staging exposed a routing
+defect: both filters matched only service ID after environments were merged,
+allowing both routes to receive the same event. Filters now match environment and
+service identity, with the same environment resolution used by source grouping.
+Actual Vector 0.55.0 executes the generated transforms and requires production
+and staging isolation, unselected-service/missing-environment rejection and
+normalized provider error/warning events. Pipeline cases also cover absent/unsafe
+environments, empty explicit selections, metadata aliases, component keys and
+quoted names.
+
+Six protocol cases execute the exact emitted helper asset against explicit
+WebSocket/token-broker fixtures. They verify subscription parameters and
+authentication, ping/pong, selected-service demultiplexing, attribute parsing,
+replay deduplication, broker fragment separation, structured error cooldown and
+missing-token refusal. These are protocol fixtures; they do not establish live
+Railway delivery, live OAuth grants or all reconnect/cache/eviction failure cases.
+Executable TypeScript generator/discovery coverage is 100 statements/functions/
+lines and 99.21 branches, enforced at 100/99/100/100. Generated JavaScript helper
+contents are data in that report; their fixture execution is separate evidence.
+
+The complete private suite passes 912 cases across 89 files at
+80.75 statements / 78.79 branches / 83.58 functions / 77.85 lines. Aggregate floors
+are raised to 80.5/78.5/83.5/77.5. Independent public layout verification passes
+all package types/builds and 665 cases across 58 files, measuring
+90.92/88.81/91.93/90.63; public floors are raised to 90.5/88.5/91.5/90.5. All prior
+strict file gates remain. Both layouts pass installed consumer/declaration checks
+for all 15 packages. The public standalone Vector delivery/runtime journey also
+passes normalization, routing, retries, artifact verification, durable report
+recovery and owned PID-1 supervision. Final backend/package aggregate 95/90
+requirements remain.
+
+Preceding website head 3f1f6dd passes all code, native runtime/browser, cleanup and
+UI coverage CI gates in terminal run 37000039760; only enforced Codecov upload
+fails. Scoped app permission approval remains pending. No published package
+version is overwritten and production resources are unchanged. Further provider
+delivery matrices, managed apply, remote ownership ledgers, coordinated package
+publication/rollback and staged production rollout remain required.

@@ -184,3 +184,28 @@ describe("railwayLogsDriver", () => {
     fetchSpy.mockRestore();
   });
 });
+
+describe("Railway pipeline scope boundaries", () => {
+  it("preserves environment identity for the same service selected in two environments", () => {
+    const pipe = railwayLogsDriver.generatePipeline({ connection: dummyConnection, selection: { kind: "list", sources: [
+      { ...railwayService("a"), externalId: "production:api", metadata: { environment_id: "production" } },
+      { ...railwayService("b"), externalId: "staging:api", metadata: { environmentId: "staging", serviceId: "api" } },
+    ] } });
+    expect(pipe.components.find(c => c.key === "railway_con_x_src_a")?.yaml).toContain('== "api" && (string(.environmentId) ?? "") == "production"');
+    expect(pipe.components.find(c => c.key === "railway_con_x_src_b")?.yaml).toContain('== "api" && (string(.environmentId) ?? "") == "staging"');
+  });
+  it("rejects absent or unsafe environment identity before emitting a runnable pipeline", () => {
+    expect(() => railwayLogsDriver.generatePipeline({ connection: { ...dummyConnection, externalAccountId: null }, selection: { kind: "list", sources: [railwayService("api")] } })).toThrow("missing environment id");
+    expect(() => railwayLogsDriver.generatePipeline({ connection: dummyConnection, selection: { kind: "list", sources: [railwayService("api", "API", { environment_id: "environment;exec" })] } })).toThrow("unsafe Railway environment id");
+  });
+  it("emits no running helper for an empty explicit selection", () => {
+    const pipe = railwayLogsDriver.generatePipeline({ connection: dummyConnection, selection: { kind: "list", sources: [] } });
+    expect(pipe.components).toEqual([]); expect(pipe.manifest).toEqual([]); expect(pipe.outputKey).toBe("railway_con_x_norm");
+  });
+  it("quotes service names as data and keeps component keys usable for punctuation-only IDs", () => {
+    const pipe = railwayLogsDriver.generatePipeline({ connection: { ...dummyConnection, id: "?!" }, selection: { kind: "list", sources: [{ ...railwayService("api", "api' name\nnext"), id: "?!", metadata: { service_id: "api", environment_id: "production" } }] } });
+    expect(pipe.components.map(c => c.key)).toContain("railway_x_x");
+    expect(pipe.components[0]?.yaml).toContain("api'\\'' name\\nnext");
+    expect(pipe.manifest?.find(m => m.id === "railway_x_x")?.links).toMatchObject({ sourceId: "?!", parentId: "railway_x_production_tail" });
+  });
+});

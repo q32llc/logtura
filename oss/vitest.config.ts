@@ -19,6 +19,7 @@ export default defineConfig({
       "./packages/driver-cloudflare-ai-gateway",
       "./packages/driver-cloudflare-worker-tail",
       "./packages/driver-fly-log-tail",
+      "./packages/driver-railway-logs",
       "./packages/driver-supabase-edge-logs",
       "./packages/driver-vercel-logs",
     ],
@@ -27,7 +28,7 @@ export default defineConfig({
       reporter: ["text", "html", "lcov", "json-summary"],
       // Initial measured floor; the convergence plan requires 95/90 targets.
       thresholds: {
-        statements: 87, branches: 85, functions: 85, lines: 85,
+        statements: 90.5, branches: 88.5, functions: 91.5, lines: 90.5,
         "packages/core/src/reconcile.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/graph.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/graph.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
@@ -59,6 +60,7 @@ export default defineConfig({
         "packages/core/src/config.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
         "packages/core/src/install.ts": { statements: 100, branches: 95, functions: 100, lines: 100 },
         "packages/core/src/tar.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/driver-railway-logs/src/index.ts": { statements: 100, branches: 99, functions: 100, lines: 100 },
         "packages/cloudflare-shared/src/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/supabase-shared/src/**": { statements: 100, branches: 100, functions: 100, lines: 100 },
       },
