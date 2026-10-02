@@ -67,6 +67,8 @@ export default defineConfig({
         "src/managed-issued-installations.ts": { statements: 97, branches: 97, functions: 100, lines: 100 },
         "src/managed-runtime-inputs.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/managed-runtime-completion.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "src/managed-runtime-preparation.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "src/jobs/handlers/fly-checkpoint.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/silence-alerter.ts": { statements: 100, branches: 90, functions: 100, lines: 100 },
         "src/email.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/deployment-ingest.ts": { statements: 99, branches: 95, functions: 100, lines: 100 },

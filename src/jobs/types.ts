@@ -2,6 +2,7 @@ export type JobKind =
   | "discovery"
   | "fly_deploy"
   | "fly_deploy.discharge_create_app"
+  | "fly_deploy.ensure_checkpoint"
   | "fly_deploy.create_or_update_machine"
   | "fly_deploy.wait_running";
 
@@ -83,25 +84,30 @@ export interface FlyDeployPayload {
 }
 
 /** Step 1: discharge the Fly token, resolve org slug, create app
- *  (idempotent). Stashes the discharged auth header in the parent's
- *  result so subsequent kids don't have to re-discharge. */
+ *  (idempotent). Each provider step independently loads discharged auth;
+ *  credentials never enter persisted queue payloads or results. */
 export interface FlyDischargeCreateAppPayload {
   parentPayload: FlyDeployPayload;
   appName: string;
+  /** Absent on pre-issued-runtime queued app steps. */
+  issuedRuntime?: boolean;
 }
 
-/** Step 2: create or update the machine with the generated config. */
+/** Machine installation: follows checkpoint preparation for new chains,
+ * or app creation directly for pre-runtime queued chains. */
 export interface FlyCreateOrUpdateMachinePayload {
   parentPayload: FlyDeployPayload;
   appName: string;
   orgSlug: string;
   region: string;
+  /** Stable checkpoint reference prepared by the preceding storage step. */
+  volumeId?: string;
+  /** Exact retained intent when storage preparation is bypassed for recovery. */
+  installationId?: string;
 }
 
-/** Step 3 (and self-respawning sibling): poll the machine until it
- *  reports `started`. If not yet, enqueue another wait_running with
- *  +5s delay; if yes, mark succeeded. Has its own deadline so we
- *  don't poll forever. */
+/** Poll health and, for issued-runtime installations, the exact accepted
+ * runtime acknowledgement. Enqueue a sibling at +5s until the deadline. */
 export interface FlyWaitRunningPayload {
   parentPayload: FlyDeployPayload;
   appName: string;

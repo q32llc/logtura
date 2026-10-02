@@ -1,6 +1,6 @@
-import {env,SELF,createMessageBatch,createExecutionContext,getQueueResult} from "cloudflare:test";
+import {env,createMessageBatch,createExecutionContext,getQueueResult} from "cloudflare:test";
 import {expect,it} from "vitest";
-import {reportLoadedForwarder,type FlyMachineConfig,type ForwarderReportCheckpoint} from "@logtura/core";
+import type {FlyMachineConfig} from "@logtura/core";
 import {JobDriver} from "../../src/jobs/driver";
 import {processQueueBatch} from "../../src/jobs/queue";
 import type {JobRecord} from "../../src/jobs/types";
@@ -9,6 +9,7 @@ import {activateDeploymentInstance,acknowledgeDeploymentConfiguration} from "../
 import {completeIssuedManagedDeployment} from "../../src/managed-runtime-completion";
 import {managedIssuedFixture} from "./_managed-issued-fixture";
 import {mockFetch} from "./_setup";
+import {acceptManagedRuntimeReport} from "./_managed-runtime-report";
 
 async function fixture(){
  const f=await managedIssuedFixture();await env.DB.prepare("UPDATE deployments SET bundle_outdated=1 WHERE id=?").bind(f.deployment.id).run();const install=await f.prepare(),driver=new JobDriver(env.DB,env.JOBS_QUEUE);
@@ -27,9 +28,7 @@ async function fixture(){
  async function next(){return (await driver.listChildren(root.id)).find(job=>job.kind==="fly_deploy.wait_running" && job.status==="queued")!;}
  async function read(){return env.DB.prepare("SELECT status,bundle_outdated FROM deployments WHERE id=?").bind(f.deployment.id).first();}
  async function report(){
-  const runtime=install.runtime!,files:Record<string,Uint8Array>={};for(const file of live!.files as Array<{guest_path:string;raw_value:string}>){const name=file.guest_path==="/etc/vector/vector.yaml"?"vector.yaml":file.guest_path.startsWith("/opt/logtura/assets/")?`assets/${file.guest_path.slice(20)}`:null;if(name!==null)files[name]=Uint8Array.from(atob(file.raw_value),c=>c.charCodeAt(0));}
-  let checkpoint:ForwarderReportCheckpoint|null=null;
-  return reportLoadedForwarder({artifact:runtime,observed:{files,environment:live!.env as Record<string,string>,generatorVersion:runtime.generatorVersion,vectorVersion:runtime.vectorVersion,ready:true},store:{load:async()=>checkpoint,save:async value=>{checkpoint=value;}},report:async body=>{const response=await SELF.fetch(`${runtime.service}/api/applied/${f.deployment.id}`,{method:"POST",headers:{authorization:`Bearer ${f.deployment.heartbeat_token}`,"content-type":"application/json"},body:JSON.stringify(body)});expect(response.status).toBe(200);return (await response.json() as {accepted:boolean}).accepted;}});
+  return acceptManagedRuntimeReport(install.runtime!,live!,f.deployment.heartbeat_token);
  }
  return {...f,install,driver,root,consume,next,read,report,get creates(){return creates;},set lose(value:boolean){lose=value;}};
 }

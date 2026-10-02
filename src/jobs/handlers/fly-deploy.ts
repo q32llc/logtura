@@ -18,6 +18,7 @@ import { readManagedInstall,prepareManagedInstall,executeManagedInstall,complete
 import { bindInstalledManagedRuntime } from "../../managed-issued-installations";
 import { readDeploymentConfiguration } from "../../deployment-configuration";
 import { completeIssuedManagedDeployment } from "../../managed-runtime-completion";
+import { prepareManagedRuntimeForQueue } from "../../managed-runtime-preparation";
 import { dischargeBundle } from "../../deploy-targets/fly-macaroon";
 import type { Env } from "../../env";
 import type { JobHandlerCtx } from "../queue";
@@ -67,6 +68,7 @@ export async function runFlyDeploy(ctx: JobHandlerCtx): Promise<null> {
     payload: {
       parentPayload: payload,
       appName: flyAppNameFor(payload.deploymentId),
+      issuedRuntime: true,
     } as unknown as Record<string, unknown>,
   });
   return null;
@@ -108,7 +110,7 @@ export async function runFlyDischargeCreateApp(
   // return; if we returned before spawning, the rollup view could
   // briefly see "all-kids-terminal" with no next step queued.
   await ctx.enqueueSibling({
-    kind: "fly_deploy.create_or_update_machine",
+    kind: p.issuedRuntime?"fly_deploy.ensure_checkpoint":"fly_deploy.create_or_update_machine",
     payload: {
       parentPayload: parent,
       appName: p.appName,
@@ -130,7 +132,8 @@ export async function runFlyCreateOrUpdateMachine(
   await ctx.progress({ label: "Assembling Vector config" });
   const flyAuth = await loadDischargedAuth(ctx.env, ctx.job.userId, parent);
 
-  const activeInstall=await readManagedInstall(ctx.env,ctx.job.userId,parent.deploymentId);
+  const activeInstall=await readManagedInstall(ctx.env,ctx.job.userId,parent.deploymentId,p.installationId);
+  if(p.installationId && !activeInstall)throw new Error("Managed retained installation is missing; refuse a new provider write");
   if(activeInstall){
     if(activeInstall.app!==p.appName || activeInstall.region!==p.region || activeInstall.org!==p.orgSlug)throw new Error("Managed installation target changed; retain it for recovery");
     const client=managedClient(flyAuth,ctx.signal),machineId=await executeManagedInstall(ctx.env,activeInstall,client,ctx.signal);
@@ -216,7 +219,7 @@ export async function runFlyCreateOrUpdateMachine(
   const client=managedClient(flyAuth,ctx.signal),existing=await client.machines(p.appName);
   if(existing.length>1 || (existing.length===1 && (existing[0] as {name?:string}).name!==MACHINE_NAME))throw new Error("Managed apply requires one owned forwarder machine");
   const target=existing[0]??null;
-  const install=await prepareManagedInstall(ctx.env,{userId:ctx.job.userId,deploymentId:parent.deploymentId,app:p.appName,org:p.orgSlug,region:p.region,configurationVersion:snapshot.version,config:{...target?.config,...machineConfig},machine:target});
+  const install=p.volumeId?await prepareManagedRuntimeForQueue(ctx.env,{userId:ctx.job.userId,payload:p,snapshot,client,machine:target,image:imageRef,defaults:{...machineConfig}}):await prepareManagedInstall(ctx.env,{userId:ctx.job.userId,deploymentId:parent.deploymentId,app:p.appName,org:p.orgSlug,region:p.region,configurationVersion:snapshot.version,config:{...target?.config,...machineConfig},machine:target});
   const machineId=await executeManagedInstall(ctx.env,install,client,ctx.signal);
   await ctx.events.record({kind:target?"fly_machine.updated":"fly_machine.created",message:`Installed managed intent ${install.id} on ${p.appName}`,payload:{installationId:install.id,machineId}});
 
@@ -225,7 +228,7 @@ export async function runFlyCreateOrUpdateMachine(
   // wait_running below issues /start on each poll tick that sees
   // state=stopped — once Fly's update propagates, the start sticks.
 
-  const committed = await commitConfiguration(ctx.env.DB, ctx.job.userId, snapshot.version, [
+  const committed = install.runtime?{version:await bindInstalledManagedRuntime(ctx.env,ctx.job.userId,deployment.id,install.id)}:await commitConfiguration(ctx.env.DB, ctx.job.userId, snapshot.version, [
     ctx.env.DB.prepare("UPDATE deployments SET external_id=?,image_digest=?,updated_at=? WHERE id=? AND user_id=?")
       .bind(`fly:${p.appName}:${machineId}`, digest, Date.now(), deployment.id, ctx.job.userId),
     recordManagedInstallVersion(ctx.env.DB,install.id,ctx.job.userId),
@@ -361,7 +364,7 @@ export async function runFlyWaitRunning(
  *  is a single round-trip (~150ms); much cleaner than ferrying a
  *  discharged token through payloads, and always-fresh sidesteps the
  *  expiry questions that bit us before. */
-async function loadDischargedAuth(
+export async function loadDischargedAuth(
   env: Env,
   userId: string,
   parent: FlyDeployPayload,
@@ -405,7 +408,7 @@ export function flyAppNameFor(deploymentId: string): string {
   return `logtura-${safe}`;
 }
 
-function managedClient(auth:string,signal:AbortSignal):FlyMachinesClient {
+export function managedClient(auth:string,signal:AbortSignal):FlyMachinesClient {
  const match=/^(Bearer|FlyV1) (.+)$/.exec(auth);if(!match)throw new Error("Invalid discharged Fly authorization");
  return new FlyMachinesClient({token:match[2]!,authorizationScheme:match[1] as "Bearer"|"FlyV1",signal});
 }

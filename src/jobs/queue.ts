@@ -2,6 +2,7 @@ import type { Env } from "../env";
 import { recordOpsEvent } from "../ops-events";
 import { JobDriver } from "./driver";
 import { runDiscovery } from "./handlers/discovery";
+import { runFlyEnsureCheckpoint } from "./handlers/fly-checkpoint";
 import {
   runFlyDeploy,
   runFlyDischargeCreateApp,
@@ -65,6 +66,7 @@ const HANDLERS: Partial<Record<JobKind, JobHandler>> = {
   discovery: runDiscovery,
   fly_deploy: runFlyDeploy,
   "fly_deploy.discharge_create_app": runFlyDischargeCreateApp,
+  "fly_deploy.ensure_checkpoint": runFlyEnsureCheckpoint,
   "fly_deploy.create_or_update_machine": runFlyCreateOrUpdateMachine,
   "fly_deploy.wait_running": runFlyWaitRunning,
 };
