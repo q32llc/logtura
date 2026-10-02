@@ -63,6 +63,9 @@ jobs:
       - name: real Bun Vercel streaming helper and delivery
         run: pnpm test:vercel-runtime
 
+      - name: custom Vector named outputs and isolated wildcards
+        run: pnpm test:custom-vector-flow
+
       - name: real Vector delivery flow
         run: pnpm test:flow
 

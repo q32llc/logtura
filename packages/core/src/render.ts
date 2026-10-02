@@ -327,7 +327,7 @@ function renderVectorYaml(
     connectionOutputKey.set(r.connectionRef.id, r.pipeline.outputKey);
     for (const comp of r.pipeline.components) {
       if (comp.kind === "source") {
-        lines.push(`  ${comp.key}:`);
+        lines.push(`  ${componentYamlKey(comp.key)}:`);
         lines.push(comp.yaml);
         anySourceComponent = true;
       } else {
@@ -403,7 +403,7 @@ function renderVectorYaml(
   // with no body.
   const transformLines: string[] = [];
   for (const t of driverTransforms) {
-    transformLines.push(`  ${t.key}:`);
+    transformLines.push(`  ${componentYamlKey(t.key)}:`);
     transformLines.push(t.yaml);
     transformLines.push("");
   }
@@ -413,9 +413,9 @@ function renderVectorYaml(
     const outputKey = connectionOutputKey.get(r.connectionRef.id);
     if (!outputKey) continue;
     const key = `tag_conn_${safeKey(r.connectionRef.id)}`;
-    transformLines.push(`  ${key}:`);
+    transformLines.push(`  ${componentYamlKey(key)}:`);
     transformLines.push("    type: remap");
-    transformLines.push(`    inputs: ["${outputKey}"]`);
+    transformLines.push(`    inputs: [${JSON.stringify(outputKey)}]`);
     transformLines.push("    source: |-");
     transformLines.push(`      .logtura_connection_id = "${r.connectionRef.id}"`);
     transformLines.push(`      .logtura_provider = "${r.driver.id}"`);
@@ -465,7 +465,7 @@ function renderVectorYaml(
       `monitor_${safeKey(m.monitor.id)}`,
     );
     for (const t of transforms) {
-      transformLines.push(`  ${t.key}:`);
+      transformLines.push(`  ${componentYamlKey(t.key)}:`);
       transformLines.push(t.yaml);
       transformLines.push("");
       componentManifest.push({
@@ -527,7 +527,7 @@ function renderVectorYaml(
         `sink_${safeKey(sinkSpec.sink.id)}`,
       );
       for (const t of transforms) {
-        transformLines.push(`  ${t.key}:`);
+        transformLines.push(`  ${componentYamlKey(t.key)}:`);
         transformLines.push(t.yaml);
         transformLines.push("");
         componentManifest.push({
@@ -551,7 +551,7 @@ function renderVectorYaml(
         envVarName,
       });
       for (const t of bundle.preSinkTransforms ?? []) {
-        transformLines.push(`  ${t.key}:`);
+        transformLines.push(`  ${componentYamlKey(t.key)}:`);
         transformLines.push(t.yaml);
         transformLines.push("");
         componentManifest.push({
@@ -600,7 +600,7 @@ function renderVectorYaml(
   // ---- sinks --------------------------------------------------------
   lines.push("sinks:");
   for (const ss of sinkSinkKeys) {
-    lines.push(`  ${ss.sinkKey}:`);
+    lines.push(`  ${componentYamlKey(ss.sinkKey)}:`);
     lines.push(ss.yaml);
     lines.push("");
   }
@@ -709,7 +709,7 @@ function renderVectorYaml(
         envVarName: envName,
       });
       for (const t of bundle.preSinkTransforms ?? []) {
-        lines.push(`  ${t.key}:`);
+        lines.push(`  ${componentYamlKey(t.key)}:`);
         lines.push(t.yaml);
         lines.push("");
       }
@@ -721,7 +721,7 @@ function renderVectorYaml(
         throw new Error(`Destination ${dDriver.id} did not emit a metrics sink`);
       }
       for (const emittedSink of emittedSinks) {
-        lines.push(`  ${emittedSink.key}:`);
+        lines.push(`  ${componentYamlKey(emittedSink.key)}:`);
         lines.push(emittedSink.yaml);
         lines.push("");
         componentManifest.push({
@@ -1042,4 +1042,8 @@ function uniquify(name: string, used: Set<string>): string {
     if (!used.has(candidate)) return candidate;
   }
   return `${name}_${Date.now()}`;
+}
+
+function componentYamlKey(key: string): string {
+  return /^[A-Za-z0-9_-]+$/.test(key) ? key : JSON.stringify(key);
 }

@@ -31,7 +31,8 @@
     "typecheck:e2e": "tsc -p tsconfig.e2e.json",
     "test:e2e:local": "tsx scripts/e2e-local.ts",
     "test:railway-runtime": "node oss/scripts/test-railway-bun.mjs",
-    "test:vercel-runtime": "node oss/scripts/test-vercel-bun.mjs"
+    "test:vercel-runtime": "node oss/scripts/test-vercel-bun.mjs",
+    "test:custom-vector-flow": "node oss/scripts/test-custom-vector.mjs"
   },
   "dependencies": {
     "@logtura/cloudflare-shared": "workspace:*",

@@ -3991,3 +3991,53 @@ live Vercel account access or the full provider/destination matrix. Live-provide
 canaries, custom graph output-port/wildcard validation, durable remote cleanup,
 legacy managed replacement/rollback, coordinated publication and staged production
 rollout remain open. No production resource, migration or npm version changed.
+
+### Native custom Vector output references and graph patterns
+
+The Vercel runtime slice completed its exact private test/image runs
+([tests](https://github.com/q32llc/logtura/actions/runs/37072526709),
+[image](https://github.com/q32llc/logtura/actions/runs/37072526846)) and
+[public tests](https://github.com/logtura/logtura/actions/runs/37072514444).
+The previously pending CLI baseline private
+[test run](https://github.com/q32llc/logtura/actions/runs/37071162088) also succeeded.
+
+Custom source feeds and fragment inputs now preserve named output references.
+Component-pattern graphs retain raw component names inside an escaped, distinct
+fragment namespace, while exact-reference graphs keep their existing identities.
+Vector expands patterns against complete output IDs: `rout?.*` matches named route
+ports; `rout?` does not. The implementation delegates actual output expansion and
+cycle validation to pinned Vector rather than inferring which ports exist. A
+polynomial matcher recognizes possible local references without regex backtracking.
+Component names containing dots are rejected in wildcard graphs, matching Vector's
+restriction. Scoped destination aliases expose the supplied monitor input, including
+named and `_unmatched` placeholders, to native expansion. The renderer quotes opaque
+component YAML keys and escapes the connection input reference.
+
+The required `test:custom-vector-flow` suite checks twelve grammar cases against
+actual Vector graph edges: single-character and bracket patterns, negated classes,
+literal bracket/question-mark/caret/hyphen characters, recursive paths and Unicode.
+It round-trips a portable manifest through `compileForwarderRuntime()`, builds the
+complete standalone install context, and executes two source fragments that reuse
+local component names. Named and wildcard feeds, component/output patterns, a
+quoted component identity, inferred destination input and shared context are verified
+by actual HTTP delivery. Assertions cover errors-only filtering, unmatched routes,
+prefix-neighbor isolation, one HTTP retry, graceful shutdown and failure injected
+after accepted delivery. Both paths assert removal of owned containers, images and
+temporary files and closure of the fixture HTTP server. Private/public test CI and
+the public release workflow require the suite.
+
+This closes controlled custom graph runtime validation. It does not demonstrate a
+live provider account, durable remote resource cleanup, legacy managed replacement
+or production rollback. Those remain release blockers alongside coordinated package
+publication and staged migrations/canary rollout. No npm version or production
+resource changed in this slice.
+
+Final validation passed 1,453 private tests across 129 files and 900 independent
+public tests across 77 files. Private coverage is 97.04% statements, 94.32% branches,
+98.83% functions and 97.33% lines; public coverage is 98.35%, 96.43%, 99.42% and
+99.09%, respectively. Custom Vector is 99.52% statements, 99.45% branches and
+100% functions/lines, with every package and stronger module gate passing. Both
+builds/types, all fifteen packed consumers and both CLI aliases/runtime binary
+passed, as did both repositories' existing real Vector forwarding suite and the new
+custom suite with normal delivery and injected-failure cleanup. Coverage is measured
+and reported by our own CI; no external coverage service is required.
