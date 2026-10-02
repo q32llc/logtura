@@ -1,3 +1,4 @@
+import { validateDeploymentTarget,type DeploymentTarget } from "@logtura/core";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { createHmac, randomBytes } from "node:crypto";
 import { canonicalConfigJson, normalizeServiceUrl, normalizeDeploymentManifest, parseDeploymentManifest, hashConfigDocument, diffDeploymentManifests, type DeploymentManifest, type DeploymentConfigExport, type SecretReference } from "@logtura/core";
@@ -6,7 +7,7 @@ import { readConfigDoc, readConfigEnvironment } from "./config";
 
 /** Private baseline, never embedded in the portable manifest or sent to the service. */
 export interface DeploymentLink {
- schemaVersion:1;service:string;accountId:string;deployment:{id:string;displayName:string};
+ target?:DeploymentTarget;schemaVersion:1;service:string;accountId:string;deployment:{id:string;displayName:string};
  configurationVersion:number;desiredSequence:number;document:DeploymentManifest;revision:string;
  privateKey:string;fingerprints:Record<string,string>;
 }
@@ -26,7 +27,8 @@ function invalid():never {throw new Error("Invalid deployment link; pull again o
 export async function validateDeploymentLink(value:unknown):Promise<DeploymentLink>{
  try{
  const link=value as DeploymentLink;
- if(!link || typeof link!=="object" || Array.isArray(link) || Object.keys(link).some(key=>!["schemaVersion","service","accountId","deployment","configurationVersion","desiredSequence","document","revision","privateKey","fingerprints"].includes(key)) || link.schemaVersion!==1 || typeof link.service!=="string" || normalizeServiceUrl(link.service)!==link.service || typeof link.accountId!=="string" || !link.accountId || !link.deployment || typeof link.deployment.id!=="string" || !link.deployment.id || typeof link.deployment.displayName!=="string" || Object.keys(link.deployment).some(key=>!["id","displayName"].includes(key)) || !Number.isSafeInteger(link.configurationVersion) || link.configurationVersion<0 || !Number.isSafeInteger(link.desiredSequence) || link.desiredSequence<0 || typeof link.privateKey!=="string" || !/^[A-Za-z0-9_-]{43}$/.test(link.privateKey) || !link.fingerprints || typeof link.fingerprints!=="object" || Array.isArray(link.fingerprints))invalid();
+ if(!link || typeof link!=="object" || Array.isArray(link) || Object.keys(link).some(key=>!["schemaVersion","service","accountId","deployment","configurationVersion","desiredSequence","document","revision","privateKey","fingerprints","target"].includes(key)) || link.schemaVersion!==1 || typeof link.service!=="string" || normalizeServiceUrl(link.service)!==link.service || typeof link.accountId!=="string" || !link.accountId || !link.deployment || typeof link.deployment.id!=="string" || !link.deployment.id || typeof link.deployment.displayName!=="string" || Object.keys(link.deployment).some(key=>!["id","displayName"].includes(key)) || !Number.isSafeInteger(link.configurationVersion) || link.configurationVersion<0 || !Number.isSafeInteger(link.desiredSequence) || link.desiredSequence<0 || typeof link.privateKey!=="string" || !/^[A-Za-z0-9_-]{43}$/.test(link.privateKey) || !link.fingerprints || typeof link.fingerprints!=="object" || Array.isArray(link.fingerprints))invalid();
+ if(link.target!==undefined)link.target=validateDeploymentTarget(link.target);
  normalizeDeploymentManifest(link.document);
  if(await hashConfigDocument(link.document)!==link.revision)invalid();
  const required=parseDeploymentManifest(link.document).requiredEnv;
@@ -39,7 +41,7 @@ export async function createDeploymentLink(service:string,accountId:string,resul
  if(parsed.missingEnv.length)throw new Error("Deployment link requires all referenced private payloads");
  if(result.configurationVersion===undefined || result.desiredSequence===undefined)throw new Error("Service must provide configuration and desired revision baselines; update the service before linking");
  const privateKey=randomBytes(32).toString("base64url");
- return validateDeploymentLink({schemaVersion:1,service:normalizeServiceUrl(service),accountId,deployment:result.deployment,configurationVersion:result.configurationVersion,desiredSequence:result.desiredSequence,document:result.document,revision:result.revision,privateKey,fingerprints:Object.fromEntries(parsed.requiredEnv.map(name=>[name,privateFingerprint(privateKey,name,result.secretValues![name]!)]))});
+ return validateDeploymentLink({schemaVersion:1,...(result.target!==undefined?{target:result.target}:{}),service:normalizeServiceUrl(service),accountId,deployment:result.deployment,configurationVersion:result.configurationVersion,desiredSequence:result.desiredSequence,document:result.document,revision:result.revision,privateKey,fingerprints:Object.fromEntries(parsed.requiredEnv.map(name=>[name,privateFingerprint(privateKey,name,result.secretValues![name]!)]))});
 }
 export async function readDeploymentLink(path:string):Promise<DeploymentLink|null>{
  assertTransactionClear(path);const file=deploymentLinkPath(path);if(!existsSync(file))return null;
@@ -58,5 +60,5 @@ export async function deploymentStatus(path:string){
  if(!prior || privateFingerprint(link.privateKey,name,value)!==link.fingerprints[name])privateChanges.push({env:name,kind:prior?"changed":"added",requiresVersionUpdate:prior?.version===ref.version});
  }
  for(const name of baseline.keys())if(!refs.has(name))privateChanges.push({env:name,kind:"removed",requiresVersionUpdate:false});
- return {linked:true as const,service:link.service,accountId:link.accountId,deployment:link.deployment,configurationVersion:link.configurationVersion,desiredSequence:link.desiredSequence,baselineRevision:link.revision,revision:await hashConfigDocument(document),changes:(await diffDeploymentManifests(link.document,document)).changes,privateChanges};
+ return {linked:true as const,service:link.service,accountId:link.accountId,deployment:link.deployment,configurationVersion:link.configurationVersion,desiredSequence:link.desiredSequence,target:link.target,baselineRevision:link.revision,revision:await hashConfigDocument(document),changes:(await diffDeploymentManifests(link.document,document)).changes,privateChanges};
 }

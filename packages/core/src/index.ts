@@ -67,3 +67,6 @@ export { editDeploymentManifest, diffDeploymentManifests } from "./graph";
 export type { ManifestEdit, GraphChange, GraphDiff } from "./graph";
 export { planDeploymentChanges, resolveDeploymentDiscovery } from "./reconcile";
 export type { GraphInventory, DeploymentChangePlan, StoredConnection, StoredSource, StoredDestination, StoredSink } from "./reconcile";
+
+export { validateDeploymentTarget } from "./deployment-target";
+export type { DeploymentTarget } from "./deployment-target";

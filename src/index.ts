@@ -1,3 +1,4 @@
+import { exportDeploymentTarget } from "./deployment-target";
 import { createPushReceiptIntent,readPushReceipt,PushReceiptConflict,PushReceiptUnavailable,type PushReceiptIntent } from "./deployment-push-receipts";
 import { parseDeploymentPush,resolveOwnedDeploymentManifest,DeploymentPushError } from "./deployment-push";
 import { reconcileDeploymentConfiguration } from "./deployment-reconciliation";
@@ -1242,7 +1243,7 @@ apiAuth.get("/deployments/:id/config", async (c) => {
       const assembled=await assembleDeploymentBundle(c.env,user.id,id);
       const exported=await exportHostedManifest(assembled.input,assembled.credentialVersions,await createSecretVersioner(c.env.CREDENTIAL_ENCRYPTION_KEY));
       return {document:exported.document,revision:await hashConfigDocument(exported.document),desiredSequence:(await readDeploymentConfiguration(c.env.DB,user.id,id))?.desired.sequence??0,
-        deployment:{id:assembled.deployment.id,displayName:assembled.deployment.display_name},
+        deployment:{id:assembled.deployment.id,displayName:assembled.deployment.display_name},target:exportDeploymentTarget(assembled.deployment),
         ...(c.req.query("includeSecrets")==="1"?{secretValues:exported.secretValues}:{})};
     });
     return c.json({...snapshot.value,configurationVersion:snapshot.version});

@@ -82,3 +82,10 @@ it("preserves a concurrent writer's newly created config when overwrite permissi
  vi.spyOn(fs,"openSync").mockImplementation((file,flags,mode)=>{if(file===journal && flags==="wx")writeFileSync(path,"concurrent writer's config");return native.openSync(file,flags,mode);});
  await expect(writePulledConfig(f.result,path,false)).rejects.toThrow("exists");expect(readFileSync(path,"utf8")).toBe("concurrent writer's config");expect(readFileSync(f.path,"utf8")).toContain("logtura.deployment");
 });
+
+it("persists validated target identity in the hosted baseline and offline status",async()=>{
+ const f=await fixture(),target={kind:"fly",managed:false,imageDigest:null,fly:{appName:"existing-app",region:"ord"}};
+ const link=await createDeploymentLink("https://service.test","usr_site",{...f.result,target});await writePulledConfig({...f.result,target},f.path,true,link);
+ expect((await readDeploymentLink(f.path))!.target).toEqual(target);expect((await deploymentStatus(f.path))).toMatchObject({target});
+ await expect(validateDeploymentLink({...link,target:{...target,credentials:"private"}})).rejects.toThrow("Invalid deployment link");
+});

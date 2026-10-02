@@ -1,3 +1,4 @@
+import { validateDeploymentTarget,type DeploymentTarget } from "./deployment-target";
 import type { DeploymentManifest } from "./manifest";
 import { normalizeDeploymentManifest,parseDeploymentManifest } from "./manifest";
 import { hashConfigDocument } from "./config";
@@ -17,7 +18,7 @@ export function normalizeServiceUrl(value:string):string {
   if(url.protocol!=="https:" && !(url.protocol==="http:" && ["localhost","127.0.0.1","[::1]"].includes(url.hostname)))throw new Error("Service URL requires HTTPS (loopback HTTP is allowed)");
   return url.origin;
 }
-export interface DeploymentConfigExport {configurationVersion?:number;desiredSequence?:number;document:DeploymentManifest;revision:string;deployment:{id:string;displayName:string};secretValues?:Record<string,string>;}
+export interface DeploymentConfigExport {target?:DeploymentTarget;configurationVersion?:number;desiredSequence?:number;document:DeploymentManifest;revision:string;deployment:{id:string;displayName:string};secretValues?:Record<string,string>;}
 export interface DeploymentConfigPush {document:DeploymentManifest;expectedConfigurationVersion:number;expectedSequence:number;uploadSecrets?:boolean;secretValues?:Record<string,string>;requestId?:string;}
 export interface DeploymentConfigCommit {configurationVersion:number;sequence:number;revision:string;document:DeploymentManifest;sourceAliases:Record<string,string>;}
 export interface DeploymentPushReceipt {requestId:string;result:DeploymentConfigCommit;}
@@ -81,6 +82,7 @@ export class LogturaServiceClient {
     normalizeDeploymentManifest(result.document);
     if((result.desiredSequence!==undefined && (!Number.isSafeInteger(result.desiredSequence) || result.desiredSequence<0)) || (result.configurationVersion!==undefined && (!Number.isSafeInteger(result.configurationVersion) || result.configurationVersion<0)) || !/^sha256:[a-f0-9]{64}$/.test(result.revision) || result.deployment?.id!==id || typeof result.deployment.displayName!=="string" ||
       (includeSecrets && (!result.secretValues || typeof result.secretValues!=="object" || Array.isArray(result.secretValues) || Object.values(result.secretValues).some(value=>typeof value!=="string"))))throw new ServiceError(200,"invalid_config_response");
+    if(result.target!==undefined)try{result.target=validateDeploymentTarget(result.target);}catch{throw new ServiceError(200,"invalid_config_response");}
     return result;
   }
   async pushDeploymentConfig(id:string,input:DeploymentConfigPush):Promise<DeploymentConfigCommit>{

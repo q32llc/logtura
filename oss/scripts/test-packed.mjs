@@ -82,7 +82,7 @@ monitors: []
     assert.ok(!JSON.stringify(exported.document).includes('fixture-token'));
     const savedFetch=globalThis.fetch,savedToken=process.env.LOGT_SERVICE_TOKEN;
     process.env.LOGT_SERVICE_TOKEN='lt_cli_'+'T'.repeat(43);
-    let hostedCurrent={...exported,configurationVersion:3,desiredSequence:0,revision:await hashConfigDocument(exported.document),deployment:{id:'dep_fixture',displayName:'Existing'}},hostedReceipt=null,writes=0;
+    let hostedCurrent={...exported,configurationVersion:3,desiredSequence:0,revision:await hashConfigDocument(exported.document),deployment:{id:'dep_fixture',displayName:'Existing'},target:{kind:'fly',managed:false,imageDigest:null,fly:{appName:'existing-packed-forwarder',region:'ord'}}},hostedReceipt=null,writes=0;
     globalThis.fetch=async(url,init)=>{
       assert.equal(new Headers(init.headers).get('authorization'),'Bearer lt_cli_'+'T'.repeat(43));
       if(url==='https://fixture.test/api/me')return Response.json({user:{id:'usr_fixture',githubLogin:'fixture'}});
@@ -141,6 +141,18 @@ monitors: []
   run(process.execPath, ["consumer.mjs"], consumer, offline);
   const linkedPath=join(consumer,"linked","logt.yaml"),linkedState=readFileSync(`${linkedPath}.logtura-link.json`,"utf8");
   assert.equal(JSON.parse(bin("logt",["-c",linkedPath,"config","status"])).linked,true);
+  assert.equal(JSON.parse(linkedState).target.fly.appName,"existing-packed-forwarder");
+  const fakeBin=join(consumer,"fake-bin"),flyCalls=join(consumer,"fly-calls.jsonl");mkdirSync(fakeBin);
+  writeFileSync(join(fakeBin,"flyctl"),`#!${process.execPath}
+import {appendFileSync} from 'node:fs';
+appendFileSync(${JSON.stringify(flyCalls)},JSON.stringify(process.argv.slice(2))+'\\n');
+process.stdin.resume();
+`,{mode:0o755});
+  run(join(consumer,"node_modules",".bin","logt"),["-c",linkedPath,"deploy","fly","--output",join(consumer,"linked-fly")],consumer,{...offline,PATH:fakeBin+":"+process.env.PATH});
+  const commands=readFileSync(flyCalls,"utf8").trim().split("\n").map(line=>JSON.parse(line));
+  assert.ok(commands.some(args=>args[0]==="deploy" && args.includes("existing-packed-forwarder")));
+  assert.ok(!commands.some(args=>args[0]==="apps"));
+  assert.match(readFileSync(join(consumer,"linked-fly","fly.toml"),"utf8"),/primary_region = "ord"/);
   bin("logtura",["-c",linkedPath,"source","select","fixture","linked-new-site","--id","src_linked_new"]);
   assert.equal(readFileSync(`${linkedPath}.logtura-link.json`,"utf8"),linkedState);
   const linkedStatus=JSON.parse(bin("logt",["-c",linkedPath,"config","status","--json"]));

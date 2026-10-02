@@ -103,3 +103,11 @@ it("validates durable push receipts, uses the authenticated transport and recogn
  const good=client([Response.json(result)]);expect(await good.client.pushDeploymentConfig("dep",{document,expectedConfigurationVersion:0,expectedSequence:0,requestId})).toEqual(result);expect(JSON.parse((good.fetch.mock.calls[0] as unknown as [string,RequestInit])[1].body as string).requestId).toBe(requestId);
  for(const bad of [null,2,"bad"])await expect(never.client.pushDeploymentConfig("dep",{document,expectedConfigurationVersion:0,expectedSequence:0,requestId:bad as any})).rejects.toThrow("request identity");expect(never.fetch).not.toHaveBeenCalled();
 });
+
+it("validates optional deployment target identity on exports",async()=>{
+ const document={kind:"logtura.deployment",schema_version:1,connections:[],monitors:[],runtimeEnv:null};
+ const base={document,revision:`sha256:${"a".repeat(64)}`,deployment:{id:"dep_target",displayName:"Deployment"},target:{kind:"fly",managed:false,imageDigest:null,fly:{appName:"existing-app"}}};
+ const transport=(body:unknown)=>new LogturaServiceClient({url:"https://service.test",fetch:async()=>Response.json(body)});
+ expect((await transport(base).pullDeploymentConfig("dep_target")).target).toEqual(base.target);
+ await expect(transport({...base,target:{...base.target,credentials:"private"}}).pullDeploymentConfig("dep_target")).rejects.toMatchObject({code:"invalid_config_response"});
+});

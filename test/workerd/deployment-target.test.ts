@@ -1,0 +1,22 @@
+import { expect,it } from "vitest";
+import { env,SELF } from "cloudflare:test";
+import { exportDeploymentTarget } from "../../src/deployment-target";
+import { createConnection,createDeployment,updateDeployment } from "../../src/db";
+import { seedUser } from "./_setup";
+it("exports owned existing target identity without changing credentials, digests or revisions",async()=>{
+ const {userId,sessionCookie}=await seedUser(),con=await createConnection(env.DB,env,{userId,provider:"cloudflare-worker-tail",displayName:"Account",externalAccountId:"account",credentials:{apiToken:"private-grant"}});
+ const dep=await createDeployment(env.DB,{userId,connectionId:con.id,targetKind:"fly",displayName:"Renamed website",metadata:{appName:"existing-forwarder",machineId:"abc123",region:"ord",orgSlug:"personal",apiToken:"private-target"}});
+ await env.DB.prepare("UPDATE deployments SET external_id=?,image_digest=? WHERE id=?").bind("fly:existing-forwarder:abc123",`sha256:${"a".repeat(64)}`,dep.id).run();
+ const before=await env.DB.prepare("SELECT * FROM deployments WHERE id=?").bind(dep.id).first();
+ const response=await SELF.fetch(`https://local.test/api/deployments/${dep.id}/config`,{headers:{cookie:sessionCookie}});expect(response.status).toBe(200);
+ const body=await response.json() as any;expect(body.target).toEqual({kind:"fly",managed:false,imageDigest:`sha256:${"a".repeat(64)}`,fly:{appName:"existing-forwarder",machineId:"abc123",region:"ord",orgSlug:"personal"}});
+ expect(JSON.stringify(body)).not.toContain("private-target");expect(JSON.stringify(body)).not.toContain("private-grant");expect(await env.DB.prepare("SELECT * FROM deployments WHERE id=?").bind(dep.id).first()).toEqual(before);
+ const other=await seedUser();expect((await SELF.fetch(`https://local.test/api/deployments/${dep.id}/config`,{headers:{cookie:other.sessionCookie}})).status).toBe(404);
+ const updated=await updateDeployment(env.DB,userId,dep.id,{managed:true});expect(exportDeploymentTarget(updated!).managed).toBe(true);
+ for(const metadata_json of [null,"broken","null","[]","2","{}",'{"appName":"bad/name"}', '{"appName":2}', '{"appName":"different-app"}'])expect(exportDeploymentTarget({...dep,metadata_json,external_id:null}).fly?.appName).not.toBe("Renamed website");
+ expect(exportDeploymentTarget({...dep,external_id:"fly:existing-app:abc123",metadata_json:'{"appName":"different-app"}'}).fly).toBeNull();
+ expect(exportDeploymentTarget({...dep,external_id:"fly:existing-app:abc123",metadata_json:null}).fly).toEqual({appName:"existing-app",machineId:"abc123"});
+ expect(exportDeploymentTarget({...dep,metadata_json:'{"appName":"existing-app","machineId":5,"region":5,"orgSlug":5}'}).fly).toEqual({appName:"existing-app"});
+ expect(exportDeploymentTarget({...dep,metadata_json:'{"appName":"existing-app","machineId":"bad/id","region":"bad/region","orgSlug":"bad/org"}'}).fly).toEqual({appName:"existing-app"});
+ expect(exportDeploymentTarget({...dep,target_kind:"other",metadata_json:'{"appName":"existing-app"}'}).fly).toBeNull();
+});

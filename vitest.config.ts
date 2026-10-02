@@ -53,6 +53,7 @@ export default defineConfig({
       // Baseline floor; raise these as the planned coverage slices land.
       // Final scope targets are 95% lines/statements/functions and 90% branches.
       thresholds: {
+        "src/deployment-target.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/deployment-push.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/deployment-push-receipts.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/credential-intent.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
@@ -63,7 +64,7 @@ export default defineConfig({
         "src/graph-reconciliation.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/config-version.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/cli-auth.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
-        statements: 74, branches: 69, functions: 78, lines: 72,
+        statements: 75, branches: 71, functions: 79, lines: 73,
         "packages/core/src/reconcile.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/graph.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/graph.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
@@ -71,6 +72,8 @@ export default defineConfig({
         "packages/core/src/json.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/pull.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/file-transaction.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/core/src/deployment-target.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/cli/src/fly-target.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/deployment-link.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/push.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/push-lock.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },

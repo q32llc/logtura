@@ -403,3 +403,29 @@ recovery commits YAML, `.env` and the linked baseline together, then removes the
 pending request. If a local file transaction was interrupted, run `config recover`
 before resuming. A live push process holds a directory lock; dead-process locks can
 be reclaimed without deleting another process's ownership marker.
+
+
+## Update an existing Fly forwarder
+
+Hosted pulls retain a public target record in the private deployment link: the
+existing app, optional machine/region/organization, managed flag and pinned image
+digest. The service exports known identity fields and excludes target credentials.
+Target identity stays separate from the portable pipeline graph.
+
+```sh
+logt -c forwarder/logt.yaml push
+logt -c forwarder/logt.yaml deploy fly
+```
+
+For a linked self-managed deployment, `deploy fly` uses the saved app and region.
+Local graph or private payload changes must be pushed first. Conflicting app,
+region or organization overrides fail before writing artifacts or secrets. If the
+existing app cannot be reached, deployment stops before creating another app.
+Legacy website rows without a recorded app require `--app existing-app`; the CLI
+does not infer the running app from a folder or renamed website label. Links from
+older services without target records require a fresh pull from an updated service.
+
+Managed forwarders use the service deployment path, which owns their image and
+machine settings. Standalone configs retain local `flyctl` creation and deployment
+without service login. This target binding does not yet report a loaded forwarder
+revision to the website; runtime acknowledgement remains upcoming.

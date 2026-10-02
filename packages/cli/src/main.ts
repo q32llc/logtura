@@ -1,3 +1,4 @@
+import { linkedFlyTarget } from "./fly-target";
 import { pushDeploymentConfig,readPendingPush } from "./push";
 import { readDeploymentLink } from "./deployment-link";
 import { assertNoPendingPush } from "./file-transaction";
@@ -68,7 +69,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (command === "env") return cmdEnv(global, args);
     if (command === "validate") return cmdValidate(global, args);
     if (command === "bundle") return cmdBundle(global, args);
-    if (command === "deploy") return cmdDeploy(global, args);
+    if (command === "deploy") return await cmdDeploy(global, args);
     if (command === "stats") return cmdStats(args);
     throw new Error(`unknown command: ${command}`);
   } catch (err) {
@@ -352,34 +353,38 @@ function cmdBundle(global: GlobalArgs, args: string[]): number {
   return missingEnvNames(parsed.missingEnv, bundle.envVars).length > 0 ? 2 : 0;
 }
 
-function cmdDeploy(global: GlobalArgs, args: string[]): number {
+async function cmdDeploy(global: GlobalArgs, args: string[]): Promise<number> {
   const target = args[0];
   if (!target) throw new Error("deploy requires a target, e.g. logt deploy fly");
   const flags = parseFlags(args.slice(1));
-  if (flags.writeEnv) {
-    const code = cmdEnv(global, ["--write"]);
-    if (code !== 0) return code;
-  }
   if (target !== "fly") {
     throw new Error(`unsupported deploy target: ${target}`);
   }
   const ref = findConfigPath(global.config);
   if (!ref.existed) throw new Error(`config not found; run logt init`);
+  const link=await readDeploymentLink(ref.path);
+  if(link){const status=await deploymentStatus(ref.path);if(status.linked && (status.changes.length || status.privateChanges.length))throw new Error("Push local changes before updating a linked forwarder");}
+  const linked=link?linkedFlyTarget(link,{app:stringFlag(flags,"app"),region:stringFlag(flags,"region"),org:stringFlag(flags,"org")}):null;
+  if (flags.writeEnv) {
+    const code = cmdEnv(global, ["--write"]);
+    if (code !== 0) return code;
+  }
   const parsed = loadConfigFile(ref.path);
   const bundle = generateBundle(parsed.input);
   const missing = missingEnvNames(parsed.missingEnv, bundle.envVars);
   if (missing.length > 0) {
     throw new Error(`missing env: ${missing.join(", ")}; run logt env --write`);
   }
-  const appName = stringFlag(flags, "app") ?? defaultFlyAppName(ref.path);
-  const region = stringFlag(flags, "region") ?? "iad";
-  const org = stringFlag(flags, "org");
+  const appName = linked?.appName ?? stringFlag(flags, "app") ?? defaultFlyAppName(ref.path);
+  const region = linked?.region ?? stringFlag(flags, "region") ?? "iad";
+  const org = linked?.org ?? stringFlag(flags, "org");
   const outDir = resolve(stringFlag(flags, "output") ?? "dist/logt-fly");
   writeForwarderBundle(outDir, bundle);
   writeFileSync(resolve(outDir, "fly.toml"), renderFlyToml(appName, region));
   deployWithFlyctl({
     appName,
     org,
+    existingOnly:linked?.existingOnly,
     workdir: outDir,
     envVars: bundle.envVars,
   });
@@ -407,6 +412,7 @@ function writeForwarderBundle(outDir: string, bundle: ReturnType<typeof generate
 }
 
 function deployWithFlyctl(input: {
+  existingOnly?:boolean;
   appName: string;
   org?: string;
   workdir: string;
@@ -418,6 +424,7 @@ function deployWithFlyctl(input: {
     stdio: "ignore",
   });
   if (status.status !== 0) {
+    if(input.existingOnly)throw new Error("Cannot access the linked Fly app; verify flyctl authentication and the existing app name");
     const createArgs = ["apps", "create", input.appName];
     if (input.org) createArgs.push("--org", input.org);
     runFlyctl(createArgs, input.workdir);

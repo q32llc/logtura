@@ -1105,3 +1105,44 @@ local/workerd/remote/browser E2E, final coverage targets, provider/telemetry har
 dependency upgrades, npm publication and staged production rollout remain required.
 No npm release, production migration or deployment is claimed by this slice. The
 complete shipping goal remains active.
+
+
+### Existing deployment target identity and linked Fly updates (implemented)
+
+Hosted config exports now include a validated public deployment target: target kind,
+managed flag, pinned image digest and, when known, existing Fly app/machine/region/
+organization. A shared packaged validator rejects unknown/private fields and unsafe
+identities. The storage adapter projects only known metadata fields and a recognized
+`fly:app:machine` identity. It does not derive a running app from a renamed display
+label. Conflicting stored app identities remain unresolved. Reads preserve stored
+credentials, reporting tokens, image digests and graph/revision state.
+
+The CLI preserves this optional target in its private baseline and offline status.
+Earlier links still parse; linked deployment requires a fresh target-aware export.
+`deploy fly` on a linked self-managed graph uses the recorded app and region,
+requires local graph/private changes to be synchronized first and rejects conflicting
+app/region/organization overrides before artifacts or credential writes. Missing or
+inaccessible linked apps fail before app creation. Unresolved legacy targets require
+an explicit existing `--app`. Managed updates retain the service deployment path.
+Standalone configs retain app creation through local flyctl without account login.
+
+Validation passes 739 private tests across 70 files and 497 public tests across 40
+files. Coverage is 75.39/71.32/79.05/73.24 privately and 82.08/78.75/81.25/80.71
+publicly (statements/branches/functions/lines); aggregate floors rise to 75/71/79/73
+and 82/78/81/80. Target projection, shared validation and linked target resolution
+have enforced 100% coverage in all four metrics. Both package layouts build and
+pass types and all 15 packed consumer checks. The installed CLI exercises an existing
+app update using a local flyctl fixture, proving no `apps create` call and preserving
+the recorded region. The service build passes. This is not a real Fly rollout proof.
+
+CI on the prior shipped CLI push heads passed build/packed/Vector/test checks but
+failed only at Codecov upload: `Repository not found` (private run 36950190948,
+public run 36950184357). That external activation/access configuration remains
+unresolved; upload failure is still enforced and no green CI claim is made.
+
+Runtime activation/report transport, loaded-configuration acknowledgements, managed
+CLI/service apply orchestration and website desired/applied UI remain required.
+Also outstanding: real local/workerd/remote/browser journeys and remote cleanup,
+final coverage targets, provider/telemetry hardening, dependency updates, publication
+and staged production rollout. No production target, image, migration or running
+forwarder was modified by this slice. The full shipping goal remains active.
