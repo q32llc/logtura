@@ -3229,3 +3229,47 @@ legacy replacement/rollback, live provider delivery and canary tests, durable
 remote interruption cleanup, target disconnection, final private backend coverage,
 coordinated npm release and staged production rollout remain required. Existing
 production machines, credentials, migrations and published versions are unchanged.
+
+### Installed CLI edits to compatible managed runtime reapply (implemented)
+
+The actual browser/installed-tarball/workerd/Docker journey now continues after
+fresh managed creation and durable restart. The user authorizes a second CLI login,
+pulls the managed deployment into its own portable-config/env directory, changes
+a monitor's name and dedup policy using `config edit`, and pushes. The real website
+reload shows the updated name, 45-second window and `message` field; configuration
+status shows the new desired revision while the previous runtime remains applied.
+
+Deploying again from the Run tab executes the real queue chain against the same
+single owned provider machine and mounted checkpoint. The transport fixture
+enforces the public client's 120-second lease, nonce and actual prior instance
+version. It stops the old real process gracefully, replaces its complete private
+file snapshot, and starts the generated new inputs with the same actual Docker
+volume and pinned image. Exactly one version-fenced update and one released lease
+are required; no second app, volume or machine is created.
+
+Completion requires the real runtime's accepted report for a new issued instance
+and the CLI-pushed desired sequence/revision, two completed installation journals,
+unchanged physical binding and checkpoint ID, and website applied-state reload.
+The old instance's private report checkpoint survives on the volume. Its later
+report with a maximal valid counter is rejected by the actual endpoint and cannot
+replace the new instance or applied revision. The intentional failure after compatible reapply passed and verified cleanup of
+all run-owned resources. CI now exercises this boundary with the updated process
+still running.
+
+The ingest-only public reporting client also binds native fetch to the global
+receiver, completing that fix across all three saved class transports. The
+receiver regression and existing report/authentication cases pass. Public `main`
+commit `01e7bff` passed its exact
+[CI run](https://github.com/logtura/logtura/actions/runs/37041455586); standalone
+coverage/build/types and all 15 installed consumers pass, with 727 assertions and
+100% changed executable line coverage. Private coverage passed 1,129 assertions
+with unchanged floors; service/E2E type checks and the real update journey pass.
+
+The preceding private managed-creation commit `746d4a3` completed its exact
+[test CI](https://github.com/q32llc/logtura/actions/runs/37040444181) and
+[forwarder image build](https://github.com/q32llc/logtura/actions/runs/37040444453).
+Compatible managed reapply now has real-process evidence. Provider transport is
+still a fixture: live Fly canary, safe replacement/rollback for legacy machines
+without checkpoints, provider delivery matrix, remote interruption cleanup,
+final private coverage, coordinated npm release and production rollout remain
+required. No production machine, migration or published package was changed.

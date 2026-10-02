@@ -9,7 +9,7 @@ export class DeploymentReportingClient {
  }
  async reportApplied(deploymentId:string,value:DeploymentAppliedReport):Promise<boolean>{
   if(!deploymentId)throw new Error("Deployment identity is required");const report=validateDeploymentAppliedReport(value);
-  const response=await this.options.fetch(`${this.url}/api/applied/${encodeURIComponent(deploymentId)}`,{method:"POST",headers:{accept:"application/json","content-type":"application/json",authorization:`Bearer ${this.options.token}`},body:JSON.stringify(report),redirect:"manual",credentials:"omit",signal:AbortSignal.timeout(20_000)});
+  const response=await this.options.fetch.call(globalThis,`${this.url}/api/applied/${encodeURIComponent(deploymentId)}`,{method:"POST",headers:{accept:"application/json","content-type":"application/json",authorization:`Bearer ${this.options.token}`},body:JSON.stringify(report),redirect:"manual",credentials:"omit",signal:AbortSignal.timeout(20_000)});
   const body=await response.json().catch(()=>null) as {accepted?:unknown;error?:unknown}|null;
   if(!response.ok)throw new ServiceError(response.status,typeof body?.error==="string"?body.error:"request_failed");
   if(!body || typeof body!=="object" || Array.isArray(body) || Object.keys(body).some(key=>key!=="accepted") || typeof body.accepted!=="boolean")throw new ServiceError(200,"invalid_applied_response");

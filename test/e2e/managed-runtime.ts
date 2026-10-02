@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { DeploymentReportingClient } from "@logtura/core";
 import type { startLocalService } from "./local-workerd";
 import type { startBrowser } from "./browser";
 // Keep the Node E2E contract independent of Workers-only UI type imports.
@@ -20,7 +21,8 @@ type RequestApi = (path: string, body?: unknown, method?: string) => Promise<any
  * The Fly/registry transport is an owned fixture; no live Fly resource is touched. */
 export async function managedRuntimeJourney(options: {
   service: Service; website: Website; request: RequestApi; run: Run;
-  connectionId: string; temporary: string; runId: string; afterApplied?: () => void;
+  connectionId: string; temporary: string; runId: string; afterApplied?: () => void; afterReapplied?: () => void;
+  editAndPush: (deploymentId: string) => Promise<void>;
   image: { tag: string; dockerId: string; platformDigest: string; platformManifest: string; indexDigest: string; index: string };
 }) {
   const { service, website, request, run, image } = options;
@@ -32,7 +34,8 @@ export async function managedRuntimeJourney(options: {
   mkdirSync(installed);
   let deploymentId: string | undefined, targetId: string | undefined, appName: string | undefined;
   let appCreated = false, volume: any, machine: any;
-  let appCreates = 0, volumeCreates = 0, machineCreates = 0, registryReads = 0;
+  let appCreates = 0, volumeCreates = 0, machineCreates = 0, machineUpdates = 0, registryReads = 0;
+  let lease: string | undefined, leaseCreates = 0, leaseReleases = 0;
   let providerFailure: string | undefined, failure: unknown;
   async function waitFor(check: () => Promise<boolean>, label: string, timeout = 120_000) {
     const deadline = Date.now() + timeout;
@@ -55,6 +58,28 @@ export async function managedRuntimeJourney(options: {
       } catch { /* The actual Vector admin port is still starting. */ }
     }
     return { ...machine, state: running ? "started" : "stopped", checks: [{ name: "vector_api", status: ready ? "passing" : "critical" }] };
+  }
+  async function installMachine(config: any) {
+    // Replace the stopped machine's complete file snapshot, including read-only
+    // descriptor files and assets removed by the new configuration.
+    rmSync(installed, {recursive: true, force: true}); mkdirSync(installed);
+    assert.equal(config.image, `ghcr.io/q32llc/logtura-forwarder@${image.platformDigest}`);
+    assert.deepEqual(config.init.entrypoint, ["/opt/logtura/runtime/entrypoint.sh"]);
+    assert.deepEqual(config.mounts, [{ path: "/var/lib/logtura", volume: volumeId }]);
+    assert.deepEqual(config.stop_config, { signal: "SIGTERM", timeout: "35s" });
+    for (const file of config.files) {
+      assert.ok(file.guest_path.startsWith("/etc/vector/") || file.guest_path.startsWith("/opt/logtura/assets/"));
+      assert.ok(!file.guest_path.split("/").some((part: string) => part === ".." || part === "."));
+      const target = join(installed, file.guest_path.slice(1));
+      mkdirSync(dirname(target), { recursive: true }); writeFileSync(target, Buffer.from(file.raw_value, "base64")); chmodSync(target, file.mode);
+    }
+    const args = ["run", "--detach", "--name", container, "--network", "host", "--stop-timeout", "35", "--volume", `${join(installed, "etc/vector")}:/etc/vector:ro`, "--volume", `${volumeName}:/var/lib/logtura`];
+    if (config.files.some((file: any) => file.guest_path.startsWith("/opt/logtura/assets/"))) args.push("--volume", `${join(installed, "opt/logtura/assets")}:/opt/logtura/assets:ro`);
+    for (const [name, value] of Object.entries(config.env)) args.push("--env", `${name}=${value}`);
+    args.push(image.tag, ...config.init.cmd);
+    await run("docker", args);
+    assert.equal(await run("docker", ["inspect", "--format", "{{.Image}}", container]), image.dockerId);
+    machine = { id: machineId, name: "forwarder", instance_id: `managed-version-${machineUpdates + 1}`, region: volume.region, config, image_ref: { registry: "ghcr.io", repository: "q32llc/logtura-forwarder", digest: image.platformDigest } };
   }
   service.setProviderFixture(async providerRequest => {
     const url = new URL(providerRequest.url), path = url.pathname;
@@ -116,25 +141,31 @@ export async function managedRuntimeJourney(options: {
         assert.equal(providerRequest.method, "POST"); assert.equal(machine, undefined); assert.ok(volume);
         const body = await providerRequest.json() as any;
         assert.equal(body.name, "forwarder"); assert.equal(body.region, volume.region);
-        const config = body.config;
-        assert.equal(config.image, `ghcr.io/q32llc/logtura-forwarder@${image.platformDigest}`);
-        assert.deepEqual(config.init.entrypoint, ["/opt/logtura/runtime/entrypoint.sh"]);
-        assert.deepEqual(config.mounts, [{ path: "/var/lib/logtura", volume: volumeId }]);
-        assert.deepEqual(config.stop_config, { signal: "SIGTERM", timeout: "35s" });
-        for (const file of config.files) {
-          assert.ok(file.guest_path.startsWith("/etc/vector/") || file.guest_path.startsWith("/opt/logtura/assets/"));
-          assert.ok(!file.guest_path.split("/").some((part: string) => part === ".." || part === "."));
-          const target = join(installed, file.guest_path.slice(1));
-          mkdirSync(dirname(target), { recursive: true }); writeFileSync(target, Buffer.from(file.raw_value, "base64")); chmodSync(target, file.mode);
-        }
-        const args = ["run", "--detach", "--name", container, "--network", "host", "--stop-timeout", "35", "--volume", `${join(installed, "etc/vector")}:/etc/vector:ro`, "--volume", `${volumeName}:/var/lib/logtura`];
-        if (config.files.some((file: any) => file.guest_path.startsWith("/opt/logtura/assets/"))) args.push("--volume", `${join(installed, "opt/logtura/assets")}:/opt/logtura/assets:ro`);
-        for (const [name, value] of Object.entries(config.env)) args.push("--env", `${name}=${value}`);
-        args.push(image.tag, ...config.init.cmd);
-        await run("docker", args); machineCreates++;
-        assert.equal(await run("docker", ["inspect", "--format", "{{.Image}}", container]), image.dockerId);
-        machine = { id: machineId, name: "forwarder", instance_id: "managed-version-1", region: body.region, config, image_ref: { registry: "ghcr.io", repository: "q32llc/logtura-forwarder", digest: image.platformDigest } };
+        await installMachine(body.config); machineCreates++;
         return Response.json(await actualMachine());
+      }
+      if (suffix === `/machines/${machineId}/lease`) {
+        assert.ok(machine);
+        if (providerRequest.method === "POST") {
+          assert.equal(lease, undefined); const body = await providerRequest.json() as any; assert.equal(body.ttl, 120);
+          lease = "fixture-managed-lease"; leaseCreates++; return Response.json({data: {nonce: lease}});
+        }
+        assert.equal(providerRequest.method, "DELETE"); assert.ok(lease);
+        assert.equal(providerRequest.headers.get("fly-machine-lease-nonce"), lease);
+        lease = undefined; leaseReleases++; return new Response(null, {status: 204});
+      }
+      if (suffix === `/machines/${machineId}`) {
+        assert.ok(machine);
+        if (providerRequest.method === "GET") return Response.json(await actualMachine());
+        assert.equal(providerRequest.method, "POST"); assert.ok(lease);
+        assert.equal(providerRequest.headers.get("fly-machine-lease-nonce"), lease);
+        const body = await providerRequest.json() as any; assert.equal(body.current_version, machine.instance_id);
+        // Model a real version-fenced provider update: stop before changing
+        // mounted inputs, retain the same checkpoint volume, then start new bytes.
+        await run("docker", ["stop", "--time", "35", container]);
+        assert.equal(await run("docker", ["inspect", "--format", "{{.State.ExitCode}}", container]), "0");
+        await run("docker", ["rm", container]); machineUpdates++;
+        await installMachine(body.config); return Response.json(await actualMachine());
       }
       throw new Error("Unsupported managed fixture request");
     } catch (error) {
@@ -185,10 +216,51 @@ export async function managedRuntimeJourney(options: {
       const current = (await request(`/api/deployments/${deploymentId}/config/state`)).state;
       return reported && current.lastReportSequence > beforeRestart && current.activeInstanceId === artifact.instance.instanceId && !current.stale;
     }, "managed durable report checkpoint after restart");
+    const previousCheckpoint = await run("docker", ["exec", container, "cat", `/var/lib/logtura/reports/${artifact.instance.instanceId}.json`]);
+    await options.editAndPush(deploymentId);
+    const pending = (await request(`/api/deployments/${deploymentId}/config/state`)).state;
+    assert.ok(pending.desired.sequence > state.desired.sequence);
+    assert.notEqual(pending.desired.revision, state.desired.revision);
+    assert.equal(pending.applied.sequence, state.applied.sequence);
+    assert.equal(pending.activeInstanceId, artifact.instance.instanceId);
+    await website.deployment(deploymentId, "Update pending");
+    const updateParent = await website.redeployManaged(deploymentId); assert.notEqual(updateParent, parent);
+    await waitFor(async () => {
+      const {job} = await request(`/api/jobs/${updateParent}`);
+      if (job.status === "failed") throw new Error(`Managed reapply failed: ${job.error}`);
+      return job.status === "succeeded";
+    }, "CLI-edited website-managed reapply");
+    const reapplied = (await request(`/api/deployments/${deploymentId}/config/state`)).state;
+    const updatedArtifact = JSON.parse(readFileSync(join(installed, "etc/vector/logtura-runtime.json"), "utf8"));
+    assert.equal(reapplied.stale, false); assert.ok(reapplied.lastReportSequence > 0);
+    assert.equal(reapplied.desired.sequence, pending.desired.sequence);
+    assert.equal(reapplied.applied.sequence, pending.desired.sequence);
+    assert.equal(reapplied.applied.revision, pending.desired.revision);
+    assert.notEqual(reapplied.activeInstanceId, artifact.instance.instanceId);
+    assert.equal(reapplied.activeInstanceId, updatedArtifact.instance.instanceId);
+    assert.deepEqual(updatedArtifact.document, reapplied.desired.document);
+    assert.equal(appCreates, 1); assert.equal(volumeCreates, 1); assert.equal(machineCreates, 1);
+    assert.equal(machineUpdates, 1); assert.equal(leaseCreates, 1); assert.equal(leaseReleases, 1); assert.equal(lease, undefined);
+    assert.equal(await db.prepare("SELECT COUNT(*) FROM managed_installations WHERE deployment_id=? AND phase='completed'").bind(deploymentId).first("COUNT(*)"), 2);
+    assert.equal(await db.prepare("SELECT volume_id FROM managed_checkpoints WHERE deployment_id=?").bind(deploymentId).first("volume_id"), volumeId);
+    // The old runtime's checkpoint survives in the same actual volume, but its
+    // later reports can no longer acknowledge the newly installed instance.
+    const retained = JSON.parse(await run("docker", ["exec", container, "cat", `/var/lib/logtura/reports/${artifact.instance.instanceId}.json`]));
+    assert.equal(retained.instanceId, JSON.parse(previousCheckpoint).instanceId);
+    assert.ok(retained.lastReportSequence >= JSON.parse(previousCheckpoint).lastReportSequence);
+    const reporter = new DeploymentReportingClient({url: service.url, token: machine.config.env.LOGTURA_HEARTBEAT_TOKEN, fetch});
+    assert.equal(await reporter.reportApplied(deploymentId, {instanceId: artifact.instance.instanceId, sequence: artifact.instance.sequence, revision: artifact.instance.revision, reportSequence: Number.MAX_SAFE_INTEGER}), false);
+    const afterOldReport = (await request(`/api/deployments/${deploymentId}/config/state`)).state;
+    assert.equal(afterOldReport.activeInstanceId, updatedArtifact.instance.instanceId);
+    assert.ok(afterOldReport.lastReportSequence >= reapplied.lastReportSequence);
+    assert.ok(afterOldReport.lastReportSequence < Number.MAX_SAFE_INTEGER);
+    assert.equal(afterOldReport.applied.revision, pending.desired.revision);
+    await website.applied(deploymentId, reapplied.desired.sequence, reapplied.desired.revision);
+    options.afterReapplied?.();
     await run("docker", ["stop", "--time", "35", container]);
     assert.equal(await run("docker", ["inspect", "--format", "{{.State.ExitCode}}", container]), "0");
     assert.ok(targetId); assert.deepEqual(service.unexpected, []);
-    console.log("Website-managed native queue: one app/checkpoint/machine, actual packaged Vector acknowledgement, website convergence and durable restart passed");
+    console.log("Website-managed native queue: one app/checkpoint/machine, actual packaged Vector acknowledgement, website convergence, durable restart and CLI-edited leased reapply passed");
   } catch (error) { failure = error; }
   finally {
     const errors: string[] = [];

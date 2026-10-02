@@ -81,8 +81,12 @@ export async function startBrowser(service: { url: string; cookie: string }) {
         const connected = responseFor(response => response.url().startsWith(`${service.url}/api/deploy-targets/fly/poll?`) && response.status() === 200);
         await page.getByRole("button", { name: "Connect Fly", exact: true }).click();
         const target = await (await connected).json(); assert.equal(target.status, "connected"); onTarget(target.deployTargetId);
+        return this.redeployManaged(id, "Deploy now");
+      },
+      async redeployManaged(id: string, label = "Deploy now") {
+        await page.goto(`${service.url}/app/deployments/${id}?tab=run`);
         const started = responseFor(response => response.url() === `${service.url}/api/deployments/${id}/deploy` && response.request().method() === "POST");
-        await page.getByRole("button", { name: "Deploy now", exact: true }).click();
+        await page.getByRole("button", { name: label, exact: true }).click();
         const response = await started; assert.equal(response.status(), 200); const body = await response.json();
         assert.equal(typeof body.job.id, "string");
         const rehydrated = responseFor(response => response.url() === `${service.url}/api/deployments/${id}` && response.request().method() === "GET");
@@ -199,6 +203,15 @@ export async function startBrowser(service: { url: string; cookie: string }) {
         assert.equal(await saved.getByRole("textbox", { name: "Fields (comma-separated)", exact: true }).inputValue(), "script, message");
         await saved.getByRole("button", { name: "Cancel", exact: true }).click();
         return body.monitor.id as string;
+      },
+      async cliUpdatedMonitor() {
+        await page.goto(service.url + "/app/monitors");
+        await page.reload();
+        const card = page.getByRole("region", {name: "Monitor CLI-updated managed alert", exact: true});
+        await card.getByRole("button", {name: "Edit dedup 45s", exact: true}).click();
+        const dialog = page.getByRole("dialog", {name: "Edit Dedup", exact: true});
+        assert.equal(await dialog.getByRole("textbox", {name: "Fields (comma-separated)", exact: true}).inputValue(), "message");
+        await dialog.getByRole("button", {name: "Cancel", exact: true}).click();
       },
       async createDestination(url: string, onCreated: (id: string) => void) {
         await page.goto(service.url + "/app/destinations");

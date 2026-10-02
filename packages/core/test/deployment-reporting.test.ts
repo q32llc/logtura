@@ -15,3 +15,12 @@ it("rejects account/unsafe tokens and malformed replies, distinguishes ignored r
  await expect(client(Response.json({error:"invalid_token"},{status:401})).reportApplied("dep",report)).rejects.toMatchObject({status:401,code:"invalid_token"});
  await expect(client(new Response("bad-json",{status:503})).reportApplied("dep",report)).rejects.toMatchObject({status:503,code:"request_failed"});
 });
+
+it("binds a native reporting transport to its global receiver", async () => {
+ const transport = vi.fn<typeof fetch>(async function(this: unknown) {
+  expect(this).toBe(globalThis); return Response.json({accepted: true});
+ });
+ const client = new DeploymentReportingClient({url: "https://service.test", token: "report-token", fetch: transport});
+ await expect(client.reportApplied("dep", report)).resolves.toBe(true);
+ expect(transport).toHaveBeenCalledOnce();
+});
