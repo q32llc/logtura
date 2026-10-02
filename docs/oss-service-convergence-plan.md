@@ -21,8 +21,10 @@ reports and all 280 UI tests also passed the new reader; UI now emits HTML too.
 Branch protection is still a separate incomplete gate: read-only inspection on
 October 2 returned no protection on public `main`; GitHub returned HTTP 403 for
 private `master`, stating the repository's current plan does not support that
-feature. Neither is claimed to enforce required checks yet. Final private backend
-coverage targets and the rest of this convergence plan remain unfinished.
+feature. Neither is claimed to enforce required checks yet. Separate private backend
+coverage now meets and enforces the final targets (see the native Fly credential
+baseline below). Per-package gates and the rest of this convergence plan remain
+unfinished.
 
 The replacement is pushed to private `master` (`53a1be9`) and public `main`
 (`9a9ebc2`). Both exact CI runs completed successfully, including artifact upload
@@ -3693,3 +3695,36 @@ Final backend/per-package targets, complete provider stream/delivery coverage,
 durable remote cleanup, legacy managed replacement/rollback, coordinated npm
 publication and staged production rollout remain required. No public package,
 production resource, migration or published npm version changed in this slice.
+
+### Native Fly credential baseline and final backend coverage floors
+
+Six additional native cases exercise retained Fly credential handling with real
+messagepack and Workers WebCrypto plus controlled outbound HTTP. They cover
+replacement of stale discharges, permission prefixes and OAuth pass-through,
+ticket/auth request bytes, absolute/root/relative/interactive poll URLs, pending
+responses, exhausted polling deadlines, malformed provider envelopes and
+macaroon structures, legacy numeric byte arrays, supported discharge prefixes,
+and read-only attenuation/rejection behavior.
+
+Discharge init/poll responses previously copied provider bodies/errors into
+exceptions and could accept a discharge on failed HTTP status. Status and
+response shapes now validate first; HTTP, JSON, provider and invalid-base64
+failures expose stable diagnostics. The default fetch wrapper preserves the
+Workers receiver. Successful refresh and polling behavior remain compatible;
+unused intermediates are removed and documentation now describes refresh
+rather than incorrectly claiming old discharges are skipped.
+
+Full validation passed 1,352 native/package tests across 119 files, the
+service/package build and application/E2E types. Fly macaroon handling has
+100% statements, branches, functions and lines, enforced per module. Aggregate
+coverage is 95.48% statements, 92.39% branches, 97.57% functions and 95.81% lines.
+Separate backend coverage is 95.20%, 91.01%, 97.79% and 95.18%, respectively;
+CI now enforces the final backend 95% statement/line/function and 90% branch
+targets (functions are ratcheted further to 97.4%). Aggregate floors also rise.
+The real local browser/installed CLI/workerd/Vector journey passed creation,
+restart, CLI-edited leased reapply, website convergence and owned cleanup.
+
+Per-package/CLI floors, complete provider stream/delivery coverage, durable
+remote cleanup, legacy managed replacement/rollback, coordinated publication
+and staged production rollout remain open. No public package, production
+resource, migration or published npm version changed in this slice.

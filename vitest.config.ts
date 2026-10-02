@@ -58,6 +58,7 @@ export default defineConfig({
       // Baseline floor; raise these as the planned coverage slices land.
       // Final scope targets are 95% lines/statements/functions and 90% branches.
       thresholds: {
+        "src/deploy-targets/fly-macaroon.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/deploy-targets/fly-machines.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/deployment-input.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/providers/index.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
@@ -65,7 +66,7 @@ export default defineConfig({
         "src/deploy-targets/index.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/graph-input.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/destinations/slack-oauth.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
-        "src/**/*.{ts,tsx}": { statements: 93, branches: 88.8, functions: 96.3, lines: 92.6 },
+        "src/**/*.{ts,tsx}": { statements: 95, branches: 90, functions: 97.4, lines: 95 },
         "src/providers/vercel-oauth.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/auth.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/providers/oauth-token.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
@@ -106,7 +107,7 @@ export default defineConfig({
         "src/graph-reconciliation.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/config-version.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/cli-auth.ts": { statements: 95, branches: 90, functions: 95, lines: 95 },
-        statements: 94.4, branches: 91.3, functions: 96.8, lines: 94.5,
+        statements: 95.2, branches: 92.1, functions: 97.2, lines: 95.5,
         "packages/core/src/reconcile.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/graph.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/provider-connectors.ts": { statements: 100, branches: 97, functions: 100, lines: 100 },

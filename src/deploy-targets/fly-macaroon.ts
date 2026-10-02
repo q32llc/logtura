@@ -208,9 +208,8 @@ interface DischargePollResponse {
  * `FlyV1` Authorization header value that includes the originals
  * plus the new discharges.
  *
- * Tickets already covered by an existing discharge in the bundle
- * (matched by `discharge.Nonce.KID == caveat.ticket`) are skipped —
- * matching fly-go's `UndischargedThirdPartyTickets` semantics.
+ * Existing discharges matched by Nonce.KID to a third-party ticket are
+ * replaced with fresh discharges; permission and OAuth tokens are preserved.
  *
  * We DON'T do user-interactive flows — for the cli_session token, the
  * user-interaction was already done at the approval URL.
@@ -222,7 +221,7 @@ export async function dischargeBundle(
     timeoutMs?: number;
   } = {},
 ): Promise<string> {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl = options.fetchImpl ?? ((input, init) => globalThis.fetch(input, init));
   const deadline = Date.now() + (options.timeoutMs ?? 30_000);
 
   const segments = parseFlyTokenSegments(authHeader);
@@ -244,9 +243,6 @@ export async function dischargeBundle(
   }
   const keepMacaroon: boolean[] = decoded.map((m) => !tickets.has(toHex(m.nonceKid)));
 
-  const keptMacaroonRaws = macaroonSegments
-    .filter((_, i) => keepMacaroon[i])
-    .map((s) => s.raw);
   const keptMacaroonDecoded = decoded.filter((_, i) => keepMacaroon[i]);
 
   const newDischarges: Uint8Array[] = [];
@@ -285,7 +281,7 @@ function toHex(bytes: Uint8Array): string {
 
 async function fetchOneDischarge(
   caveat: ThirdPartyCaveat,
-  authHeader: string | undefined,
+  authHeader: string,
   fetchImpl: typeof fetch,
   deadline: number,
 ): Promise<Uint8Array> {
@@ -297,27 +293,14 @@ async function fetchOneDischarge(
     "content-type": "application/json",
     accept: "application/json",
   };
-  if (authHeader) headers.authorization = authHeader;
+  headers.authorization = authHeader;
 
   const initRes = await fetchImpl(initUrl, {
     method: "POST",
     headers,
     body: JSON.stringify({ ticket: bytesToB64(caveat.ticket) }),
   });
-  const initText = await initRes.text();
-  let initBody: DischargeInitResponse;
-  try {
-    initBody = JSON.parse(initText);
-  } catch {
-    throw new MacaroonError(
-      `discharge init: non-JSON response (${initRes.status}): ${initText.slice(0, 200)}`,
-    );
-  }
-  if (initBody.error) {
-    throw new MacaroonError(
-      `discharge init error from ${caveat.location}: ${initBody.error}`,
-    );
-  }
+  const initBody = await readDischargeResponse(initRes, "init") as DischargeInitResponse;
 
   if (initBody.discharge) {
     return decodeDischargeString(initBody.discharge);
@@ -329,7 +312,7 @@ async function fetchOneDischarge(
   const pollPath = initBody.poll_url ?? initBody.user_interactive?.poll_url;
   if (!pollPath) {
     throw new MacaroonError(
-      `discharge init from ${caveat.location} returned no discharge or poll_url`,
+      "discharge init: missing discharge or poll_url",
     );
   }
   const pollUrl = absolutizePollUrl(caveat.location, pollPath);
@@ -338,39 +321,50 @@ async function fetchOneDischarge(
   while (Date.now() < deadline) {
     const pollRes = await fetchImpl(pollUrl, {
       method: "GET",
-      headers: authHeader
-        ? { accept: "application/json", authorization: authHeader }
-        : { accept: "application/json" },
+      headers: { accept: "application/json", authorization: authHeader },
     });
     if (pollRes.status === 202) {
       await sleep(backoff);
       backoff = Math.min(backoff * 2, 4_000);
       continue;
     }
-    const pollText = await pollRes.text();
-    let pollBody: DischargePollResponse;
-    try {
-      pollBody = JSON.parse(pollText);
-    } catch {
-      throw new MacaroonError(
-        `discharge poll: non-JSON response (${pollRes.status}): ${pollText.slice(0, 200)}`,
-      );
-    }
-    if (pollBody.error) {
-      throw new MacaroonError(
-        `discharge poll error from ${caveat.location}: ${pollBody.error}`,
-      );
-    }
+    const pollBody = await readDischargeResponse(pollRes, "poll") as DischargePollResponse;
+
     if (pollBody.discharge) {
       return decodeDischargeString(pollBody.discharge);
     }
     throw new MacaroonError(
-      `discharge poll from ${caveat.location}: missing discharge`,
+      "discharge poll: missing discharge",
     );
   }
   throw new MacaroonError(
-    `discharge for ${caveat.location} timed out after ${(deadline - Date.now()) / 1000}s`,
+    "discharge timed out",
   );
+}
+
+/** Provider error bodies can contain tokens. Reject invalid envelopes with
+ * static errors before inspecting optional discharge or polling fields. */
+async function readDischargeResponse(response: Response, phase: "init" | "poll"): Promise<DischargeInitResponse> {
+  if (!response.ok) {
+    await response.body?.cancel();
+    throw new MacaroonError(`discharge ${phase}: HTTP ${response.status}`);
+  }
+  let body: unknown;
+  try { body = await response.json(); }
+  catch { throw new MacaroonError(`discharge ${phase}: non-JSON response`); }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    throw new MacaroonError(`discharge ${phase}: invalid response`);
+  }
+  const value = body as DischargeInitResponse;
+  if (value.error) throw new MacaroonError(`discharge ${phase}: provider error`);
+  for (const field of [value.discharge, value.poll_url]) {
+    if (field !== undefined && typeof field !== "string") throw new MacaroonError(`discharge ${phase}: invalid response`);
+  }
+  if (value.user_interactive !== undefined) {
+    if (!value.user_interactive || typeof value.user_interactive !== "object" || Array.isArray(value.user_interactive)) throw new MacaroonError(`discharge ${phase}: invalid response`);
+    if (value.user_interactive.poll_url !== undefined && typeof value.user_interactive.poll_url !== "string") throw new MacaroonError(`discharge ${phase}: invalid response`);
+  }
+  return value;
 }
 
 function absolutizePollUrl(tpLocation: string, pollPath: string): string {
@@ -410,7 +404,8 @@ function sleep(ms: number): Promise<void> {
 // --- byte helpers (Workers-compatible) -------------------------------
 
 function b64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
+  let bin: string;
+  try { bin = atob(b64); } catch { throw new MacaroonError("invalid token encoding"); }
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
