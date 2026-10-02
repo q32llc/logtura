@@ -42,11 +42,16 @@ export async function exchangeVercelCode(input: {
   });
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Vercel OAuth exchange failed: ${res.status} ${text.slice(0, 200)}`);
+    throw new Error(`Vercel OAuth exchange failed: ${res.status}`);
   }
-  const parsed = JSON.parse(text) as Partial<VercelOAuthTokens>;
-  if (!parsed.access_token) {
+  let parsed: Partial<VercelOAuthTokens> | null;
+  try {parsed = JSON.parse(text) as Partial<VercelOAuthTokens> | null;} catch {throw new Error("Vercel OAuth response is not valid JSON");}
+  if (!parsed || typeof parsed.access_token !== "string" || !parsed.access_token) {
     throw new Error("Vercel OAuth exchange returned no access_token");
+  }
+  for (const key of ["installation_id", "team_id", "user_id"] as const) {
+    const value = parsed[key];
+    if (value !== undefined && value !== null && (typeof value !== "string" || !value)) throw new Error("Vercel OAuth response has invalid account fields");
   }
   return {
     access_token: parsed.access_token,

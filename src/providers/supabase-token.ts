@@ -1,3 +1,4 @@
+import { parseOAuthTokens } from "./oauth-token";
 /**
  * Server-side Supabase OAuth token freshness.
  *
@@ -52,13 +53,9 @@ export async function ensureFreshAccessToken(
   });
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Supabase refresh failed (${res.status}): ${text.slice(0, 200)}`);
+    throw new Error(`Supabase refresh failed (${res.status})`);
   }
-  const body = JSON.parse(text) as {
-    access_token: string;
-    refresh_token?: string;
-    expires_in: number;
-  };
+  const body = parseOAuthTokens(text, "Supabase", false);
   const next: SupabaseCredentials = {
     pat: body.access_token,
     // Supabase rotates — accept whatever they return; if absent (future

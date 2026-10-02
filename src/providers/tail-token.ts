@@ -41,3 +41,10 @@ export async function verifyTailToken(
     return null;
   }
 }
+
+/** Broker cache hints cannot outlive the provider's authoritative expiry. */
+export function tailTokenCacheSeconds(ceiling: number, expiresAt?: number): number {
+ if (expiresAt === undefined) return ceiling;
+ if (typeof expiresAt !== "number" || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) throw new Error("Provider credential has no usable expiry");
+ return Math.min(ceiling, Math.max(1, Math.floor((expiresAt - Date.now()) / 1000)));
+}

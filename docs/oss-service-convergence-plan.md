@@ -3452,3 +3452,52 @@ Full provider delivery/reconnect coverage, final backend/package gates, durable
 remote cleanup, legacy managed replacement/rollback, coordinated npm release and
 staged production rollout remain required. No production resource, migration or
 published npm version changed in this slice.
+
+
+### Native authentication, provider reconnect and tail-token baseline
+
+The generic runtime asset slice completed exact-head CI: public `a9ba045`
+[test run](https://github.com/logtura/logtura/actions/runs/37050277218), private
+`124c168` [test run](https://github.com/q32llc/logtura/actions/runs/37050510133)
+and [image run](https://github.com/q32llc/logtura/actions/runs/37050510070).
+
+This private-only slice adds 76 native assertions through the actual Worker
+entrypoint, real D1, signed cookies and encrypted credentials. Only outbound
+provider HTTP is replaced with fixtures. GitHub login covers identity validation,
+optional profile fields, email fallback, return-path safety, secure cookies,
+invalid state, session lookup and logout. Supabase and Railway cover PKCE,
+creation, provider verification, reconnect ownership, retained source selection,
+malformed signed state and malformed successful token responses. Vercel coverage
+also validates account fields and preserves its direct-install session fallback.
+Deleted sessions cannot initiate any of these provider authorization flows.
+
+The baseline exposed bugs now fixed: an explicit reconnect name bypassed the
+start-time ownership/provider check; provider reassignment could race reconnect
+verification; encryption could overwrite an intervening website rename. Updates
+now check the expected provider and compare the complete existing credential and
+connection metadata snapshot in SQL, with real interleaved D1 regressions.
+Provider error bodies and malformed JSON exceptions no longer disclose upstream
+content through OAuth/refresh logs or the tail-token response.
+
+Tail-token tests cover MAC validation, user/connection/provider scope, deletion,
+encrypted renewal and concurrent deletion/provider/credential replacement.
+Responses use `no-store`, re-read the connection after renewal and bound the
+legacy cache ceilings by actual credential expiry. Empty, expired or replaced
+credentials fail without returning a stale token. PATs without expiry metadata
+retain their existing cache ceilings.
+
+All 1,279 native/package assertions passed. Build, application types and E2E
+types passed. The actual local browser/installed CLI/workerd/Vector journey
+also passed creation, website convergence, durable restart and CLI-edited leased
+managed reapply, including owned-resource cleanup. Aggregate coverage is 90.70% statements, 88.03% branches, 92.57%
+functions and 89.85% lines. The separate private backend is 84.06% statements,
+80.12% branches, 85.36% functions and 82.26% lines. A dedicated backend glob
+now enforces its own floors, so public package coverage cannot mask regressions.
+GitHub auth, shared OAuth token/state parsers, Supabase/Railway/Vercel OAuth
+helpers and tail-token helpers have 100% gates in all four dimensions.
+
+Final backend targets, the remaining route/provider delivery baseline, durable
+remote cleanup, legacy managed replacement/rollback, coordinated npm publication
+and staged production rollout remain open. This milestone does not establish
+server-side website session expiry. No public package, production resource,
+migration or published npm version changed.

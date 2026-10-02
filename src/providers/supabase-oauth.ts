@@ -1,3 +1,4 @@
+import { parseOAuthTokens } from "./oauth-token";
 /**
  * Supabase OAuth (Build-a-Supabase-Integration) helpers.
  *
@@ -84,7 +85,7 @@ export async function exchangeCodeForToken(input: {
   });
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Supabase token exchange failed (${res.status}): ${text.slice(0, 200)}`);
+    throw new Error(`Supabase token exchange failed (${res.status})`);
   }
-  return JSON.parse(text) as SupabaseTokenResponse;
+  return parseOAuthTokens(text, "Supabase") as SupabaseTokenResponse;
 }

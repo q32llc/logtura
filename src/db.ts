@@ -177,17 +177,18 @@ export async function updateConnectionCredentials(
   connectionId: string,
   input: {
     credentials: unknown;
+    expectedProvider?: string;
     externalAccountId?: string | null;
     providerInstallationId?: string | null;
     displayName?: string | null;
   },
 ): Promise<ConnectionRow | null> {
   const existing = await getConnection(db, userId, connectionId);
-  if (!existing) return null;
+  if (!existing || (input.expectedProvider !== undefined && existing.provider !== input.expectedProvider)) return null;
   const json = JSON.stringify(input.credentials);
   const ct = await encryptSecret(json, env.CREDENTIAL_ENCRYPTION_KEY);
   const ts = now();
-  await db
+  const updated = await db
     .prepare(
       `UPDATE connections
        SET credentials_encrypted = ?,
@@ -195,7 +196,8 @@ export async function updateConnectionCredentials(
            provider_installation_id = ?,
            display_name = ?,
            updated_at = ?
-       WHERE id = ? AND user_id = ?`,
+       WHERE id = ? AND user_id = ? AND provider = ? AND credentials_encrypted = ?
+         AND external_account_id IS ? AND provider_installation_id IS ? AND display_name = ? RETURNING id`,
     )
     .bind(
       ct,
@@ -205,8 +207,14 @@ export async function updateConnectionCredentials(
       ts,
       connectionId,
       userId,
+      existing.provider,
+      existing.credentials_encrypted,
+      existing.external_account_id,
+      existing.provider_installation_id,
+      existing.display_name,
     )
-    .run();
+    .first<{id:string}>();
+  if (!updated) return null;
   return getConnection(db, userId, connectionId);
 }
 

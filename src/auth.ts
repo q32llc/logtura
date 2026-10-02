@@ -40,10 +40,9 @@ async function exchangeCode(env: Env, code: string): Promise<string> {
     }),
   });
   if (!res.ok) throw new Error(`GitHub token exchange failed: ${res.status}`);
-  const json = (await res.json()) as { access_token?: string; error?: string };
-  if (!json.access_token) {
-    throw new Error(json.error ?? "GitHub token exchange missing token");
-  }
+  let json: {access_token?: unknown} | null;
+  try {json = await res.json() as {access_token?: unknown} | null;} catch {throw new Error("GitHub token response is not valid JSON");}
+  if (!json || typeof json.access_token !== "string" || !json.access_token) throw new Error("GitHub token exchange missing token");
   return json.access_token;
 }
 
@@ -56,11 +55,11 @@ async function fetchProfile(token: string): Promise<GitHubProfile> {
     },
   });
   if (!res.ok) throw new Error(`GitHub profile fetch failed: ${res.status}`);
-  const profile = (await res.json()) as GitHubProfile;
-  if (!profile.id || !profile.login) {
-    throw new Error("GitHub profile missing identity fields");
-  }
-  return profile;
+  let profile: GitHubProfile | null;
+  try {profile = await res.json() as GitHubProfile | null;} catch {throw new Error("GitHub profile response is not valid JSON");}
+  if (!profile || typeof profile.id !== "number" || !Number.isSafeInteger(profile.id) || profile.id <= 0 || typeof profile.login !== "string" || !profile.login) throw new Error("GitHub profile missing identity fields");
+  return {...profile, email: typeof profile.email === "string" ? profile.email : null,
+    name: typeof profile.name === "string" ? profile.name : null, avatar_url: typeof profile.avatar_url === "string" ? profile.avatar_url : null};
 }
 
 async function fetchPrimaryEmail(token: string): Promise<string | null> {

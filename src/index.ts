@@ -1,3 +1,4 @@
+import { readProviderOAuthState } from "./providers/oauth-state";
 import { createDeploymentIngest } from "./deployment-ingest";
 import { deploymentStateRoutes,deploymentAppliedRoutes } from "./deployment-state-routes";
 import { exportDeploymentTarget } from "./deployment-target";
@@ -119,6 +120,7 @@ const app = new Hono<AppContext>();
 app.use("/api/deployments/:id/config",async(c,next)=>{c.header("cache-control","no-store");await next();});
 app.use("/api/deployments/:id/config/*",async(c,next)=>{c.header("cache-control","no-store");await next();});
 app.use("/api/applied/:id",async(c,next)=>{c.header("cache-control","no-store");await next();});
+app.use("/api/tail/*",async(c,next)=>{c.header("cache-control","no-store");await next();});
 app.use("*", attachOptionalUser);
 
 const deploymentIngest = createDeploymentIngest();
@@ -198,7 +200,7 @@ api.post("/tail/supabase/token", async (c) => {
     ? header.slice("Bearer ".length).trim()
     : null;
   if (!token) return c.json({ error: "missing_authorization" }, 401);
-  const { verifyTailToken } = await import("./providers/tail-token");
+  const { verifyTailToken, tailTokenCacheSeconds } = await import("./providers/tail-token");
   const payload = await verifyTailToken(token, c.env.SESSION_SECRET);
   if (!payload) return c.json({ error: "invalid_token" }, 401);
   const conn = await getConnection(c.env.DB, payload.userId, payload.connectionId);
@@ -209,17 +211,19 @@ api.post("/tail/supabase/token", async (c) => {
   try {
     const { ensureFreshAccessToken } = await import("./providers/supabase-token");
     const accessToken = await ensureFreshAccessToken(c.env, conn);
-    // Cache headers: the access token is good for ~24h; tell the
-    // binary it can cache for 23h before re-asking. The binary's
-    // own skew-before-expiry handles the rest.
-    return c.json({ access_token: accessToken, expires_in: 23 * 3600 });
+    // Preserve the legacy ceiling, bounded by the provider's actual expiry.
+    // Re-read after renewal and reject a concurrently replaced credential.
+    const current = await getConnection(c.env.DB, conn.user_id, conn.id);
+    if (!current || current.provider !== conn.provider) throw new Error("Connection changed during token request");
+    const credentials = await decryptConnectionCredentials<{pat?: string; expiresAt?: number}>(c.env, current);
+    if (typeof accessToken !== "string" || !accessToken || credentials.pat !== accessToken) throw new Error("Credentials changed during token request");
+    return c.json({ access_token: accessToken, expires_in: tailTokenCacheSeconds(23 * 3600, credentials.expiresAt) });
   } catch (err) {
-    console.error("supabase tail token refresh failed", err);
+    console.error("supabase tail token refresh failed", {connectionId: conn.id});
     return c.json(
       {
         error: "refresh_failed",
-        message:
-          err instanceof Error ? err.message : "could not refresh token",
+        message: "could not refresh token",
       },
       503,
     );
@@ -232,7 +236,7 @@ api.post("/tail/railway/token", async (c) => {
     ? header.slice("Bearer ".length).trim()
     : null;
   if (!token) return c.json({ error: "missing_authorization" }, 401);
-  const { verifyTailToken } = await import("./providers/tail-token");
+  const { verifyTailToken, tailTokenCacheSeconds } = await import("./providers/tail-token");
   const payload = await verifyTailToken(token, c.env.SESSION_SECRET);
   if (!payload) return c.json({ error: "invalid_token" }, 401);
   const conn = await getConnection(c.env.DB, payload.userId, payload.connectionId);
@@ -245,14 +249,17 @@ api.post("/tail/railway/token", async (c) => {
       "./providers/railway-token"
     );
     const accessToken = await ensureFreshRailwayAccessToken(c.env, conn);
-    return c.json({ access_token: accessToken, expires_in: 55 * 60 });
+    const current = await getConnection(c.env.DB, conn.user_id, conn.id);
+    if (!current || current.provider !== conn.provider) throw new Error("Connection changed during token request");
+    const credentials = await decryptConnectionCredentials<{apiToken?: string; expiresAt?: number}>(c.env, current);
+    if (typeof accessToken !== "string" || !accessToken || credentials.apiToken !== accessToken) throw new Error("Credentials changed during token request");
+    return c.json({ access_token: accessToken, expires_in: tailTokenCacheSeconds(55 * 60, credentials.expiresAt) });
   } catch (err) {
-    console.error("railway tail token refresh failed", err);
+    console.error("railway tail token refresh failed", {connectionId: conn.id});
     return c.json(
       {
         error: "refresh_failed",
-        message:
-          err instanceof Error ? err.message : "could not refresh token",
+        message: "could not refresh token",
       },
       503,
     );
@@ -1703,10 +1710,7 @@ function isVercelOauthConfigured(env: Env): boolean {
 }
 
 api.get("/providers/vercel/start", async (c) => {
-  const userCookie = getCookie(c, "logtura_session");
-  const userId = userCookie
-    ? await verifyCookie(userCookie, c.env.SESSION_SECRET)
-    : null;
+  const userId = c.get("authKind") === "session" ? c.get("user")?.id : null;
   if (!userId) return c.redirect("/?error=auth_required", 303);
   if (!isVercelOauthConfigured(c.env)) {
     return c.redirect("/app/connections/new?error=vercel_oauth_not_configured", 303);
@@ -1714,12 +1718,12 @@ api.get("/providers/vercel/start", async (c) => {
 
   const reconnectId = c.req.query("reconnect_id")?.trim() || null;
   let displayName = c.req.query("display_name")?.trim();
-  if (reconnectId && !displayName) {
+  if (reconnectId) {
     const existing = await getConnection(c.env.DB, userId, reconnectId);
     if (!existing || existing.provider !== VERCEL_LOGS_PROVIDER) {
       return c.redirect("/app?error=bad_reconnect", 303);
     }
-    displayName = existing.display_name;
+    displayName = displayName || existing.display_name;
   }
   if (!displayName) {
     return c.redirect("/app/connections/new?error=missing_display_name", 303);
@@ -1771,10 +1775,7 @@ api.get("/providers/vercel/callback", async (c) => {
       return null;
     }
   })();
-  const userCookie = getCookie(c, "logtura_session");
-  const sessionUserId = userCookie
-    ? await verifyCookie(userCookie, c.env.SESSION_SECRET)
-    : null;
+  const sessionUserId = c.get("authKind") === "session" ? c.get("user")?.id : null;
   const callbackCtx =
     parsed && state && parsed.state === state && parsed.userId && parsed.displayName
       ? {
@@ -1791,6 +1792,10 @@ api.get("/providers/vercel/callback", async (c) => {
         : null;
   if (!callbackCtx) {
     return c.redirect("/?error=auth_required", 303);
+  }
+  if (callbackCtx.reconnectId) {
+    const existing = await getConnection(c.env.DB, callbackCtx.userId, callbackCtx.reconnectId);
+    if (!existing || existing.provider !== VERCEL_LOGS_PROVIDER) return c.redirect("/app?error=bad_reconnect", 303);
   }
   if (!isVercelOauthConfigured(c.env)) {
     return c.redirect("/app/connections/new?error=vercel_oauth_not_configured", 303);
@@ -1822,7 +1827,7 @@ api.get("/providers/vercel/callback", async (c) => {
     accounts = await driver.verifyCredentials(credentials);
   } catch (err) {
     console.error("vercel oauth verify failed", {
-      error: err instanceof Error ? err.message : String(err),
+      status: err instanceof ProviderError ? err.status : undefined,
       configurationId,
       teamId: tokens.team_id ?? null,
       userId: tokens.user_id ?? null,
@@ -1845,6 +1850,7 @@ api.get("/providers/vercel/callback", async (c) => {
       callbackCtx.reconnectId,
       {
         credentials,
+        expectedProvider: VERCEL_LOGS_PROVIDER,
         externalAccountId,
         providerInstallationId: tokens.installation_id ?? configurationId,
         displayName,
@@ -1895,10 +1901,7 @@ function isRailwayOauthConfigured(env: Env): boolean {
 }
 
 api.get("/providers/railway/start", async (c) => {
-  const userCookie = getCookie(c, "logtura_session");
-  const userId = userCookie
-    ? await verifyCookie(userCookie, c.env.SESSION_SECRET)
-    : null;
+  const userId = c.get("authKind") === "session" ? c.get("user")?.id : null;
   if (!userId) return c.redirect("/?error=auth_required", 303);
   if (!isRailwayOauthConfigured(c.env)) {
     return c.redirect(
@@ -1909,12 +1912,12 @@ api.get("/providers/railway/start", async (c) => {
 
   const reconnectId = c.req.query("reconnect_id")?.trim() || null;
   let displayName = c.req.query("display_name")?.trim();
-  if (reconnectId && !displayName) {
+  if (reconnectId) {
     const existing = await getConnection(c.env.DB, userId, reconnectId);
     if (!existing || existing.provider !== RAILWAY_LOGS_PROVIDER) {
       return c.redirect("/app?error=bad_reconnect", 303);
     }
-    displayName = existing.display_name;
+    displayName = displayName || existing.display_name;
   }
   if (!displayName) {
     return c.redirect("/app/connections/new?error=missing_display_name", 303);
@@ -1957,27 +1960,11 @@ api.get("/providers/railway/callback", async (c) => {
   if (!code || !state || !stateJson) {
     return c.redirect("/app/connections/new?error=railway_oauth_state", 303);
   }
-  const parsed = (() => {
-    try {
-      return JSON.parse(stateJson) as {
-        state?: string;
-        userId?: string;
-        displayName?: string;
-        verifier?: string;
-        reconnectId?: string | null;
-      };
-    } catch {
-      return null;
-    }
-  })();
-  if (
-    !parsed ||
-    parsed.state !== state ||
-    !parsed.userId ||
-    !parsed.displayName ||
-    !parsed.verifier
-  ) {
-    return c.redirect("/app/connections/new?error=railway_oauth_state", 303);
+  const parsed = readProviderOAuthState(stateJson, state);
+  if (!parsed) return c.redirect("/app/connections/new?error=railway_oauth_state", 303);
+  if (parsed.reconnectId) {
+    const existing = await getConnection(c.env.DB, parsed.userId, parsed.reconnectId);
+    if (!existing || existing.provider !== RAILWAY_LOGS_PROVIDER) return c.redirect("/app?error=bad_reconnect", 303);
   }
   if (!isRailwayOauthConfigured(c.env)) {
     return c.redirect(
@@ -2015,7 +2002,7 @@ api.get("/providers/railway/callback", async (c) => {
   try {
     await driver.verifyCredentials(credentials);
   } catch (err) {
-    console.error("railway oauth verify failed", err);
+    console.error("railway oauth verify failed", {status: err instanceof ProviderError ? err.status : undefined});
     return c.redirect("/app/connections/new?error=railway_oauth_verify", 303);
   }
 
@@ -2025,7 +2012,7 @@ api.get("/providers/railway/callback", async (c) => {
       c.env,
       parsed.userId,
       parsed.reconnectId,
-      { credentials, externalAccountId: null },
+      { credentials, externalAccountId: null, expectedProvider: RAILWAY_LOGS_PROVIDER },
     );
     if (!updated) return c.redirect("/app?error=bad_reconnect", 303);
     return c.redirect(`/app/connections/${updated.id}`, 303);
@@ -2051,10 +2038,7 @@ function isSupabaseOauthConfigured(env: Env): boolean {
 }
 
 api.get("/providers/supabase-edge-logs/start", async (c) => {
-  const userCookie = getCookie(c, "logtura_session");
-  const userId = userCookie
-    ? await verifyCookie(userCookie, c.env.SESSION_SECRET)
-    : null;
+  const userId = c.get("authKind") === "session" ? c.get("user")?.id : null;
   if (!userId) return c.redirect("/?error=auth_required", 303);
 
   if (!isSupabaseOauthConfigured(c.env)) {
@@ -2067,12 +2051,12 @@ api.get("/providers/supabase-edge-logs/start", async (c) => {
   let displayName = c.req.query("display_name")?.trim();
   // Reconnect mode: pull displayName from the existing connection so
   // the user doesn't have to retype it.
-  if (reconnectId && !displayName) {
+  if (reconnectId) {
     const existing = await getConnection(c.env.DB, userId, reconnectId);
     if (!existing || existing.provider !== "supabase-edge-logs") {
       return c.redirect("/app?error=bad_reconnect", 303);
     }
-    displayName = existing.display_name;
+    displayName = displayName || existing.display_name;
   }
   if (!displayName) {
     return c.redirect(
@@ -2119,27 +2103,11 @@ api.get("/providers/supabase-edge-logs/callback", async (c) => {
   if (!code || !state || !stateJson) {
     return c.redirect("/app/connections/new?error=oauth_state", 303);
   }
-  const parsed = (() => {
-    try {
-      return JSON.parse(stateJson) as {
-        state?: string;
-        userId?: string;
-        displayName?: string;
-        verifier?: string;
-        reconnectId?: string | null;
-      };
-    } catch {
-      return null;
-    }
-  })();
-  if (
-    !parsed ||
-    parsed.state !== state ||
-    !parsed.userId ||
-    !parsed.displayName ||
-    !parsed.verifier
-  ) {
-    return c.redirect("/app/connections/new?error=oauth_state", 303);
+  const parsed = readProviderOAuthState(stateJson, state);
+  if (!parsed) return c.redirect("/app/connections/new?error=oauth_state", 303);
+  if (parsed.reconnectId) {
+    const existing = await getConnection(c.env.DB, parsed.userId, parsed.reconnectId);
+    if (!existing || existing.provider !== "supabase-edge-logs") return c.redirect("/app?error=bad_reconnect", 303);
   }
   if (!isSupabaseOauthConfigured(c.env)) {
     return c.redirect(
@@ -2182,22 +2150,22 @@ api.get("/providers/supabase-edge-logs/callback", async (c) => {
   try {
     await driver.verifyCredentials(credentials);
   } catch (err) {
-    console.error("supabase oauth verify failed", err);
+    console.error("supabase oauth verify failed", {status: err instanceof ProviderError ? err.status : undefined});
     return c.redirect(
       "/app/connections/new?error=supabase_oauth_verify",
       303,
     );
   }
 
-  // Reconnect path: swap credentials on the existing row, reset
-  // external_account_id so the picker runs again.
+  // Reconnect swaps credentials while preserving the user's project selection.
+  // The picker remains available for an explicit project change.
   if (parsed.reconnectId) {
     const updated = await updateConnectionCredentials(
       c.env.DB,
       c.env,
       parsed.userId,
       parsed.reconnectId,
-      { credentials, externalAccountId: null },
+      { credentials, externalAccountId: null, expectedProvider: "supabase-edge-logs" },
     );
     if (!updated) {
       return c.redirect("/app?error=bad_reconnect", 303);

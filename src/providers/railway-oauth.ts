@@ -1,3 +1,4 @@
+import { parseOAuthTokens } from "./oauth-token";
 import type { RailwayCredentials } from "@logtura/driver-railway-logs";
 
 export const RAILWAY_OAUTH_AUTHORIZE =
@@ -110,11 +111,7 @@ async function railwayTokenRequest(
   });
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Railway OAuth token request failed (${res.status}): ${text.slice(0, 200)}`);
+    throw new Error(`Railway OAuth token request failed (${res.status})`);
   }
-  const parsed = JSON.parse(text) as Partial<RailwayTokenResponse>;
-  if (!parsed.access_token || !parsed.expires_in || !parsed.token_type) {
-    throw new Error("Railway OAuth token response missing access token fields");
-  }
-  return parsed as RailwayTokenResponse;
+  return parseOAuthTokens(text, "Railway") as RailwayTokenResponse;
 }
