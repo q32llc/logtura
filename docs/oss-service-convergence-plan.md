@@ -34,10 +34,11 @@ unchanged and running. See [0.3.2 rollout evidence](service-rollout-0.3.2.md).
 
 The selected native transport matrix is complete, with fixture/live distinctions
 retained. Completion still requires the normal production CLI/website round trip
-and original forwarder loaded-manifest upgrade/rollback. The pending CLI grant,
-remote-CI credential transfer and private protection limitations remain explicit.
+and original forwarder loaded-manifest upgrade/rollback. The pending CLI grant and private protection limitation remain explicit.
 Compatible Hono/Router patches are deployed; major/advisory decisions stay in the
 separate dependency plan.
+
+CI scope decision, October 3, 2026: workerd/Miniflare are the required service integration baseline. The Cloudflare-backed Actions rehearsal is removed; no Cloudflare credentials are required for CI. Remote HTTP lifecycle and disposable Cloudflare staging remain optional operator tools for release/deployment checks, not completion gates for CI. Earlier milestone entries describing pending CI secret transfer are superseded. Cloudflare credentials are reserved for deployment; a scoped GitHub CD token may be minted when a deployment workflow needs it.
 
 Coverage decision, October 2, 2026: compute and enforce coverage in our own CI and publish our own reports through GitHub Actions. Codecov is no longer a requirement or blocker. Earlier milestone entries mentioning its configuration, failed uploads, or pending activation describe historical runs; no external coverage service or app installation is needed.
 

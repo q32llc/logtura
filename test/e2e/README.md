@@ -250,13 +250,13 @@ LOGT_E2E_ALLOW_CLOUDFLARE=1 \
 LOGT_E2E_CLOUDFLARE_LEDGER=/private/path/run.json pnpm test:e2e:cloudflare --cleanup
 ```
 
-The `remote Cloudflare rehearsal` workflow is explicit `workflow_dispatch`, serialized
-without cancelling a live run, and includes an always-run recovery step and redacted
-resource/candidate evidence. It requires the private repository secrets
-`LOGT_E2E_CLOUDFLARE_ACCOUNT_ID` and `LOGT_E2E_CLOUDFLARE_API_TOKEN`. Configuration is
-currently awaiting approval to transfer those credentials to GitHub; the local
-remote rehearsal has already run against Cloudflare successfully. Missing credentials
-fail the dispatched job; they do not produce a passing skipped test.
+Required CI runs service integration tests locally with workerd/Miniflare, including
+native D1 and Queues, installed CLI/browser synchronization, real Vector delivery
+and injected cleanup failures. It needs no Cloudflare credentials. The remote
+Cloudflare Actions workflow has been removed. The remote harness above remains an
+optional operator tool for release/deployment checks, using local credentials and
+owned-resource cleanup; it is not a CI completion gate. Cloudflare credentials in
+GitHub are reserved for a scoped deployment workflow when needed.
 
 ## Native replay of retained production snapshots
 

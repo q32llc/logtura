@@ -101,7 +101,7 @@ manifest, real delivery, website acknowledgement and rollback while preserving
 logical identity and routing; then revoke the canary grant. No production session
 or reporting token may be fabricated to replace that flow.
 
-The manual remote Actions workflow exists, but Cloudflare credential transfer to
-GitHub secrets remains unapproved. Local staging does not prove that workflow
-ran. Private branch protection remains unavailable under the current GitHub plan.
-Those external constraints remain explicit in the full acceptance index.
+Required CI uses workerd/Miniflare without Cloudflare credentials. The remote
+Cloudflare Actions workflow has been removed; remote staging remains an optional
+operator release/deployment check. Private branch protection remains unavailable
+under the current GitHub plan and is explicit in the full acceptance index.
