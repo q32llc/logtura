@@ -111,3 +111,36 @@ slice. Track decisions, validation evidence, and rollback for each change here.
 
 No candidate is a reason to weaken the convergence completion gates. Release the
 verified capabilities with their exact tested dependency and runtime identities.
+
+## Compatible production update — October 3, 2026
+
+A fresh production-only npm advisory audit reported 25 findings (one high,
+23 moderate and one low). The candidate updates Hono 4.12.18 → 4.13.12 and
+React Router DOM 6.30.3 → 6.30.6; the latter resolves React Router 6.30.6 and
+Remix router 1.23.4. These retain the existing library majors and change only
+those four dependency records in the private lockfile. Public packages have no
+Hono or React Router dependency. The [Hono release](https://github.com/honojs/hono/releases/tag/v4.13.12)
+is the current compatible candidate; React Router's [redirect advisory](https://github.com/remix-run/react-router/security/advisories/GHSA-jjmj-jmhj-qwj2)
+identifies the patched 6.30.6 line.
+
+The repeated audit reports zero high/critical/low and two moderate findings.
+Both remaining React Router advisories require 7.18.0 or newer:
+[untrusted navigation paths](https://github.com/remix-run/react-router/security/advisories/GHSA-wrjc-x8rr-h8h6)
+and [manual SSR hydration](https://github.com/remix-run/react-router/security/advisories/GHSA-337j-9hxr-rhxg).
+The current entrypoint uses declarative `BrowserRouter` and client `createRoot`,
+not manual router SSR/hydration. The upstream advisory excludes declarative mode
+from the hydration issue. Inspection found fixed internal route prefixes for
+all dynamic navigation targets, rather than user-supplied complete URLs; this is
+application-scope evidence, not a claim that React Router 6 is fully patched.
+Retain the remaining advisory decisions in the separate Router 7 migration,
+including malicious-path browser tests and deployment rollback.
+
+The production inventory also finds React/DOM 19, Mantine 9 and Zod 4 as major
+candidates; their existing 18/8/3 majors remain for this patch. Icons 3.48.0 is
+compatible but has no advisory-driven requirement in this slice. No automatic
+major upgrade or blind audit fix was applied. Raw registry/audit output is private
+under `/tmp/logtura-production-dependency-*-20261003.*`. All 1,714 backend tests, all 306 UI tests, typechecking, packed-service isolation
+and the complete browser/installed-CLI/workerd/actual-Vector journey pass for the
+0.3.2 candidate. Deployment still requires exact CI, actual registry archives,
+staging, fresh compatibility replay and rollback capture. The first sandboxed rebuild could not open pnpm's store
+index; rebuilding with the cache permission succeeded, without changing tests.

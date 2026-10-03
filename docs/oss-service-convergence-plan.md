@@ -17,6 +17,16 @@ sidecar token rotation/delivery, both complete test baselines and packed checks,
 with its final protected public slice still to ship. These shared-driver fixes
 are unreleased and need a coordinated patch; immutable 0.3.1 stays unchanged.
 
+The coordinated 0.3.2 candidate aligns all fifteen package versions, with clean
+isolated archives and no existing conflicting npm versions. Protected public
+[PR 10](https://github.com/logtura/logtura/pull/10) awaits required CI. Independent
+public checks pass all 1,035 tests and 99.13% line coverage. The private candidate
+also updates compatible Hono/Router security patches, passes all 1,714 backend
+and 306 UI tests, typechecking, packed-service isolation and the complete real
+browser/installed-CLI/workerd/Vector lifecycle. The separate dependency plan
+records remaining Router 7 advisory decisions; the production and registry
+rollout still requires the remaining acceptance gates.
+
 Coverage decision, October 2, 2026: compute and enforce coverage in our own CI and publish our own reports through GitHub Actions. Codecov is no longer a requirement or blocker. Earlier milestone entries mentioning its configuration, failed uploads, or pending activation describe historical runs; no external coverage service or app installation is needed.
 
 October 3 metrics incident: the [checkpoint contention correction](metrics-checkpoint-contention.md)

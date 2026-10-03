@@ -5,6 +5,7 @@ import { parseMetricsBody, type MetricsSnapshot } from "../../src/metrics-snapsh
 import { createConnection, createDeployment } from "../../src/db";
 import { seedUser } from "./_setup";
 import worker from "../../src/index";
+import { captureSilenceNotifications } from "../../src/silence-alerter";
 
 async function fixture(status = "running") {
   const { userId } = await seedUser();
@@ -33,6 +34,25 @@ it("keeps ordinary warm-isolate traffic in memory and persists only a due checkp
   expect(await coordinator.ingest(counted.db, f.id, f.token, [], f.now + 2000)).toBe("ok"); expect(counted.calls).toHaveLength(count);
   expect((await f.snapshot()).totals.sent).toBe(1);
   expect(await coordinator.ingest(counted.db, f.id, f.token, metrics(3, f.now + 300_000), f.now + 300_000)).toBe("ok"); expect((await f.snapshot()).totals.sent).toBe(3);
+});
+it.each(["heartbeat", "discarded"])("keeps coalesced %s traffic live through silence checks and detects actual cessation", async kind => {
+  const f = await fixture(), coordinator = createDeploymentIngest(), counted = countDatabase();
+  const notices = async () => (await env.DB.prepare("SELECT COUNT(*) AS count FROM silence_notifications WHERE deployment_id=?").bind(f.id).first<{ count: number }>())!.count;
+  // Advance twenty minutes without sleeping. Actual D1 writes and the real
+  // scheduled capture operation share the persisted liveness boundary.
+  for (let sample = 0; sample <= 40; sample++) {
+    const now = f.now + sample * 30_000;
+    const events = kind === "heartbeat" ? [] : metrics(sample + 1, now, "discarded", "filter");
+    expect(await coordinator.ingest(counted.db, f.id, f.token, events, now)).toBe("ok");
+    if (sample % 2 === 0) { await captureSilenceNotifications(env.DB, now); expect(await notices()).toBe(0); expect((await f.read())?.status).toBe("running"); }
+  }
+  const state = await f.read();
+  expect(state?.status).toBe("running");
+  expect(counted.calls.filter(query => query.startsWith("UPDATE"))).toHaveLength(5);
+  if (kind === "discarded") expect((await f.snapshot()).totals.discarded).toBe(41);
+  await captureSilenceNotifications(env.DB, state!.last_seen_at! + 600_000); expect(await notices()).toBe(0);
+  await captureSilenceNotifications(env.DB, state!.last_seen_at! + 600_001); expect(await notices()).toBe(1);
+  expect((await f.read())?.status).toBe("crashed");
 });
 it("rebases a competing isolate's buffered counters before persisting its urgent error", async () => {
   const f = await fixture(), a = createDeploymentIngest(), b = createDeploymentIngest();

@@ -1,6 +1,6 @@
 {
   "name": "@logtura/driver-cloudflare-ai-gateway",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Logtura provider driver for Cloudflare AI Gateway \u2014 polls /ai-gateway/gateways/<gw>/logs via Vector's http_client source.",
   "license": "Apache-2.0",
   "author": "Erik Aronesty (Logtura)",

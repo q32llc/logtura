@@ -60,3 +60,17 @@ exceptions. A fresh D1 read found the original deployment running, its heartbeat
 one second old, naturally advancing traffic totals, zero component errors and
 the same process start, Vector version and component count. This is bounded
 observation, rather than proof that the earlier D1 overload can never recur.
+
+At 13:05 UTC the original deployment still had advancing persisted traffic,
+zero component errors and the same process/version/component identities. Its
+heartbeat age was sixty seconds, within the five-minute persistence interval
+and ten-minute silence threshold. A fresh insights sample was too sparse to
+prove a checkpoint-write reduction; its scheduled silence statements wrote
+zero notification rows. The separate overload diagnosis remains open.
+
+A native D1 regression advances twenty minutes of heartbeat-only and discarded
+traffic through the actual scheduled silence capture. Each case requires five
+liveness writes and no notice for its deployment, then proves a genuine notice
+after cessation at the strict ten-minute boundary. All 57 focused ingest/silence
+tests pass. The initial assertion counted notices for unrelated retained fixtures;
+scoping it to the tested deployment corrected the test without changing behavior.
