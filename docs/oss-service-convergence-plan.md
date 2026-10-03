@@ -4469,3 +4469,63 @@ artifacts. Private types and E2E types pass. The broader published-package relea
 complete remote/live-provider matrix and staged production migration/deployment
 remain required; this slice publishes no npm versions and changes no production
 resources.
+
+### Real Cloudflare migration and HTTP rehearsal; hosted D1 trigger fix
+
+The isolated real Cloudflare release harness now creates one uniquely named Worker,
+D1 database and producer queue using a fsynced private ownership journal. It validates
+exact account/run-derived names, returned provider IDs and Worker database binding
+before deletion, refuses undispatched/name-collision resources and live subprocesses,
+and never uses production names or custom-domain routes. Provider children wait for a
+durable PID marker before executing Wrangler. Local `.env` or explicitly supplied
+credentials remain outside code and journals. Normal PR jobs do not create these
+resources. The explicit remote workflow has fixed operation/cleanup request and time
+budgets, no cron, independent cleanup reserve and redacted artifact selection.
+
+The rehearsal exposed an actual hosted-D1 rejection missed by local workerd:
+`0032`'s nested inline `CASE ... END; END;` trigger body returned error 7500,
+`incomplete input: SQLITE_ERROR`. The equivalent fence now uses the trigger's `WHEN`
+condition followed by a single `SELECT RAISE`. The fence applies only to 44-character
+UUID receipt IDs, preserving ordinary 26-character base64 IDs that happen to share
+the prefix. Native cancellation races, all three
+resource kinds, owner isolation and migration preservation still pass. A fresh real
+D1 deployment applies the corrected migration successfully. The failed original
+attempts verified teardown; the broken migration was never applied to production.
+
+The complete source-schema 17 synthetic graph includes legacy connection/deployment,
+source inventory, destination, monitor, sink and deployment/connection membership.
+After source 18–32, every prior column and value, selections and encrypted bytes
+remain identical. The Wrangler-shaped `d1_migrations` table preserves its first 17
+records and records each new migration name. Real HTTPS exercises the shared routing
+create/update/delete/cancellation lifecycle against a separate disposable account.
+Legacy bearer heartbeat/metrics requests remain accepted without a manifest or new
+fields; D1 records liveness and the expected metrics counter. These are synthesized
+Vector wire requests; live source delivery and actual provider VM rollout are still
+separate required evidence.
+
+Release exports now carry hashes of every migration alongside Worker, website,
+package and declaration hashes. The runner validates those hashes before creating
+infrastructure. A bounded startup poll waits for authenticated reads, and private
+live-tail diagnostics preserve owned-worker exceptions/logs for investigation.
+Successful runs close/delete their temporary tail session and verify the named
+Worker, database and queue are absent. Unknown provider writes retain the journal
+and fail recovery rather than allowing late creation to be mistaken for cleanup.
+The journal separates test outcome from cleanup status; cleaned failure is not a
+passing rehearsal.
+
+The local real remote rehearsal passed, including the migration-tracking table,
+seven preserved graph tables, HTTPS lifecycle and persisted legacy metrics. All 48
+native/report harness tests and the nine focused native D1/HTTP tests pass; the
+packed export/build/type/website/native-D1 gate passes. Prior private pushes
+`7798ddf` and `76f9408` both finished green in CI. Read-only production inspection
+still finds source schema 17 and the original self-managed Fly deployment running
+on its original external machine identity; no production migration/deployment or
+npm release occurred in this slice.
+
+The explicit GitHub workflow is implemented but credential configuration remains
+pending user approval. Automatic approval review rejected copying the Cloudflare
+account/token into private GitHub repository secrets because authorization covered
+Cloudflare checks rather than that sensitive credential transfer. No credential
+transfer was performed. Local remote validation remains available. Published npm
+packages, complete provider/browser/live-runtime canaries and the staged production
+upgrade/rollback remain required before the full goal can be considered complete.

@@ -64,3 +64,9 @@ it("tracks destination and sink completion/deletion and preserves unrelated hand
  const app=new Hono<AppContext>();app.use("*",async(c,next)=>{c.set("user",{id:u.userId,githubLogin:"owner",email:null,name:null,avatarUrl:null});await next();});app.use("*",creationRequestMiddleware);app.post("/monitors",()=>{throw new Error("unrelated");});app.onError(()=>new Response("unrelated handler error",{status:503}));
  const unrelated=await app.request("http://localhost/monitors",json(u.sessionCookie,crypto.randomUUID()),env);expect(unrelated.status).toBe(503);expect(await unrelated.text()).toBe("unrelated handler error");
 });
+
+it("ordinary short base64 IDs sharing the request prefix remain compatible",async()=>{
+ const u=await seedUser();const monitor=await createMonitor(env.DB,{id:"mon_req_abcdefghijklmnopqr",userId:u.userId,connectionId:null,displayName:"Ordinary",filterSteps:[]});expect(monitor.id.length).toBe(26);
+ const destination=await createDestination(env.DB,env as any,{id:"dst_req_abcdefghijklmnopqr",userId:u.userId,kind:"webhook",displayName:"Ordinary",config:{url:"https://example.invalid"}});
+ const sink=await createSink(env.DB,{id:"snk_req_abcdefghijklmnopqr",monitorId:monitor.id,destinationId:destination.id});expect(sink.id.length).toBe(26);
+});

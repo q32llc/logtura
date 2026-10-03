@@ -199,3 +199,61 @@ lockfile digests and Worker/website artifact digests. The previous report is rem
 before an attempted gate. Private CI requires the gate and uploads this report as
 `packed-service-evidence`. This proves candidate artifact consumption; published npm
 release and remote/live-provider rollout still require their separate gates.
+
+## Isolated real Cloudflare rehearsal
+
+The private release harness uses a uniquely named Worker, database and producer
+queue in an explicitly selected Cloudflare account. It never uses production
+resource names or custom-domain routes. First export a verified packed candidate,
+then run the opt-in rehearsal:
+
+```sh
+LOGT_PACKED_SERVICE_OUTPUT=.tmp/remote-candidate pnpm test:packed:service
+LOGT_E2E_ALLOW_CLOUDFLARE=1 \
+LOGT_E2E_CLOUDFLARE_ARTIFACT=.tmp/remote-candidate pnpm test:e2e:cloudflare
+```
+
+Supply `BOOTSTRAP_CLOUDFLARE_ACCOUNT_ID` and `BOOTSTRAP_CLOUDFLARE_API_TOKEN` through
+the environment or the private repository's local `.env`; neither is committed.
+The export directory must not already exist. Worker, website, package and migration
+hashes identify the tested candidate. A private fsynced run ledger records the
+Cloudflare account, unique run-derived names, provider IDs, phases and proof flags.
+It contains no API token, session secret, cookie, heartbeat token or secret binding
+values. The provider subprocess waits until its PID is durably recorded. Recovery
+refuses live children and requires the same account and physical name/ID/binding
+ownership; preflight collisions cannot authorize deletion.
+
+The database first receives schema 17 and a synthetic legacy user/routing graph.
+Source 18 through the current migration then applies without rewriting its original
+columns, source/monitor selections, encrypted bytes or prior migration tracking rows.
+The audited Worker runs the normal HTTP routing suite through real HTTPS and verifies
+unchanged legacy heartbeat/metrics authorization and a persisted metrics counter.
+A short bounded startup poll waits for authenticated reads to become healthy. Private
+live-tail diagnostics retain only the owned test Worker's logs/exceptions; they are
+not uploaded as ordinary CI artifacts. This uses synthesized Vector wire payloads,
+not a live provider log stream or a new Fly VM.
+
+The budgets are one Worker, one D1 database, one producer queue, at most 500 direct
+management API requests, a separate reserve of 80 cleanup requests, a 15-minute
+operation deadline and a two-minute cleanup window. The single Wrangler upload also
+has a two-minute subprocess deadline. No cron is enabled. Every completed run checks
+that the owned Worker/database/queue are absent; its temporary tail session is closed
+and deleted. Failures fail the command. Unknown in-flight provider outcomes retain
+the journal for investigation instead of retrying creation or reporting absence as
+proof. Normal PR CI never creates cloud resources.
+
+For recovery, restore the downloaded ledger into an owned mode-0700 directory with
+mode-0600 files, supply the matching account credentials, and run:
+
+```sh
+LOGT_E2E_ALLOW_CLOUDFLARE=1 \
+LOGT_E2E_CLOUDFLARE_LEDGER=/private/path/run.json pnpm test:e2e:cloudflare --cleanup
+```
+
+The `remote Cloudflare rehearsal` workflow is explicit `workflow_dispatch`, serialized
+without cancelling a live run, and includes an always-run recovery step and redacted
+resource/candidate evidence. It requires the private repository secrets
+`LOGT_E2E_CLOUDFLARE_ACCOUNT_ID` and `LOGT_E2E_CLOUDFLARE_API_TOKEN`. Configuration is
+currently awaiting approval to transfer those credentials to GitHub; the local
+remote rehearsal has already run against Cloudflare successfully. Missing credentials
+fail the dispatched job; they do not produce a passing skipped test.
