@@ -62,8 +62,12 @@ describe("generatePipeline", () => {
     const norm = pipe.components.find((c) => c.kind === "transform")!;
     const y = norm.yaml;
     expect(y).toContain("type: remap");
+    expect(y).toContain("records = array(.result) ?? array(.)");
+    expect(y).toContain("if exists(.id) { [.] } else { [] }");
+    expect(y).toContain("if is_object(rec)");
+    expect(y).toContain(". = out");
     expect(y).toContain(".error = !success || status >= 500");
-    expect(y).toContain('"[" + .script + "]');
+    expect(y).toContain('"[" + row.script + "]');
     // int -> string cast must use to_string (string() is fallible).
     expect(y).toContain("to_string(status)");
   });

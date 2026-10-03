@@ -26,7 +26,8 @@
     "test:railway-runtime": "node scripts/test-railway-bun.mjs",
     "test:vercel-runtime": "node scripts/test-vercel-bun.mjs",
     "test:custom-vector-flow": "node scripts/test-custom-vector.mjs",
-    "test:supabase-runtime": "node scripts/test-supabase-flow.mjs"
+    "test:supabase-runtime": "node scripts/test-supabase-flow.mjs",
+    "test:ai-gateway-runtime": "node scripts/test-ai-gateway-flow.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",

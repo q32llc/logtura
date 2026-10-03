@@ -143,19 +143,28 @@ function aiGatewaySourceYaml(source: SourceRef): string {
  *  request_*, model, provider, response_status_code, ...}. Map to
  *  the uniform pipeline shape. */
 function aiGatewayNormalizeYaml(inputKeys: string[]): string {
+  // Cloudflare returns an API envelope containing result[]. Retain the
+  // previously supported individual-row form and bare-array fixture form,
+  // but never classify the envelope's request-level success as a log event.
   const vrl = [
-    `.script = string(.provider) ?? "ai-gateway"`,
-    `.timestamp = .created_at`,
-    `success = bool(.success) ?? true`,
-    `status = int(.status_code) ?? 200`,
-    `.error = !success || status >= 500`,
-    `.level = if .error { "error" } else { "info" }`,
-    `model = string(.model) ?? "?"`,
-    // Prefix with [.script] (the provider name in our scheme) so
-    // monitors without a rollup step still deliver tagged Slack
-    // messages — bare "ai_gateway openai status=200" lines have
-    // no anchor for the user.
-    `.message = "[" + .script + "] ai_gateway " + model + " status=" + to_string(status)`,
+    `fallback = if exists(.id) { [.] } else { [] }`,
+    `records = array(.result) ?? array(.) ?? fallback`,
+    `out = []`,
+    `for_each(records) -> |_i, rec| {`,
+    `  if is_object(rec) {`,
+    `    row = object!(rec)`,
+    `    row.script = string(row.provider) ?? "ai-gateway"`,
+    `    row.timestamp = row.created_at`,
+    `    success = bool(row.success) ?? true`,
+    `    status = int(row.status_code) ?? 200`,
+    `    row.error = !success || status >= 500`,
+    `    row.level = if row.error { "error" } else { "info" }`,
+    `    model = string(row.model) ?? "?"`,
+    `    row.message = "[" + row.script + "] ai_gateway " + model + " status=" + to_string(status)`,
+    `    out = push(out, row)`,
+    `  }`,
+    `}`,
+    `. = out`,
   ];
   return [
     "    type: remap",
