@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { randomUUID, createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { validateLiveSourceCanary, assertLiveSourceOwnership, assertLiveSourceAbsence } from './live-source-canary-state.mjs';
+import { validateLiveSourceCanary, validateLiveSourceRelease, assertLiveSourceOwnership, assertLiveSourceAbsence } from './live-source-canary-state.mjs';
 import { withPrivateDirectoryLock } from '../packages/cli/src/private-lock.ts';
 if (process.env.LOGT_E2E_ALLOW_CLOUDFLARE !== '1')
     throw new Error('Set LOGT_E2E_ALLOW_CLOUDFLARE=1 for the live source canary');
@@ -15,11 +15,13 @@ if (process.argv.slice(2).some(arg => arg !== '--cleanup'))
 const root = process.cwd(), consumer = resolve(process.env.LOGT_E2E_LIVE_CONSUMER ?? '.tmp/live-source-canary');
 const load = name => import(pathToFileURL(join(consumer, 'node_modules/@logtura', name, 'dist/index.js')));
 let generateBundle, selfDeployFiles, cloudflareWorkerTailDriver, webhookDriver;
+let version;
 if (!cleanupOnly) {
+    version = validateLiveSourceRelease(process.env.LOGT_E2E_LIVE_VERSION ?? '0.3.0');
     for (const name of ['core', 'driver-cloudflare-worker-tail', 'destination-webhook']) {
         const p = join(consumer, 'node_modules/@logtura', name);
         assert.ok(!lstatSync(p).isSymbolicLink(), 'Use registry-installed packages, not workspace links');
-        assert.equal(JSON.parse(readFileSync(join(p, 'package.json'), 'utf8')).version, '0.3.0');
+        assert.equal(JSON.parse(readFileSync(join(p, 'package.json'), 'utf8')).version, version, 'Every canary package must match the selected release');
     }
     ({ generateBundle, selfDeployFiles } = await load('core'));
     ({ cloudflareWorkerTailDriver } = await load('driver-cloudflare-worker-tail'));
@@ -75,7 +77,7 @@ await withPrivateDirectoryLock(join(directory, 'run.lock'), async () => {
     else {
         const nonce = randomUUID();
         state = {
-            schema: 1, account, name: 'logtura-canary-' + nonce.replaceAll('-', ''), nonce, version: '0.3.0', startedAt: new Date().toISOString(), worker: 'absent', container: 'absent', image: 'absent', outcome: 'running', freshNamesVerified: false
+            schema: 1, account, name: 'logtura-canary-' + nonce.replaceAll('-', ''), nonce, version, startedAt: new Date().toISOString(), worker: 'absent', container: 'absent', image: 'absent', outcome: 'running', freshNamesVerified: false
         };
         save();
     }

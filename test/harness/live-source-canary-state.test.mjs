@@ -1,9 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { validateLiveSourceCanary, assertLiveSourceOwnership, assertLiveSourceAbsence } from '../../scripts/live-source-canary-state.mjs';
+import { validateLiveSourceCanary, validateLiveSourceRelease, assertLiveSourceOwnership, assertLiveSourceAbsence } from '../../scripts/live-source-canary-state.mjs';
 const account = 'a'.repeat(32);
 const fixture = () => { const nonce = randomUUID(); return { schema: 1, account, nonce, name: `logtura-canary-${nonce.replaceAll('-', '')}`, worker: 'uploaded', container: 'started', image: 'built', childPid: null, freshNamesVerified: true }; };
+test('release selection requires a concrete stable version', () => {
+    for (const version of ['0.3.0', '0.3.1', '1.12.3'])
+        assert.equal(validateLiveSourceRelease(version), version);
+    for (const version of [undefined, 31, 'latest', '^0.3.1', 'v0.3.1', '0.3', '00.3.1', '0.3.1-beta', '0.3.1\n', '../0.3.1'])
+        assert.throws(() => validateLiveSourceRelease(version), /stable release/);
+});
 test('cleanup rejects cross-account, renamed and malformed ledgers', () => {
     const state = fixture();
     assert.equal(validateLiveSourceCanary(state, account), state);

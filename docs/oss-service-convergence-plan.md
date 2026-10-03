@@ -4,6 +4,9 @@ This plan makes the published CLI and libraries fully usable without the hosted 
 
 Status: implementation in progress. The starting inventory records repository and production inspection on October 1, 2026; implemented milestones and remaining work are tracked below. Completion still requires all outcome/validation gates. This plan does not authorize destructive tests against existing production resources.
 
+The [current acceptance index](convergence-acceptance.md) separates released,
+deployed and observed evidence from the remaining production and external gates.
+
 Coverage decision, October 2, 2026: compute and enforce coverage in our own CI and publish our own reports through GitHub Actions. Codecov is no longer a requirement or blocker. Earlier milestone entries mentioning its configuration, failed uploads, or pending activation describe historical runs; no external coverage service or app installation is needed.
 
 October 3 metrics incident: the [checkpoint contention correction](metrics-checkpoint-contention.md)

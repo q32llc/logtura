@@ -1,4 +1,9 @@
 import assert from 'node:assert/strict';
+export function validateLiveSourceRelease(version) {
+    assert.equal(typeof version, 'string', 'Select a stable release version');
+    assert.match(version, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/, 'Select a stable release version');
+    return version;
+}
 /** A Worker-only ledger must never acquire ownership from a matching name alone. */
 export function validateLiveSourceCanary(state, account) {
     assert.ok(state && state.schema === 1, 'Invalid live source ledger');

@@ -1,6 +1,6 @@
 # Live Cloudflare source delivery canary
 
-This exercises the **published npm 0.3.0 packages**, a real Cloudflare Worker
+This exercises explicitly selected published npm packages, a real Cloudflare Worker
 tail, the generated standalone Vector image, and a local webhook receiver. It
 requires Docker on Linux with host networking and a Cloudflare token that can
 read/write Workers and open tails. It creates one uniquely named test Worker,
@@ -12,9 +12,9 @@ Install the registry consumer once, then run from the private repository root:
 ```sh
 mkdir -m 700 -p .tmp/live-source-canary
 npm install --prefix .tmp/live-source-canary --ignore-scripts --no-audit --no-fund \
-  @logtura/core@0.3.0 @logtura/driver-cloudflare-worker-tail@0.3.0 \
-  @logtura/destination-webhook@0.3.0
-LOGT_E2E_ALLOW_CLOUDFLARE=1 pnpm test:e2e:live-source
+  @logtura/core@0.3.1 @logtura/driver-cloudflare-worker-tail@0.3.1 \
+  @logtura/destination-webhook@0.3.1
+LOGT_E2E_ALLOW_CLOUDFLARE=1 LOGT_E2E_LIVE_VERSION=0.3.1 pnpm test:e2e:live-source
 ```
 
 Credentials come from `BOOTSTRAP_CLOUDFLARE_ACCOUNT_ID` and
@@ -22,6 +22,10 @@ Credentials come from `BOOTSTRAP_CLOUDFLARE_ACCOUNT_ID` and
 They are inherited by Docker through its environment rather than command
 arguments. No credentials are sent to GitHub. The consumer can be elsewhere
 with `LOGT_E2E_LIVE_CONSUMER`; workspace package links are rejected.
+All three installed packages must match `LOGT_E2E_LIVE_VERSION`, a stable
+`major.minor.patch` release. Omission retains the original 0.3.0 baseline.
+Malformed or mixed versions fail before provider dispatch. Cleanup uses the
+recorded ledger and does not require installed packages or a selected version.
 
 The receiver must get the random run marker from an actual Worker trace and
 verify the normalized Worker name, error level, error flag and message. The
@@ -59,3 +63,11 @@ from four successful Worker invocations. The reusable harness subsequently
 passed delivery, normalization and removal checks. This is evidence for real
 standalone source delivery; existing production forwarder upgrades and browser
 ↔ CLI synchronization have their own acceptance checks.
+
+The selected 0.3.1 registry run also passed actual normalized source delivery on
+October 3. Private receipt `.tmp/live-source-canary/run-FAU3K2/run.json` records
+success and removal of its Worker, container and image. Repeated cleanup passed
+with a nonexistent consumer directory and an invalid release environment value,
+demonstrating that recovery uses the ledger rather than a new installation.
+All 49 operational harness tests pass, including both release versions, rejected
+malformed/mixed versions before any dispatch, and killed-subprocess recovery.
