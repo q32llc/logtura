@@ -36,6 +36,7 @@
     "test:custom-vector-flow": "node oss/scripts/test-custom-vector.mjs",
     "test:packed:service": "node --import tsx scripts/test-packed-service.mjs",
     "test:e2e:cloudflare": "node --import tsx scripts/e2e-cloudflare.mjs",
+    "test:e2e:live-source": "node --import tsx scripts/e2e-live-source.mjs",
     "test:legacy-snapshot": "node scripts/verify-legacy-worker-snapshot.mjs"
   },
   "dependencies": {

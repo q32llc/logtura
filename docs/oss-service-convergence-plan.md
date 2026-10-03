@@ -6,6 +6,25 @@ Status: implementation in progress. The starting inventory records repository an
 
 Coverage decision, October 2, 2026: compute and enforce coverage in our own CI and publish our own reports through GitHub Actions. Codecov is no longer a requirement or blocker. Earlier milestone entries mentioning its configuration, failed uploads, or pending activation describe historical runs; no external coverage service or app installation is needed.
 
+Live delivery evidence, October 3: an isolated npm consumer using the published
+0.3.0 packages delivered real owned Cloudflare Worker events through its generated
+standalone Vector image to an owned webhook receiver. The reusable
+[`test:e2e:live-source` harness](live-source-canary.md) also passed normalized
+event checks and removed its Worker, container and image; repeated cleanup passed
+without recreating resources. Its ownership/uncertain-dispatch guards and gated
+Docker child run in the ordinary private CI harness suite. This closes the selected
+Cloudflare standalone source-delivery gate; it does not imply the remaining live
+Fly forwarder upgrade or production browser ↔ CLI synchronization gates passed.
+
+The website's ordinary GitHub sign-in works against the deployed service. A
+normal globally installed published CLI reached the matching device-approval
+screen; approval was requested and not granted during its first bounded attempt,
+which expired without issuing an account token. No production session or bearer
+token was fabricated. A separate read-only capture retained the existing Fly
+machine's stable config/image/selection privately before any upgrade. The actual
+machine currently has zero mounted volumes and no loaded-manifest artifact;
+those are recorded baseline facts, not claims that upgrade or rollback occurred.
+
 The replacement CI computes separate package/backend/UI totals from Istanbul
 JSON and LCOV, publishes readable HTML and machine-readable reports as Actions
 artifacts (14-day retention), and writes a run summary with a download link.
