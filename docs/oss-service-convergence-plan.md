@@ -20,7 +20,9 @@ reports and all 280 UI tests also passed the new reader; UI now emits HTML too.
 
 Public `main` now requires the strict GitHub Actions `test` check, including for
 administrators; the stored protection has been read back. A disposable coverage
-failure PR is in progress to verify blocking behavior. Private `master` remains
+failure PR demonstrated an actual 0% changed-line failure and blocked merge; it
+was closed without merging, and a subsequent green documentation PR merged through
+the protected path. Private `master` remains
 an external gate: GitHub returned HTTP 403 because the repository's current plan
 does not support branch protection. Separate backend/UI/package coverage floors
 are enforced; full final acceptance and the remaining rollout gates still require
@@ -4856,3 +4858,48 @@ intentionally untested source PR is being used to demonstrate an actual failing
 coverage result and merge blocking; it must never be merged. Private master
 protection remains constrained by the previously confirmed GitHub plan limitation.
 The earlier Cloudflare-secret transfer approval remains pending and untouched.
+
+**Owned CI enforcement is demonstrated on public main.** The clean, non-draft
+[disposable PR #1](https://github.com/logtura/logtura/pull/1) has a deliberately
+untested source change. Its [exact CI run](https://github.com/logtura/logtura/actions/runs/37106606579)
+passes aggregate/module floors and uploads owned reports, then fails specifically
+at **0/2 changed executable lines (0%), required 95%**. GitHub reports the otherwise
+mergeable PR `BLOCKED` under the required Actions `test` check. The PR was closed
+without merging and its owned remote branch deleted. The real contribution-doc
+[PR #2](https://github.com/logtura/logtura/pull/2) then passed its required check and
+merged through protection as `6f03d7f`; that exact public main push is green in
+`37107316896`. Private latest code `ddaed8b` is green in `37106756782`. Private
+master protection is still unsupported by its GitHub plan (fresh API read returns
+403); no bypass or plan purchase is claimed.
+
+**Production service support is now live.** The registry-backed private candidate
+at `3c35967`, whose exact full CI `37105076481` is green, passed the staging and
+native production-data replays above. A fresh private SQL export completed in
+1.6 seconds immediately before rollout. Production's 15 additive migrations apply
+from that exact audited export and tracking now reaches 0032. The old Worker and
+original self-managed forwarder stay running through the migration; original
+identity, image digest, selection/configuration, token and other stable fields
+remain equivalent. The migration and upload each retain private fsynced journals
+and provider PID gates. Unknown outcomes are never automatically dispatched again.
+
+The Worker/website upload uses `--no-bundle --keep-vars` with the original domain,
+DB, queue bindings/consumer and cron. Production's downloaded main module has the
+exact candidate SHA-256; its served index and **both served asset hashes** match
+the exported candidate. Original bindings are retained. An anonymous browser API
+probe incorrectly expected 401 and stopped on the existing 303 authentication
+redirect; a read-only corrected probe confirmed the same-origin `auth_required`
+redirect and completed the acknowledged deployment without a second upload.
+At `2026-10-03T08:02:17Z`, an actual reporting cycle from the unchanged existing
+forwarder advances both heartbeat and metrics, with nonnegative current totals.
+It still uses its original physical identity/image/configuration/token; this is
+not a claim that manifest-aware forwarder code was installed. Rollout identity,
+reproduction ordering and rollback instructions are in
+[the 0.3.0 service rollout record](service-rollout-0.3.0.md).
+
+Production Worker/schema rollout is therefore no longer pending. Remaining work
+still includes selected live source-to-destination canaries, the disposable and
+existing forwarder upgrade/loaded-manifest/CLI-website acceptance proofs, remaining
+remote cleanup/acceptance audit items, and accurate handling of external setup
+constraints. No production resource is deleted as a test, no forwarder image is
+changed in this service rollout, and the rejected Cloudflare-to-GitHub credential
+transfer remains untouched. The complete goal remains active.
