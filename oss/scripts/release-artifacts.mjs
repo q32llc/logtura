@@ -19,7 +19,7 @@ export function checkTag(packages,tag){
 }
 export function publishOrder(packages){
  const pending=new Map(packages.map(p=>[p.name,p])),ordered=[];
- while(pending.size){const ready=[...pending.values()].filter(p=>!Object.keys({...p.dependencies,...p.optionalDependencies}).some(name=>pending.has(name))).sort((a,b)=>a.name.localeCompare(b.name));assert.ok(ready.length,'Public package dependency cycle');for(const p of ready){ordered.push(p);pending.delete(p.name);}}
+ while(pending.size){const ready=[...pending.values()].filter(p=>!Object.keys({...p.dependencies,...p.optionalDependencies,...p.peerDependencies}).some(name=>pending.has(name))).sort((a,b)=>a.name.localeCompare(b.name));assert.ok(ready.length,'Public package dependency cycle');for(const p of ready){ordered.push(p);pending.delete(p.name);}}
  return ordered;
 }
 export const integrity=bytes=>'sha512-'+createHash('sha512').update(bytes).digest('base64');
@@ -42,14 +42,14 @@ function command(program,args,cwd){const result=spawnSync(program,args,{cwd,enco
 export async function run(args,options={}){
  const mode=args[0];assert.ok(['--check-tag','--publish','--verify'].includes(mode),'Usage: release-artifacts.mjs --check-tag | --publish <manifest> | --verify <manifest>');
  assert.equal(args.length,mode==='--check-tag'?1:2);
- const root=options.root??process.cwd(),packages=inventory(root),tag=options.tag??process.env.GITHUB_REF_NAME;
+ const root=options.root??process.cwd(),packages=inventory(root),tag=options.tag??process.env.LOGT_RELEASE_TAG??process.env.GITHUB_REF_NAME;
  checkTag(packages,tag);
  if(mode==='--check-tag'){console.log(`Release ${tag}: all ${packages.length} public versions match`);return;}
  const file=resolve(args[1]),directory=dirname(file),manifest=JSON.parse(readFileSync(file,'utf8'));
  const rows=validateManifest(manifest,packages,tag,name=>readFileSync(join(directory,name)));
  assert.equal(manifest.sourceCommit,command('git',['rev-parse','HEAD'],root),'Release artifacts belong to another commit');
  assert.equal(command('git',['status','--porcelain','--','packages','scripts','pnpm-lock.yaml','package.json'],root),'','Release source changed after validation');
- const receipt={schemaVersion:1,tag,sourceCommit:manifest.sourceCommit,status:'checking',packages:[]};
+ const receipt={schemaVersion:1,tag,sourceCommit:manifest.sourceCommit,status:'checking',packages:[],attempts:[]};
  const receiptFile=join(directory,'registry-receipt.json');const save=()=>writeFileSync(receiptFile,JSON.stringify(receipt,null,2)+'\n');save();
  async function registry(row){const response=await (options.fetch??fetch)(`https://registry.npmjs.org/${encodeURIComponent(row.name)}/${row.version}`,{redirect:'error',signal:AbortSignal.timeout(30000),headers:{accept:'application/json','cache-control':'no-cache'}});if(response.status===404){await response.body?.cancel();return null;}assert.equal(response.status,200,'Registry observation failed');return response.json();}
  try{
@@ -60,9 +60,12 @@ export async function run(args,options={}){
    if(!existing.has(row.name)){
     assert.equal(mode,'--publish',`Missing published ${row.name}@${row.version}`);
     const args=['publish',join(directory,row.file),'--access','public','--provenance','--registry','https://registry.npmjs.org/'];
+    const attempt={name:row.name,version:row.version,integrity:row.integrity,phase:'dispatching'};receipt.attempts.push(attempt);save();
     if(options.publish)await options.publish(args);else command('npm',args,root);
+    attempt.phase='acknowledged';save();console.log(`npm acknowledged ${row.name}@${row.version}; waiting for registry visibility`);
    }
-   let remote;for(let attempt=0;attempt<20;attempt++){remote=await registry(row);if(remote!==null)break;await new Promise(r=>setTimeout(r,1000));}
+   const visibleDeadline=Date.now()+180000;let remote;
+   for(let attempt=0;attempt<90&&Date.now()<visibleDeadline;attempt++){remote=await registry(row);if(remote!==null)break;await (options.sleep??(ms=>new Promise(r=>setTimeout(r,ms))))(2000);}
    assert.ok(assertRegistryMatch(row,remote),`Publication is not visible for ${row.name}`);
    receipt.packages.push({name:row.name,version:row.version,integrity:row.integrity,reused:existing.has(row.name)});save();
   }

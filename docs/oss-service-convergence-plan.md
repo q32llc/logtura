@@ -4674,3 +4674,40 @@ HTTP fixture request failed with `UND_ERR_SOCKET` (peer closed); no mutation ret
 was added to production code. Final tarballs installed outside the workspace again
 verify the actual account-owned token, freshness and Worker discovery. Public
 package documentation states the account-list requirement and bounded fallback.
+
+Corrected candidate CI is green in private `37101497214` and public `37101572935`;
+its exact image build `37101497244` is green with OCI digest
+`sha256:df7cb6c768b3039cafd346489becfec4bcb3d973f2b74ecc521f6ad6aec84031`.
+The committed Cloudflare fix's changed executable lines pass 100% (17/17).
+Clean public/service exports match all 15 final hashes, and the corrected private
+export passes another real Cloudflare rehearsal with verified resource/tail
+absence. The public `v0.3.0` tag permanently points to `3223fe3`.
+
+### Recover the partial 0.3.0 npm publication
+
+Tag workflow `37102617717` passed all validation gates and attempted publication.
+npm acknowledged Cloudflare-shared but its version endpoint was not yet visible
+within the original 20-observation window, so registry verification correctly
+failed and prevented a GitHub release. Subsequent read-only inspection confirms
+`@logtura/cloudflare-shared@0.3.0` exists, its `latest` tag is `0.3.0`, and its exact
+integrity matches the retained tested archive. Other package slots remain empty.
+The retained receipt is incomplete with zero verified entries; no complete release
+or successful recovery is claimed.
+
+The release ordering also omitted peers, allowing Cloudflare-shared to precede its
+required core version. Ordering now includes public peer dependencies. Publication
+attempts are recorded before dispatch and acknowledged before waiting; registry
+observation is bounded at three minutes. Manual recovery in the same trusted
+`release.yml` validates the original completed same-repository tag run and every
+successful validation step, checks out the immutable source tag, recovers its exact
+archives, verifies all hashes and publishes only missing versions. The tag and
+package payloads are preserved; recovery tooling is updated independently.
+
+All 63 combined native/coverage/release harness tests pass, including peer cycles,
+30 delayed visibility polls without publication replay, and rejection of foreign,
+unfinished, untagged, different-commit or failed-validation evidence. The guard
+also accepts the actual original tag run and confirms its already published
+archive matches. The workflow parses as YAML and serializes publication/recovery
+without cancelling active runs. The dispatch and final all-package registry proof
+remain required. The production deployment and pending GitHub Cloudflare-secret
+transfer remain unchanged.

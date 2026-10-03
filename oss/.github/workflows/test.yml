@@ -38,7 +38,7 @@ jobs:
         run: pnpm typecheck
 
       - name: coverage report and failure-gate tests
-        run: node --test scripts/coverage-report.test.mjs scripts/test-coverage.test.mjs scripts/release-artifacts.test.mjs
+        run: node --test scripts/coverage-report.test.mjs scripts/test-coverage.test.mjs scripts/release-artifacts.test.mjs scripts/recover-release.test.mjs
 
       - name: pull vector image
         # Each driver/destination package's vector-validate.test.ts

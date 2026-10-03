@@ -4,10 +4,21 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing immutable stable tag to recover
+        required: true
+        type: string
+      evidence_run:
+        description: Completed tag run with tested release-evidence artifacts
+        required: true
+        type: string
 
 permissions:
   # contents:write so the workflow can create the GitHub release.
   contents: write
+  actions: read
   # id-token:write so npm Trusted Publishing can exchange an OIDC
   # token for a short-lived publish token at the registry. No
   # long-lived NPM_TOKEN to rotate.
@@ -17,8 +28,13 @@ permissions:
   #   logtura / logtura / release.yml (no environment)
   id-token: write
 
+concurrency:
+  group: logtura-npm-release
+  cancel-in-progress: false
+
 jobs:
   release:
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -112,3 +128,46 @@ jobs:
             .tmp/release/*.tgz .tmp/release/manifest.json .tmp/release/registry-receipt.json
         env:
           GH_TOKEN: ${{ github.token }}
+
+  recover:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      LOGT_RELEASE_TAG: ${{ inputs.release_tag }}
+      LOGT_RELEASE_EVIDENCE_RUN: ${{ inputs.evidence_run }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: test recovery guards before selecting the immutable source
+        run: node --test scripts/release-artifacts.test.mjs scripts/recover-release.test.mjs
+      - name: preserve recovery tools and check out the original tag
+        run: |
+          node --input-type=module -e 'import assert from "node:assert/strict";assert.match(process.env.LOGT_RELEASE_TAG,/^v\d+\.\d+\.\d+$/);'
+          mkdir -p .tmp/recovery-tools
+          cp scripts/release-artifacts.mjs scripts/recover-release.mjs .tmp/recovery-tools/
+          git checkout --detach "refs/tags/$LOGT_RELEASE_TAG"
+      - name: verify original validation run and recover exact tested archives
+        run: node .tmp/recovery-tools/recover-release.mjs "$LOGT_RELEASE_EVIDENCE_RUN"
+      - name: resume missing immutable publications and verify all registry hashes
+        run: node .tmp/recovery-tools/release-artifacts.mjs --publish .tmp/release/manifest.json
+      - name: retain exact recovery evidence and complete or partial receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-recovery-evidence
+          path: .tmp/release/
+          if-no-files-found: error
+          retention-days: 30
+      - name: create the verified tag release with exact archives
+        run: |
+          if gh release view "$LOGT_RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Tag release already exists; verified registry receipt is retained"
+          else
+            gh release create "$LOGT_RELEASE_TAG" --title "$LOGT_RELEASE_TAG" --generate-notes .tmp/release/*.tgz .tmp/release/manifest.json .tmp/release/registry-receipt.json .tmp/release/recovery-evidence.json
+          fi

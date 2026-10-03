@@ -22,7 +22,7 @@ integrities. The manifest records the clean source commit. Registry checks inspe
 every intended immutable version before any publish. An existing version with
 different bytes fails the release; it must never be overwritten or silently
 skipped. Matching versions can be reused after a partial release. Publication is
-ordered by public dependencies, and every registry integrity must match before
+ordered by public dependencies, including peers, and every registry integrity must match before
 the workflow creates a GitHub release with the tarballs and receipts attached.
 
 There is no atomic multi-package npm transaction. If publication stops midway,
@@ -33,6 +33,18 @@ and retarget the tag, rebuild a different candidate under the same version, or
 claim success from a partial registry inventory. A changed archive requires a new
 coordinated version. The supported recovery requires byte-identical archives;
 otherwise the integrity guard deliberately stops.
+
+If the tag's original publication tooling needs a recovery fix, preserve the tag
+and use the current `release.yml` **manual recovery** dispatch. Supply the existing
+`release_tag` and the original completed tag run's `evidence_run` ID. Recovery
+checks out that immutable tag, validates that the same-repository tag run passed
+every build/type/consumer/runtime/coverage gate, and downloads its exact retained
+archives. It does not rebuild or repack them. The current recovery tooling checks
+all integrity hashes and resumes only missing versions. Recovery evidence and
+receipts are retained separately. Registry propagation can lag a successful npm
+response; each acknowledged publication gets a bounded three-minute observation
+window and is recorded before waiting. An acknowledged but invisible version is
+still incomplete.
 
 The workflow uses GitHub-hosted Ubuntu and Node 24's npm client, with repository
 `id-token: write` permission. Every public package needs an npm trusted publisher
