@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {normalizePackedArchives} from '../oss/scripts/normalize-packed.mjs';
 import {mkdtempSync,mkdirSync,readdirSync,readFileSync,writeFileSync,cpSync,rmSync,existsSync,realpathSync,lstatSync,symlinkSync} from 'node:fs';
 import {join,resolve,relative,dirname} from 'node:path';
 import {tmpdir} from 'node:os';
@@ -39,6 +40,7 @@ try{
  assert.equal(new Set(packages.map(p=>p.manifest.name)).size,packages.length);
  for(const p of packages)await run('pnpm',['pack','--pack-destination',artifacts],join(root,'packages',p.directory));
  const archives=readdirSync(artifacts).filter(name=>name.endsWith('.tgz')).sort();assert.equal(archives.length,packages.length);
+ await normalizePackedArchives(archives.map(name=>join(artifacts,name)),temporary,artifacts,run);
  const externalVersions={};
  for(const p of packages)for(const name of Object.keys({...p.manifest.dependencies,...p.manifest.optionalDependencies})){
   if(name.startsWith('@logtura/'))continue;

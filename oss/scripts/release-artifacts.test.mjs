@@ -5,7 +5,9 @@ import {mkdtempSync,mkdirSync,readFileSync,writeFileSync,rmSync} from 'node:fs';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
+import {normalizePackage} from './normalize-packed.mjs';
 const packages=[{name:'@logtura/cli',version:'0.2.12',dependencies:{'@logtura/core':'workspace:*'}},{name:'@logtura/core',version:'0.2.12'}];
+test('archive normalization stabilizes dependency order without changing conditional exports',()=>{const exports={'.':{types:'./dist/index.d.ts',development:'./src/index.ts',default:'./dist/index.js'}},a={name:'@logtura/core',exports,dependencies:{z:'1',a:'2'}},b={...a,dependencies:{a:'2',z:'1'}};assert.equal(JSON.stringify(normalizePackage(a)),JSON.stringify(normalizePackage(b)));assert.deepEqual(Object.keys(normalizePackage(a).exports['.']),['types','development','default']);assert.deepEqual(Object.keys(a.dependencies),['z','a']);});
 function fixture(){const bytes=Buffer.from('tested archive');return {bytes,manifest:{schemaVersion:1,version:'0.2.12',sourceCommit:'a'.repeat(40),sourceClean:true,packages:packages.map(p=>({name:p.name,version:p.version,file:`${p.name.replace('@','').replace('/','-')}-0.2.12.tgz`,integrity:integrity(bytes)}))}};}
 test('release tags fence every package version and reject non-stable tags',()=>{assert.equal(checkTag(packages,'v0.2.12'),'0.2.12');for(const tag of ['v0.2.11','0.2.12','v0.2.12-rc.1',undefined])assert.throws(()=>checkTag(packages,tag));assert.throws(()=>checkTag([{...packages[0],version:'0.2.11'},packages[1]],'v0.2.12'));});
 test('release order installs dependencies first and refuses cycles',()=>{assert.deepEqual(publishOrder(packages).map(p=>p.name),['@logtura/core','@logtura/cli']);assert.throws(()=>publishOrder([packages[0],{...packages[1],optionalDependencies:{'@logtura/cli':'workspace:*'}}]));});

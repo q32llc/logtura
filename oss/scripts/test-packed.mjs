@@ -5,6 +5,7 @@ import { join, resolve, dirname, basename } from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { integrity, inventory, checkTag } from './release-artifacts.mjs';
+import { normalizePackedArchives } from './normalize-packed.mjs';
 
 const root = process.cwd();
 const temporary = mkdtempSync(join(tmpdir(), "logtura-packed-"));
@@ -23,6 +24,11 @@ try {
   for (const name of packages) run("pnpm", ["pack", "--pack-destination", artifacts], join(root, "packages", name));
   const archives = readdirSync(artifacts).filter((name) => name.endsWith(".tgz")).map((name) => join(artifacts, name));
   assert.equal(archives.length, packages.length, "every package must produce a tarball");
+  // pnpm resolves workspace ranges using workspace traversal order. That can
+  // shuffle dependency JSON keys between identical checkouts. Normalize only
+  // unordered dependency maps; preserve conditional exports' significant order.
+  // Consumers below validate the final archives that will actually be published.
+  await normalizePackedArchives(archives,temporary,artifacts,(program,args,cwd)=>run(program,args,cwd??root));
   writeFileSync(join(consumer, "package.json"), JSON.stringify({ private: true, type: "module" }));
   run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", ...archives], consumer);
   // Typecheck the installed tarballs with their declarations, without skipLibCheck.

@@ -11,6 +11,12 @@ consumer, checks both CLI aliases and declarations, and runs real runtime tests
 and enforced coverage. Only after those checks succeed does it publish the exact
 tested archives with npm's OIDC client. It never repacks the workspace for publish.
 
+Before consumer validation, the packing gate normalizes dependency-map key order
+and creates the final archives with `npm pack --ignore-scripts`. This removes
+pnpm's workspace traversal ordering from tarball identity. Conditional-export key
+order remains unchanged. The service's packed-package gate uses this same helper.
+Release output lives under the ignored `.tmp/` directory.
+
 The packed gate exports `.tmp/release/manifest.json`, all tarballs and their SHA-512
 integrities. The manifest records the clean source commit. Registry checks inspect
 every intended immutable version before any publish. An existing version with

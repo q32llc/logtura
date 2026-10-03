@@ -4574,3 +4574,20 @@ harness tests passed (including nine release-specific tests). The current
 `v0.2.11` version check passes; a `v0.2.12` tag without the coordinated bump fails.
 All three changed workflow files parse as YAML. A dirty local export correctly
 records `sourceClean: false` and cannot be published.
+
+Independent clean public consumer validation also passed all 15 archives. Its
+read-only registry verification rejected the old `0.2.11` bytes and retained an
+incomplete receipt with zero verified packages; no publish operation was invoked.
+Comparing private and public exports exposed pnpm's nondeterministic dependency
+key ordering in the CLI tarball. A shared normalization step now sorts only
+unordered dependency maps before final `npm pack --ignore-scripts`, preserving
+conditional-export ordering. Consumers test those final bytes. Fresh independent
+private/public exports have identical SHA-512 hashes for **all 15 archives**. The
+service gate uses the same helper and passes installed-tarball typechecking,
+Worker/website builds, native D1 HTTP lifecycle and its missing-entry negative
+control. Release output is ignored, and the sync script points to the coordinated
+runbook rather than recommending unchecked recursive publication.
+
+The final combined harness passes all 58 tests, including ten release-specific
+guards. Hash comparison confirms the packed-service gate installed the same exact
+15 normalized tarball bytes as the independent public/private consumer exports.
