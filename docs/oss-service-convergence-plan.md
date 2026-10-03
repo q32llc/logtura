@@ -4765,3 +4765,14 @@ service gate passes with this transport, including all 15 installed candidate
 archives, Worker/website builds, declarations and missing-entry negative control.
 Public registry-consumer CI `37104649207` is green. The npm recovery and complete
 installed-registry consumer result remain pending at this checkpoint.
+
+The private packed-service verifier also accepts `LOGT_PACKED_REGISTRY_MANIFEST`,
+using the same registry metadata/download-integrity guard before installing all 15
+public archives. Its normal candidate mode is unchanged. Registry mode preserves
+the original release commit and downloaded archive identities in the service
+receipt, validates installed compiled entries/declarations against the candidate,
+and builds the production Worker/website from those installed public packages.
+It still runs native D1 HTTP/website assets and the missing-packed-core negative
+control. This supports exporting a rollout artifact backed by the actual published
+npm release; the first such execution is pending publication completion. All 69
+combined harness guards pass after the local dedicated-socket change.

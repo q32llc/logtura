@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import {normalizePackedArchives} from '../oss/scripts/normalize-packed.mjs';
+import {downloadRegistryArchives} from '../oss/scripts/registry-artifacts.mjs';
+import {inventory} from '../oss/scripts/release-artifacts.mjs';
 import {mkdtempSync,mkdirSync,readdirSync,readFileSync,writeFileSync,cpSync,rmSync,existsSync,realpathSync,lstatSync,symlinkSync} from 'node:fs';
 import {join,resolve,relative,dirname} from 'node:path';
 import {tmpdir} from 'node:os';
@@ -39,9 +41,11 @@ let local;
 try{
  const packages=readdirSync(join(root,'packages'),{withFileTypes:true}).filter(entry=>entry.isDirectory()).map(entry=>entry.name).map(directory=>({directory,manifest:JSON.parse(readFileSync(join(root,'packages',directory,'package.json'),'utf8'))})).filter(p=>p.manifest.name.startsWith('@logtura/'));
  assert.equal(new Set(packages.map(p=>p.manifest.name)).size,packages.length);
- for(const p of packages)await run('pnpm',['pack','--pack-destination',artifacts],join(root,'packages',p.directory));
+ const registryManifest=process.env.LOGT_PACKED_REGISTRY_MANIFEST;
+ const registryReceipt=registryManifest?await downloadRegistryArchives(resolve(registryManifest),inventory(root),artifacts):null;
+ if(!registryManifest)for(const p of packages)await run('pnpm',['pack','--pack-destination',artifacts],join(root,'packages',p.directory));
  const archives=readdirSync(artifacts).filter(name=>name.endsWith('.tgz')).sort();assert.equal(archives.length,packages.length);
- await normalizePackedArchives(archives.map(name=>join(artifacts,name)),temporary,artifacts,run);
+ if(!registryManifest)await normalizePackedArchives(archives.map(name=>join(artifacts,name)),temporary,artifacts,run);
  const externalVersions={};
  for(const p of packages)for(const name of Object.keys({...p.manifest.dependencies,...p.manifest.optionalDependencies})){
   if(name.startsWith('@logtura/'))continue;
@@ -86,6 +90,7 @@ try{
  const homepage=await localHttpFetch(local.url+'/');assert.equal(homepage.status,200);const html=await homepage.text();assert.match(html,/<div id="root"><\/div>/);
  for(const match of html.matchAll(/(?:src|href)="(\/assets\/[^"?#]+)"/g)){const response=await localHttpFetch(local.url+match[1]);assert.equal(response.status,200);assert.ok((await response.arrayBuffer()).byteLength>0);}
  const evidence={schemaVersion:1,sourceCommit:(await run('git',['rev-parse','HEAD'],root)).trim(),candidateSourceClean:(await run('git',['status','--porcelain','--','src','packages','migrations'],root)).trim()==='',lockfileDigest:sha256(readFileSync(join(root,'pnpm-lock.yaml'))),installedLockfileDigest:sha256(readFileSync(join(consumer,'package-lock.json'))),publicExternalVersions:externalVersions,packages:packages.map(p=>({name:p.manifest.name,version:p.manifest.version,mainDigest:sha256(readFileSync(join(consumer,'node_modules',p.manifest.name,p.manifest.main))),declarationsDigest:sha256(readFileSync(join(consumer,'node_modules',p.manifest.name,p.manifest.types)))})).sort((a,b)=>a.name.localeCompare(b.name)),tarballs:archives.map(file=>({file,digest:sha256(readFileSync(join(artifacts,file)))})),publicModules:[...publicModules].sort(),workerDigest:sha256(script),migrations:readdirSync(join(consumer,'migrations')).filter(file=>file.endsWith('.sql')).sort().map(file=>({file,digest:sha256(readFileSync(join(consumer,'migrations',file)))})),websiteArtifacts:readdirSync(join(consumer,'dist/assets')).sort().map(file=>({file,digest:sha256(readFileSync(join(consumer,'dist/assets',file)))})),checks:{noWorkspacePackages:true,installedIntegrityVerified:true,compiledPublicEntries:true,missingEntryRejected:true,productionSourceTypes:true,websiteBuild:true,nativeD1RoutingLifecycle:true,websiteAssets:true},thirdPartyDependencies:'Reused declared dependencies from the frozen-lockfile installation; public dependencies npm-installed from candidate tarballs.'};
+ if(registryReceipt){evidence.registryRelease=registryReceipt;evidence.thirdPartyDependencies='Reused declared dependencies from the frozen-lockfile installation; public dependencies downloaded from npm and installed with hashes matching the original tested immutable release archives.';}
  mkdirSync(dirname(report),{recursive:true});writeFileSync(report,JSON.stringify(evidence,null,2)+'\n');
  if(process.env.LOGT_PACKED_SERVICE_OUTPUT){
   const output=resolve(process.env.LOGT_PACKED_SERVICE_OUTPUT);assert.ok(inside(join(root,'.tmp'),output)||inside(tmpdir(),output),'Release output must be a temporary artifact directory');
