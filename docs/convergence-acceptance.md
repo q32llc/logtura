@@ -5,6 +5,9 @@ not a replacement for its baseline matrix. The goal is still in progress. Histor
 milestones in that plan describe intermediate states; the evidence below identifies
 what has actually shipped and what still needs verification.
 
+The [runtime delivery matrix](runtime-delivery-matrix.md) identifies remaining
+provider and metrics-destination transport proofs found by the final audit.
+
 | Requirement | Current evidence | Remaining acceptance |
 | --- | --- | --- |
 | Standalone published CLI and libraries | All 15 npm 0.3.1 archives match the original immutable release manifest; isolated JavaScript, NodeNext/Bundler TypeScript, both CLI aliases, runtime binary and offline generation checks pass. Public [release](https://github.com/logtura/logtura/releases/tag/v0.3.1) retains archives and recovery receipts. | Preserve these checks for subsequent releases. |

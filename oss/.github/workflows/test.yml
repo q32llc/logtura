@@ -56,6 +56,9 @@ jobs:
       - name: custom Vector named outputs and isolated wildcards
         run: pnpm test:custom-vector-flow
 
+      - name: real Supabase polling and Slack delivery
+        run: pnpm test:supabase-runtime
+
       - name: real Vector delivery flow
         run: pnpm test:flow
 
