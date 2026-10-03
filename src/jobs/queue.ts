@@ -1,3 +1,4 @@
+import {runFlyCleanup} from "./handlers/fly-cleanup";
 import type { Env } from "../env";
 import { recordOpsEvent } from "../ops-events";
 import { JobDriver } from "./driver";
@@ -67,6 +68,7 @@ const HANDLERS: Partial<Record<JobKind, JobHandler>> = {
   discovery: runDiscovery,
   fly_deploy: runFlyDeploy,
   fly_rollback: runFlyRollback,
+  fly_cleanup: runFlyCleanup,
   "fly_deploy.discharge_create_app": runFlyDischargeCreateApp,
   "fly_deploy.ensure_checkpoint": runFlyEnsureCheckpoint,
   "fly_deploy.create_or_update_machine": runFlyCreateOrUpdateMachine,

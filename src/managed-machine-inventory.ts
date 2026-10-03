@@ -1,5 +1,6 @@
 import {canonicalConfigJson,type FlyMachine} from "@logtura/core";
 import {readManagedInstall,type ManagedInstall} from "./managed-installations";
+import {readManagedCleanup} from "./managed-cleanups";
 import type {Env} from "./env";
 
 /** Only the deployment's journal can authorize a retained quiescent rollback VM.
@@ -8,6 +9,13 @@ export async function selectManagedForwarder(env:Env,userId:string,deploymentId:
  const deployment=await env.DB.prepare("SELECT external_id FROM deployments WHERE id=? AND user_id=? AND managed=1 AND target_kind='fly'")
   .bind(deploymentId,userId).first<{external_id:string|null}>();
  if(!deployment)throw new Error("Managed deployment no longer owned");
+ const cleanedRow=await env.DB.prepare("SELECT id FROM managed_cleanups WHERE deployment_id=? AND user_id=? AND status='completed' AND app_name=? AND external_id=? ORDER BY created_at DESC,id DESC LIMIT 1").bind(deploymentId,userId,app,deployment.external_id).first<{id:string}>();
+ const cleaned=cleanedRow?await readManagedCleanup(env,userId,deploymentId,cleanedRow.id):null;
+ if(cleaned){
+  const survivor=cleaned.state.plan.survivor;
+  if(machines.length!==1 || machines[0]!.id!==survivor.id || (machines[0] as FlyMachine & {name?:string}).name!==(survivor as FlyMachine & {name?:string}).name || survivor.id!==cleaned.state.plan.replacement.plan.before.id && (machines[0]!.config.metadata as Record<string,unknown>)?.["logtura.replacement"]!==cleaned.replacementId)throw new Error("Managed cleaned survivor inventory changed; retain cleanup for recovery");
+  return machines[0]!;
+ }
  const rows=await env.DB.prepare("SELECT id FROM managed_installations WHERE deployment_id=? AND user_id=? AND phase='completed' AND replacement_phase='installed' ORDER BY created_at DESC LIMIT 2")
   .bind(deploymentId,userId).all<{id:string}>();
  if(rows.results.length>1)throw new Error("Managed rollback inventory is ambiguous; retain journals for recovery");

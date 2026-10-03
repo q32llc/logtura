@@ -290,3 +290,8 @@ export interface ApiManagedRollbackState {
  availableReplacementId:string|null;
  rollback:{id:string;replacementId:string;status:"pending"|"completed";phase:string;oldMachineId:string;candidateMachineId:string|null}|null;
 }
+
+export interface ApiManagedCleanupState {
+ configurationVersion:number;availableReplacementId:string|null;
+ cleanup:{id:string;replacementId:string;status:"pending"|"completed";phase:string;survivorId:string;retiredId:string}|null;
+}

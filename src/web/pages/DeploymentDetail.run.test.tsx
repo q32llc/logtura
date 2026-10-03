@@ -24,6 +24,7 @@ beforeEach(() => {
   vi.spyOn(api, "listMonitors").mockResolvedValue({ monitors: [], sinks: [] });
   vi.spyOn(api, "listDestinations").mockResolvedValue({ destinations: [] });
   vi.spyOn(api, "listDeployTargets").mockResolvedValue({ deployTargets: [target] });
+  vi.spyOn(api,"getManagedCleanup").mockResolvedValue({configurationVersion:1,availableReplacementId:null,cleanup:null});
   vi.spyOn(api,"getManagedRollback").mockResolvedValue({configurationVersion:1,availableReplacementId:null,rollback:null});
   vi.spyOn(api, "deployNow").mockResolvedValue({ job: job("queued"), deduped: false });
   vi.spyOn(api, "getJob").mockResolvedValue({ job: job("succeeded") });

@@ -36,3 +36,9 @@ it("renders nothing when no legacy replacement or rollback exists",async()=>{
 it("ignores late status completion after unmount",async()=>{
  let finish!:(state:ApiManagedRollbackState)=>void;vi.mocked(api.getManagedRollback).mockImplementation(()=>new Promise(resolve=>finish=resolve));const view=page();view.unmount();finish(available);await Promise.resolve();expect(onPending).not.toHaveBeenCalled();
 });
+it("disables restoration while retained-machine retirement is pending",async()=>{
+ render(<MantineProvider env="test"><ManagedRollback deploymentId="dep" targetId="target" job={null} onJob={onJob} onPending={onPending} blocked/></MantineProvider>);const button=await screen.findByRole("button",{name:"Restore previous forwarder"});expect((button as HTMLButtonElement).disabled).toBe(true);fireEvent.click(button);expect(api.restoreManagedForwarder).not.toHaveBeenCalled();
+});
+it("offers restoration for a newly installed replacement instead of showing older historical restoration",async()=>{
+ vi.mocked(api.getManagedRollback).mockResolvedValue({...pending,rollback:{...pending.rollback!,status:"completed",phase:"rolled_back"}});page();await screen.findByRole("button",{name:"Restore previous forwarder"});expect(screen.queryByText("Previous forwarder restored. Its portable configuration revision is unknown.")).toBeNull();
+});

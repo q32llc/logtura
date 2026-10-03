@@ -13,7 +13,7 @@ import { managedRuntimeJourney } from "../test/e2e/managed-runtime";
 
 if (process.platform !== "linux") throw new Error("Local runtime E2E requires Linux Docker host networking");
 const injectedFailure = process.env.LOGT_E2E_INJECT_FAILURE;
-if (injectedFailure && !["after-create", "after-push", "after-runtime", "after-managed-runtime", "after-managed-update", "after-legacy-runtime", "after-legacy-update", "after-legacy-rollback"].includes(injectedFailure)) throw new Error("Unsupported local E2E failure phase");
+if (injectedFailure && !["after-create", "after-push", "after-runtime", "after-managed-runtime", "after-managed-update", "after-legacy-runtime", "after-legacy-update", "after-legacy-rollback", "after-legacy-cleanup", "after-legacy-redeployment"].includes(injectedFailure)) throw new Error("Unsupported local E2E failure phase");
 class InjectedFailure extends Error {}
 function injectFailure(phase: string) { if (injectedFailure === phase) throw new InjectedFailure(`Injected local E2E failure: ${phase}`); }
 const root = process.cwd(), temporary = mkdtempSync(join(tmpdir(), "logtura-local-e2e-"));
@@ -274,6 +274,8 @@ try {
     afterApplied: () => injectFailure(legacy?"after-legacy-runtime":"after-managed-runtime"),
     afterReapplied: () => injectFailure(legacy?"after-legacy-update":"after-managed-update"),
     afterRolledBack:()=>injectFailure("after-legacy-rollback"),
+    afterCleaned:()=>injectFailure("after-legacy-cleanup"),
+    afterRedeployed:()=>injectFailure("after-legacy-redeployment"),
     editAndPush: async managedId => {
       const login = start(bin, ["login", "--service", service.url, "--no-browser", "--name", "managed-update"]);
       const result = login.result; void result.catch(() => {});

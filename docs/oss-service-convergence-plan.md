@@ -4288,3 +4288,76 @@ not yet make the website's retained-machine cleanup available. Remote recovery,
 live canaries, coordinated npm publication and staged production rollout remain
 open. Existing production resources, package versions and source migrations did
 not change.
+
+### Hosted retirement, preserved checkpoint and deployment after restoration
+
+The preceding shared cleanup operation is verified on public commit `ebb87f9` by
+[public CI](https://github.com/logtura/logtura/actions/runs/37087791970). Private
+commit `11dda0d` also passes its exact
+[test CI](https://github.com/q32llc/logtura/actions/runs/37087803155) and
+[image CI](https://github.com/q32llc/logtura/actions/runs/37087803159). No external
+coverage service is used.
+
+Source migration `0031` adds encrypted immutable cleanup plans and durable
+`prepared`/`deleting`/`deleted` state. Owned reservation SQL checks graph version,
+physical binding, desired revision/sequence, reporting instance and accepted report
+for an installed survivor, or completed rollback with unknown applied state for a
+restored survivor. It refuses pending installations/rollback and live installation
+claims in the reservation batch. Pending cleanup blocks new installation claims,
+instance changes, desired-sequence changes and rollback reservation. Existing
+legacy rows, graph versions and installation leases survive migration unchanged.
+
+Owner preparation combines the original replacement inputs with the actual latest
+issued candidate configuration, or the completed rollback plan. Complete provider
+snapshots are bounded before encryption and never appear in API/job output. An
+explicit account-version rebase preserves all physical identities and private plan
+bytes. The service invokes the public cleanup operation under an exclusive D1 claim;
+its deletion CAS includes current ownership/report fences. Final completion and
+retirement of the original recovery intent share an atomic postflight guard. Claim
+loss between the final read and commit cannot leave a partly retired D1 lineage.
+
+The authenticated no-store API requires `confirmRetirement: true`, bounds streamed
+bodies, validates the owned Fly target and uses the existing deployment queue lock
+and child-job serializer. The native `fly_cleanup` job has a fixed five-minute
+deadline. Pending or uncertain deletion queues observation of the same journal,
+never another DELETE. Ordinary provider failure retains it for explicit retry;
+expired continuations cannot dispatch provider mutations. Completed cleanup retains
+a private ownership lineage for the exact surviving machine, permitting later
+configuration updates without relying on a familiar machine name. The former
+replacement becomes obsolete, so its deleted standby cannot be restored.
+
+The website requires confirmation of irreversible removal, uses a fresh graph fence,
+refuses a changed replacement, disables deployment/restoration while cleanup is
+pending, rehydrates active work on reload and shows only static failures. Retry is
+labelled observation of the retained decision. Completed historical restoration no
+longer hides restoration controls for a newly installed replacement. Confirmation
+and private plans stay outside ordinary generated manifests.
+
+All 1,674 native/package tests across 138 files and 306 website tests across 23 files
+pass. Cleanup cases cover installation/restoration, later candidate updates,
+unlaunched candidates after uncertain creation, accepted-report and instance races,
+claim/CAS/postflight loss, live exclusivity, corrupt/oversized private data, native
+API/queue recovery, bounded bodies/deadlines and surviving-inventory ownership.
+Backend/package coverage is 97.09% statements, 94.54% branches, 98.90% functions and
+97.48% lines. Website coverage is 93.77%, 90.71%, 96.51% and 94.95%. Existing floors
+pass. Cleanup storage/routes/UI have dedicated 95/90/100/100 floors; the queue handler
+has 100% coverage for all four metrics. Builds, private types, E2E types and the
+three harness invariant tests pass.
+
+The full actual local browser/workerd/packed-CLI/Docker journey now restores the
+legacy Vector forwarder, removes only its retained quiescent candidate, verifies the
+legacy remains running and the checkpoint volume remains present, then deploys a
+newly issued candidate using that same released volume. The actual SDK reports its
+loaded bytes to workerd/D1, the website converges to the new applied revision and
+obsolete reports remain rejected. The original legacy process stops before the new
+candidate starts. No second volume is created. The injected
+`after-legacy-redeployment` run proves cleanup after this deepest boundary; both
+normal and injected runs finish successfully and remove all owned local resources.
+CI now requires that boundary in addition to its earlier failure-injection check.
+Fly transport remains controlled; this is not live provider deployment evidence.
+
+Uncertain deletion with the retired VM still present requires provider outcome
+investigation; retry cannot silently reset the durable dispatch marker. Pre-create
+cancellation, durable remote recovery/target disconnect, live provider canaries,
+coordinated publication and staged production migration/deployment remain open.
+This slice changes neither npm package versions nor existing production resources.

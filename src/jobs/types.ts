@@ -2,6 +2,7 @@ export type JobKind =
   | "discovery"
   | "fly_deploy"
   | "fly_rollback"
+  | "fly_cleanup"
   | "fly_deploy.discharge_create_app"
   | "fly_deploy.ensure_checkpoint"
   | "fly_deploy.create_or_update_machine"
@@ -168,3 +169,5 @@ export function jobRowToRecord(row: JobRow): JobRecord {
     availableAt: row.available_at,
   };
 }
+
+export interface FlyCleanupPayload extends FlyDeployPayload {cleanupId:string;deadline:number;}

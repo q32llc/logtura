@@ -109,6 +109,18 @@ export async function startBrowser(service: { url: string; cookie: string }) {
         await page.getByRole("button",{name:"Restore previous forwarder",exact:true}).click();
         const response=await started;assert.equal(response.status(),200);const body=await response.json();assert.equal(body.job.kind,"fly_rollback");return body.job.id as string;
       },
+      async retireRetainedForwarder(id:string){
+        await page.goto(`${service.url}/app/deployments/${id}?tab=run`);
+        await page.getByRole("checkbox",{name:"I understand that the retained machine will be permanently deleted.",exact:true}).check();
+        const started=responseFor(response=>response.url()===`${service.url}/api/deployments/${id}/cleanup` && response.request().method()==="POST");
+        await page.getByRole("button",{name:"Remove retained machine",exact:true}).click();
+        const response=await started;assert.equal(response.status(),200);const body=await response.json();assert.equal(body.job.kind,"fly_cleanup");return body.job.id as string;
+      },
+      async retainedForwarderRemoved(id:string){
+        await page.goto(`${service.url}/app/deployments/${id}?tab=run`);await page.reload();
+        await page.getByText("Retained machine removed. The surviving forwarder and checkpoint storage are preserved.",{exact:true}).waitFor();
+        assert.equal(await page.getByRole("button",{name:"Remove retained machine",exact:true}).count(),0);
+      },
       async restoredLegacyForwarder(id:string){
         await page.goto(`${service.url}/app/deployments/${id}?tab=run`);await page.reload();
         await page.getByText("Previous forwarder restored. Its portable configuration revision is unknown.",{exact:true}).waitFor();

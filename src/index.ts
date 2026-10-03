@@ -4,6 +4,7 @@ import { exchangeSlackWebhook, readSlackOAuthState } from "./destinations/slack-
 import { readProviderOAuthState } from "./providers/oauth-state";
 import { createDeploymentIngest } from "./deployment-ingest";
 import { deploymentStateRoutes,deploymentAppliedRoutes } from "./deployment-state-routes";
+import {managedCleanupRoutes} from "./managed-cleanup-routes";
 import { managedRollbackRoutes } from "./managed-rollback-routes";
 import { exportDeploymentTarget } from "./deployment-target";
 import { createPushReceiptIntent,readPushReceipt,PushReceiptConflict,PushReceiptUnavailable,type PushReceiptIntent } from "./deployment-push-receipts";
@@ -277,6 +278,7 @@ apiAuth.use("/deployments/:id/config/*",async(c,next)=>{c.header("cache-control"
 apiAuth.use("*", requireAuth);
 apiAuth.route("/",deploymentStateRoutes());
 apiAuth.route("/",managedRollbackRoutes(async(driver,job)=>toApiJob((await aggregateJobWithKids(driver,job)).job)));
+apiAuth.route("/",managedCleanupRoutes(async(driver,job)=>toApiJob((await aggregateJobWithKids(driver,job)).job)));
 
 apiAuth.get("/connections", async (c) => {
   const user = c.get("user")!;

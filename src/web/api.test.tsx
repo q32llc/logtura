@@ -53,3 +53,6 @@ it("preserves an abort during response-body reading instead of misclassifying it
  vi.stubGlobal("fetch",async()=>response);
  await expect(api.updateDeployment("dep",{displayName:"Uncertain mutation"})).rejects.toBe(reason);
 });
+it("uses encoded cleanup endpoints and preserves the explicit irreversible decision",async()=>{
+ const fetcher=vi.fn(async(_url:unknown,_init?:RequestInit)=>Response.json({cleanup:null,availableReplacementId:null,configurationVersion:3,job:{id:"cleanup"},deduped:false}));vi.stubGlobal("fetch",fetcher);await api.getManagedCleanup("dep /?");const input={replacementId:"replacement",configurationVersion:3,deployTargetId:"target",confirmRetirement:true as const};await api.retireManagedForwarder("dep /?",input);expect(fetcher.mock.calls.map(call=>call[0])).toEqual(["/api/deployments/dep%20%2F%3F/cleanup","/api/deployments/dep%20%2F%3F/cleanup"]);expect(JSON.parse(fetcher.mock.calls[1]![1]!.body as string)).toEqual(input);expect(fetcher.mock.calls[1]![1]!.method).toBe("POST");
+});

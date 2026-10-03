@@ -2,6 +2,7 @@ import { BundleFileView } from "../components/BundleFileView";
 import { rateFor } from "@logtura/core";
 import { DeploymentRevisionStatus } from "../components/DeploymentRevisionStatus";
 import { deploymentSourceSummary } from "../deployment-selection";
+import {ManagedCleanup} from "../components/ManagedCleanup";
 import {ManagedRollback} from "../components/ManagedRollback";
 import {
   Alert,
@@ -1723,6 +1724,7 @@ function ManagedDeployCard({
   );
   const [deploying, setDeploying] = useState(false);
   const [rollbackPending,setRollbackPending]=useState(false);
+  const [cleanupPending,setCleanupPending]=useState(false);
   const deployInFlightRef = useRef(false);
   const [autoTriggered, setAutoTriggered] = useState(false);
   const [lastRefreshedJobId, setLastRefreshedJobId] = useState<string | null>(
@@ -1943,11 +1945,11 @@ function ManagedDeployCard({
           <><FlyDeployRunner
             target={flyTarget}
             deployJob={deployJob}
-            deploying={deploying || rollbackPending}
+            deploying={deploying || rollbackPending || cleanupPending}
             onDeploy={() => startDeploy(flyTarget.id)}
             onReconnect={startConnect}
             connecting={connecting !== null}
-          /><ManagedRollback deploymentId={deployment.id} targetId={flyTarget.id} job={deployJob} onJob={setDeployJob} onPending={setRollbackPending}/></>
+          /><ManagedRollback deploymentId={deployment.id} targetId={flyTarget.id} job={deployJob} onJob={setDeployJob} onPending={setRollbackPending} blocked={cleanupPending}/><ManagedCleanup deploymentId={deployment.id} targetId={flyTarget.id} job={deployJob} onJob={setDeployJob} onPending={setCleanupPending}/></>
         ) : connecting ? (
           <ConnectingState
             authUrl={connecting.authUrl}
