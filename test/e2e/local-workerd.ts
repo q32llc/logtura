@@ -1,14 +1,16 @@
 import { build } from "esbuild";
 import { Miniflare } from "miniflare";
 import { readD1Migrations } from "@cloudflare/vitest-pool-workers";
+import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { signCookie } from "../../src/crypto";
 
 /** Fresh real storage; only identity seeding bypasses public HTTP workflows. */
-export async function startLocalService(optionsForFixture: { flyAuthorization?: boolean } = {}) {
+export async function startLocalService(optionsForFixture: { flyAuthorization?: boolean; serviceRoot?: string; compiledWorker?: string } = {}) {
   const secret = randomUUID();
-  const compiled = await build({ entryPoints: ["src/index.ts"], bundle: true, write: false,
-    format: "esm", platform: "browser", external: ["node:*", "cloudflare:*"], logLevel: "silent" });
+  const root=optionsForFixture.serviceRoot??process.cwd();
+  const compiled = optionsForFixture.compiledWorker??(await build({ absWorkingDir:root,entryPoints: ["src/index.ts"], bundle: true, write: false,
+    format: "esm", platform: "browser", external: ["node:*", "cloudflare:*"], logLevel: "silent" })).outputFiles![0]!.text;
   const unexpected: string[] = [];
   let providerToken = "fixture-private-provider-token";
   let rotatedVerifications = 0;
@@ -25,9 +27,9 @@ export async function startLocalService(optionsForFixture: { flyAuthorization?: 
     return resume;
   }
   const options = {
-    modules: true, script: compiled.outputFiles![0]!.text, compatibilityDate: "2025-05-01",
+    modules: true, script: compiled, compatibilityDate: "2025-05-01",
     compatibilityFlags: ["nodejs_compat"], host: "127.0.0.1", port: 0,
-    assets: { directory: "dist", binding: "ASSETS",
+    assets: { directory: join(root,"dist"), binding: "ASSETS",
       routerConfig: { invoke_user_worker_ahead_of_assets: true, has_user_worker: true },
       assetConfig: { not_found_handling: "single-page-application" as const } },
     d1Databases: ["DB"], d1Persist: false, queuePersist: false, queueProducers: { JOBS_QUEUE: "e2e-jobs" }, queueConsumers: { "e2e-jobs": {} },
@@ -67,7 +69,7 @@ export async function startLocalService(optionsForFixture: { flyAuthorization?: 
     await service.setOptions({ ...options, bindings: { ...options.bindings, APP_URL: url } });
     await service.ready;
     const db = await service.getD1Database("DB");
-    for (const migration of await readD1Migrations("./migrations")) {
+    for (const migration of await readD1Migrations(join(root,"migrations"))) {
       await db.batch(migration.queries.map(sql => db.prepare(sql)));
     }
     const userId = `usr_e2e_${randomUUID()}`, now = Date.now();

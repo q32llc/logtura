@@ -171,3 +171,31 @@ failure cases pass only if their specified boundary is reached and cleanup passe
 They demonstrate teardown on interruption paths, not SIGKILL recovery of the E2E
 runner itself; durable recovery of that broader deployment/runtime runner remains
 planned work. The separate HTTP routing ledger above already proves SIGKILL recovery.
+
+
+## Service consuming installed public release artifacts
+
+After `pnpm build`, run `pnpm test:packed:service`. The gate packs and npm-installs
+all public packages in a temporary consumer outside this repository. It copies
+production service source, migrations and website build inputs; repository-only
+test files and environment files are excluded. Public dependencies are real installed
+tarballs with verified npm integrity, compiled entry bytes and declaration bytes.
+Public external dependencies use the exact versions in the frozen-lockfile workspace.
+Declared private third-party dependencies and build tools are reused from that locked
+installation; no `@logtura` workspace package is linked into the consumer.
+
+The gate typechecks production source, bundles the Worker and builds the website.
+Build input audits require every public runtime module to come from an installed
+`dist` entry and reject workspace package source. A negative control removes the
+installed core entry, requires that exact Worker build to fail, then restores it.
+The audited Worker bytes run in real local workerd/Miniflare with fresh D1 migrations.
+The shared HTTP routing lifecycle and actual built website assets must pass.
+Only fixture identity establishment uses direct D1 access; lifecycle actions use
+ordinary authenticated API routes.
+
+`.tmp/packed-service-report.json` records the source commit, package versions,
+tarball integrity digests, compiled/declaration digests, imported public packages,
+lockfile digests and Worker/website artifact digests. The previous report is removed
+before an attempted gate. Private CI requires the gate and uploads this report as
+`packed-service-evidence`. This proves candidate artifact consumption; published npm
+release and remote/live-provider rollout still require their separate gates.

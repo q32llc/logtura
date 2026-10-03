@@ -4430,3 +4430,42 @@ actual local browser/workerd/packed-CLI/Docker journey pass, including legacy ro
 retained candidate deletion, preserved checkpoint and newly issued replacement.
 The final routing harness also proves that stale/empty inventories cannot claim
 cleanup while the durable receipt still records a completed resource.
+
+### Private service consuming packed public candidate artifacts
+
+`pnpm test:packed:service` now packs and npm-installs all 15 public packages outside
+the repository, copies production service source/migrations/website inputs and
+builds the actual Worker and React website against that consumer. No environment
+files, repository-only test modules or workspace package directory are copied.
+Installed public packages are non-symlink directories. Their npm lock integrity,
+compiled entries and declaration bytes must match the candidate tarballs/builds.
+Public external dependency versions are pinned to the frozen-lockfile installation.
+Declared private third-party dependencies and build tools are reused from the locked
+installation; this is a candidate public-artifact isolation gate, rather than a
+second installation of every private build tool.
+
+Worker and website input audits reject workspace public package source and require
+public runtime imports to resolve installed `dist` entries. A negative control
+removes the packed core entry while workspace source remains present, requires the
+same Worker build to fail and restores the entry before the positive build. The
+positive Worker consumes 13 public backend packages; the installed CLI and standalone
+custom-source package are also integrity-checked but are not imported by this service
+routing scenario. Production source typechecking against installed declarations
+passes without introducing workspace aliases.
+
+The exact audited Worker bytes run in native Miniflare/workerd using fresh D1 and all
+source migrations. The shared authenticated HTTP routing lifecycle creates, updates,
+cancels/deletes and verifies only its owned resources. The actual built website
+HTML and emitted asset requests pass. Outbound provider traffic is strict fixture
+traffic; unexpected requests fail. No service production account or provider
+infrastructure is used.
+
+A successful gate writes `.tmp/packed-service-report.json`: source commit, package
+versions, tarball and compiled/declaration hashes, actual imported public packages,
+locked dependency hashes, Worker hash and website artifact hashes. Each attempted
+run first removes old evidence. Private CI requires the gate and uploads the report
+as `packed-service-evidence` alongside its existing independently owned coverage
+artifacts. Private types and E2E types pass. The broader published-package release,
+complete remote/live-provider matrix and staged production migration/deployment
+remain required; this slice publishes no npm versions and changes no production
+resources.

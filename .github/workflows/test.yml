@@ -34,6 +34,17 @@ jobs:
       - name: packed consumer checks
         run: pnpm test:packed
 
+      - name: service consuming packed public artifacts
+        run: pnpm test:packed:service
+
+      - name: upload packed service release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: packed-service-evidence
+          path: .tmp/packed-service-report.json
+          if-no-files-found: error
+          retention-days: 14
+
       - name: typecheck
         run: pnpm typecheck
 
