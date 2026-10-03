@@ -96,6 +96,9 @@ export class FlyMachinesClient {
   async update(app:string,id:string,config:FlyMachineConfig,version:string,nonce:string):Promise<void> {identifier(version);await this.request(`${identifier(app)}/machines/${identifier(id)}`,"POST",{config,current_version:version},nonce);}
   async stop(app:string,id:string,nonce:string):Promise<void> {await this.request(`${identifier(app)}/machines/${identifier(id)}/stop`,"POST",{signal:"SIGTERM",timeout:"35s"},nonce);}
   async start(app:string,id:string,nonce:string):Promise<void> {await this.request(`${identifier(app)}/machines/${identifier(id)}/start`,"POST",{},nonce);}
+  /** No force flag: callers must prove the saved machine is quiescent under a
+   * provider lease and persist deletion intent before dispatch. */
+  async destroy(app:string,id:string,nonce:string):Promise<void> {await this.request(`${identifier(app)}/machines/${identifier(id)}`,"DELETE",undefined,nonce);}
 }
 /** Intent must already be durable. A lost update response is recovered by reading
  * the complete planned configuration, never by blindly repeating a write. */

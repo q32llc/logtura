@@ -574,3 +574,31 @@ create dispatch, candidate capture, handoff and installed phases, and at both
 rollback phases. They also reconcile a real lost create response without dispatching
 another candidate. Run the monorepo build before tests, since the child imports the
 compiled public package rather than a test-only implementation.
+
+Permanent retirement is a separate explicit operation. After a terminal `installed`
+or `rolled_back` journal, call `planFlyReplacementCleanup({replacement, machines})`
+with the complete current inventory. Persist its private plan in a
+`FlyReplacementCleanupStore` as `{plan, phase: "prepared"}` before calling
+`executeFlyReplacementCleanup(store, client, {assertCurrent})`. The store has the
+same exclusive-claim and durable CAS requirements as replacement storage. The
+adapter must establish ownership, target and live configuration/claim fences; for
+installed candidates it must also require the accepted current runtime report.
+The library cannot infer that authorization from health or machine names.
+
+Cleanup checks both exact configurations, machine versions, OCI identities,
+organization, inventory and checkpoint attachment. It holds both provider leases
+while permanently deleting only the saved `created`/`stopped` machine. It never
+force-stops a VM or deletes a volume. After restoration this releases the retained
+checkpoint attachment for a newly issued replacement; after installation the
+checkpoint remains attached to the surviving candidate. Retirement removes the
+ability to restore the deleted VM, so adapters must present this as an explicit
+irreversible choice.
+
+The private journal transitions `prepared` → `deleting` → `deleted`; dispatch intent
+is flushed before DELETE. `FlyReplacementCleanupPending` means observe the same
+journal again. A `deleting` journal never sends another DELETE, even if the process
+died before dispatch or a response was lost. If the machine is still present,
+provider outcome investigation is required; repeated retries cannot silently reset
+the decision. Completed journals still recheck ownership and the surviving machine.
+Native subprocess tests cover SIGKILL at both durable transitions and a lost real
+HTTP deletion response through the compiled public package.

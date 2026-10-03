@@ -6,6 +6,7 @@ import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {fileURLToPath} from "node:url";
 import {planFlyReplacement,type FlyReplacementState} from "../src/fly-replacement";
+import {planFlyReplacementCleanup,type FlyReplacementCleanupState} from "../src/fly-replacement-cleanup";
 import type {FlyMachine,FlyMachineConfig} from "../src/fly";
 const image=`registry.test/new@sha256:${"a".repeat(64)}`;
 async function fixture(){
@@ -14,7 +15,7 @@ async function fixture(){
  const machines:FlyMachine[]=[structuredClone(original)],volume={id:"vol_checkpoint",region:"ord",encrypted:true,state:"created",attached_machine_id:null as string|null};
  const plan=planFlyReplacement({id:crypto.randomUUID(),app:"app",org:"personal",machine:original,volume:volume.id,volumes:[volume],config:{...original.config,image,env:{PRIVATE:"new-issued"},mounts:[{path:"/var/lib/logtura",volume:volume.id}]}});
  writeFileSync(journal,JSON.stringify({plan,phase:"prepared",machineId:null}),{mode:0o600,flag:"wx"});
- const counts={create:0,oldStop:0,newStart:0,newStop:0,oldUpdate:0,oldStart:0};let failure:unknown,loseCreate=false;
+ const counts={create:0,oldStop:0,newStart:0,newStop:0,oldUpdate:0,oldStart:0,delete:0};let failure:unknown,loseCreate=false,loseDelete=false;
  const state=()=>JSON.parse(readFileSync(journal,"utf8")) as FlyReplacementState;
  const server=createServer(async(request,response)=>{
   try{
@@ -32,6 +33,13 @@ async function fixture(){
     }else reply(machines);return;
    }
    if(machine){
+    if(request.method==="DELETE"){
+     expect((JSON.parse(readFileSync(journal,"utf8")) as FlyReplacementCleanupState).phase).toBe("deleting");
+     expect(request.headers["fly-machine-lease-nonce"]).toBe(`lease-${machine.id}`);
+     expect(machine.state).toMatch(/^(stopped|created)$/);expect(machines.find(item=>item.id!==machine.id)!.state).toBe("started");counts.delete++;
+     machines.splice(machines.indexOf(machine),1);if(volume.attached_machine_id===machine.id)volume.attached_machine_id=null;
+     if(loseDelete){loseDelete=false;request.socket.destroy();return;}response.writeHead(204);response.end();return;
+    }
     if(request.method==="POST"){
      expect(request.headers["fly-machine-lease-nonce"]).toBe(`lease-${machine.id}`);
      if(path.endsWith("/stop")){expect(body).toEqual({signal:"SIGTERM",timeout:"35s"});counts[machine.id==="old"?"oldStop":"newStop"]++;machine.state="stopped";}
@@ -44,8 +52,8 @@ async function fixture(){
  });
  await new Promise<void>(resolve=>server.listen(0,"127.0.0.1",resolve));
  const origin=`http://127.0.0.1:${(server.address() as {port:number}).port}`;
- async function run(killPhase="none",rollback=false){
-  const child=spawn(process.execPath,[fileURLToPath(new URL("./fixtures/fly-replacement-child.mjs",import.meta.url)),journal,origin,killPhase,rollback?"rollback":"replace"],{stdio:["ignore","pipe","pipe"]});
+ async function run(killPhase="none",rollback=false,cleanup=false){
+  const child=spawn(process.execPath,[fileURLToPath(new URL("./fixtures/fly-replacement-child.mjs",import.meta.url)),journal,origin,killPhase,cleanup?"cleanup":rollback?"rollback":"replace"],{stdio:["ignore","pipe","pipe"]});
   let stdout="",stderr="";child.stdout.on("data",chunk=>stdout+=chunk);child.stderr.on("data",chunk=>stderr+=chunk);
   const timer=setTimeout(()=>child.kill("SIGKILL"),15000);
   const result=await new Promise<{code:number|null;signal:NodeJS.Signals|null}>((resolve,reject)=>{child.on("error",reject);child.on("close",(code,signal)=>resolve({code,signal}));});clearTimeout(timer);
@@ -54,7 +62,9 @@ async function fixture(){
   rmSync(journal+".lock",{recursive:true,force:true});if(failure)throw failure;
   expect(statSync(journal).mode&0o777).toBe(0o600);return {...result,stdout,stderr};
  }
- return {plan,state,run,machines,counts,set loseCreate(value:boolean){loseCreate=value;},async close(){server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));rmSync(temporary,{recursive:true,force:true});expect(existsSync(temporary)).toBe(false);}};
+ return {plan,state,run,machines,counts,volume,cleanupState:()=>JSON.parse(readFileSync(journal,"utf8")) as FlyReplacementCleanupState,
+  prepareCleanup(){const replacement=state();writeFileSync(journal,JSON.stringify({plan:planFlyReplacementCleanup({replacement,machines}),phase:"prepared"}));},
+  set loseCreate(value:boolean){loseCreate=value;},set loseDelete(value:boolean){loseDelete=value;},async close(){server.closeAllConnections();await new Promise<void>(resolve=>server.close(()=>resolve()));rmSync(temporary,{recursive:true,force:true});expect(existsSync(temporary)).toBe(false);}};
 }
 it.each(["creating","created","switching","installed"])("recovers a real HTTP replacement process killed after durable %s",async phase=>{
  const f=await fixture();try{
@@ -72,4 +82,27 @@ it.each(["rolling_back","rolled_back"])("recovers a real HTTP rollback process k
 },20000);
 it("reconciles a lost real HTTP create response without dispatching another candidate",async()=>{
  const f=await fixture();try{f.loseCreate=true;expect((await f.run()).code).toBe(1);expect(f.state().phase).toBe("creating");const resumed=await f.run();expect(resumed,{stderr:resumed.stderr}).toMatchObject({code:0,signal:null});expect(f.counts.create).toBe(1);expect(f.state().phase).toBe("installed");}finally{await f.close();}
+},20000);
+it.each([false,true])("permanently retires only the quiescent owned machine through compiled public HTTP cleanup after rollback=%s",async rollback=>{
+ const f=await fixture();try{
+  expect((await f.run()).code).toBe(0);if(rollback)expect((await f.run("none",true)).code).toBe(0);f.prepareCleanup();
+  const completed=await f.run("none",false,true);expect(completed,{stderr:completed.stderr}).toMatchObject({code:0,signal:null});
+  expect(f.cleanupState().phase).toBe("deleted");expect(f.counts.delete).toBe(1);expect(f.machines.map(machine=>[machine.id,machine.state])).toEqual([[rollback?"old":"new","started"]]);expect(f.volume.attached_machine_id).toBe(rollback?null:"new");
+  expect((await f.run("none",false,true)).code).toBe(0);expect(f.counts.delete).toBe(1);
+ }finally{await f.close();}
+},20000);
+it.each(["deleting","deleted"])("preserves cleanup after an actual process is killed after durable %s",async phase=>{
+ const f=await fixture();try{
+  expect((await f.run()).code).toBe(0);f.prepareCleanup();expect(await f.run(phase,false,true)).toMatchObject({code:null,signal:"SIGKILL"});expect(f.cleanupState().phase).toBe(phase);
+  const resumed=await f.run("none",false,true);
+  if(phase==="deleting"){expect(resumed.code).toBe(1);expect(resumed.stderr).toContain("pending or unknown");expect(f.counts.delete).toBe(0);expect(f.machines).toHaveLength(2);}
+  else{expect(resumed,{stderr:resumed.stderr}).toMatchObject({code:0,signal:null});expect(f.counts.delete).toBe(1);expect(f.machines).toHaveLength(1);}
+ }finally{await f.close();}
+},20000);
+it("observes lost real HTTP deletion without a second destructive request",async()=>{
+ const f=await fixture();try{
+  expect((await f.run()).code).toBe(0);expect((await f.run("none",true)).code).toBe(0);f.prepareCleanup();f.loseDelete=true;
+  expect((await f.run("none",false,true)).code).toBe(1);expect(f.cleanupState().phase).toBe("deleting");expect(f.counts.delete).toBe(1);
+  const resumed=await f.run("none",false,true);expect(resumed,{stderr:resumed.stderr}).toMatchObject({code:0,signal:null});expect(f.cleanupState().phase).toBe("deleted");expect(f.counts.delete).toBe(1);expect(f.volume.attached_machine_id).toBeNull();
+ }finally{await f.close();}
 },20000);

@@ -95,3 +95,5 @@ export { renderDockerRunCommand } from "./docker-install";
 
 export {FlyReplacementPending,planFlyReplacement,validateFlyReplacementState,executeFlyReplacement} from "./fly-replacement";
 export type {FlyReplacementPlan,FlyReplacementState,FlyReplacementPhase,FlyReplacementStore,FlyReplacementTransaction} from "./fly-replacement";
+export {FlyReplacementCleanupPending,planFlyReplacementCleanup,validateFlyReplacementCleanupState,executeFlyReplacementCleanup} from "./fly-replacement-cleanup";
+export type {FlyReplacementCleanupPlan,FlyReplacementCleanupState,FlyReplacementCleanupStore,FlyReplacementCleanupTransaction} from "./fly-replacement-cleanup";

@@ -4242,3 +4242,49 @@ remote resource-ledger recovery, live provider canaries, coordinated publication
 staged production rollout remain required. Cancellation before create dispatch is
 distinct from rollback of an observed/dispatched candidate and remains separate work.
 No npm version, production migration or existing forwarder changed in this slice.
+
+### Public retained-machine retirement with durable deletion recovery
+
+The public core now provides `planFlyReplacementCleanup`, private cleanup state
+validation, `FlyReplacementCleanupStore` and `executeFlyReplacementCleanup`. This is
+an explicit irreversible decision after a terminal installation or restoration,
+separate from rollback itself. A prepared private plan retains both complete machine
+snapshots and the original replacement journal. The owning adapter must verify the
+current account, target, graph/instance and exclusive claim; installation cleanup
+also requires the accepted current runtime report. Names and health alone cannot
+authorize destruction.
+
+The operation checks the exact running survivor and quiescent retired machine,
+configurations, versions, OCI identities, organization, inventory and encrypted
+checkpoint attachment. Both provider leases are held during dispatch. It persists
+`deleting` before the non-force DELETE and records `deleted` only after observing
+the retired machine absent and the survivor unchanged. It never stops the survivor
+or deletes checkpoint storage. Restored-machine cleanup detaches the retained
+candidate checkpoint so a newly issued replacement can reuse it; installed-machine
+cleanup leaves the volume attached to the surviving candidate.
+
+A pending/unknown deletion never dispatches another DELETE. This includes a process
+killed after journaling but before dispatch. Such an intent remains available for
+provider outcome investigation rather than silently resetting the decision. Lost
+committed responses resume by observation. Even completed intents recheck current
+ownership and the survivor instead of trusting a local success marker.
+
+All 1,638 native/package tests across 136 files pass. The 63 focused cleanup cases
+cover both survivor choices, immutable state, inventory/configuration/lease changes,
+exclusive claims, fences/CAS loss, uncertain outcomes and release failures. Five new
+native cases use real HTTP and a child importing the compiled public package: both
+survivor choices, SIGKILL at each durable transition and lost committed deletion.
+All fifteen installed tarballs, both CLI aliases and the runtime binary pass;
+installed core execution and NodeNext/Node16/Bundler declarations exercise the new
+exports. Builds and types pass. All seventeen owned coverage-report/failure-gate
+tests pass. Backend/package totals are 97.08% statements, 94.52% branches, 98.89%
+functions and 97.44% lines. The cleanup module meets a dedicated 100% floor for all
+four metrics in both repositories.
+
+This slice ships the shared public operation and its independent storage contract.
+The hosted D1 cleanup journal, authenticated API/queue/UI decision, inventory lineage
+updates and actual local redeployment after restoration remain required. This does
+not yet make the website's retained-machine cleanup available. Remote recovery,
+live canaries, coordinated npm publication and staged production rollout remain
+open. Existing production resources, package versions and source migrations did
+not change.

@@ -27,8 +27,14 @@ try {
   // Typecheck the installed tarballs with their declarations, without skipLibCheck.
   const typesFile = join(consumer, "consumer.mts");
   writeFileSync(typesFile, packages.map((name, index) => `import * as package${index} from '@logtura/${name}';`).join("\n") + `
-    import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient, FlyMachinesClient, buildFlyRuntimeConfig, flyBundleFiles, resolveFlyImage, selfDeployFiles, runtimeAssetFiles, renderDockerRunCommand, validateFilterSteps, type FilterStep} from '@logtura/core';
+    import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient, FlyMachinesClient, buildFlyRuntimeConfig, flyBundleFiles, resolveFlyImage, selfDeployFiles, runtimeAssetFiles, renderDockerRunCommand, validateFilterSteps, type FilterStep, type FlyReplacementCleanupState, type FlyReplacementCleanupStore, planFlyReplacementCleanup, executeFlyReplacementCleanup} from '@logtura/core';
     import {type PendingActivation, type PendingFlyApply, activateLinkedDeployment} from '@logtura/cli';
+    const typedCleanup:(store:FlyReplacementCleanupStore,client:FlyMachinesClient,options:{assertCurrent:()=>Promise<void>})=>Promise<FlyReplacementCleanupState> = executeFlyReplacementCleanup;
+    // @ts-expect-error Cleanup requires both complete provider snapshots and a terminal journal.
+    planFlyReplacementCleanup({machines:[]});
+    // @ts-expect-error The native transport cannot force destruction or omit its lease nonce.
+    new FlyMachinesClient({token:'fixture'}).destroy('app','machine');
+    void typedCleanup;
     const validatedFilters:FilterStep[] = validateFilterSteps([{kind:"errors"}]);
     // @ts-expect-error The filter parser returns a typed array, never any.
     const invalidFilters:string = validateFilterSteps([]);
@@ -107,7 +113,7 @@ monitors: []
   assert.equal(bin("logtura",["stats","metrics file.ndjson"]),stats);
   assert.match(stats,/packed_sink\tsink\thttp\t-\t7\t-/);
   const script = `import assert from 'node:assert/strict';
-    import {selfDeployFiles,flySelfDeployFiles,runtimeAssetFiles,renderDockerRunCommand,parseMetricsBody,applyMetricsToSnapshot,rateFor,buildFlyRuntimeConfig,flyBundleFiles,resolveFlyImage,GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,validateFilterSteps,FlyMachinesClient,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit} from '@logtura/core';
+    import {selfDeployFiles,flySelfDeployFiles,runtimeAssetFiles,renderDockerRunCommand,parseMetricsBody,applyMetricsToSnapshot,rateFor,buildFlyRuntimeConfig,flyBundleFiles,resolveFlyImage,GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,validateFilterSteps,FlyMachinesClient,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit,planFlyReplacement,planFlyReplacementCleanup,validateFlyReplacementCleanupState,executeFlyReplacementCleanup} from '@logtura/core';
     import {writeFileSync,readFileSync,statSync} from 'node:fs';
     import {main,applyLinkedFlyDeployment,readPendingFlyApply,activateLinkedDeployment,readPendingActivation,finishLinkedActivation,reportLoadedForwarderFile,runForwarderReporting} from '@logtura/cli';
     import {cloudflareWorkerTailDriver} from '@logtura/driver-cloudflare-worker-tail';
@@ -116,6 +122,23 @@ monitors: []
     assert.equal(rateFor(largeMetric,'sent'),1e308);
     assert.equal(rateFor({...largeMetric,lastSeen:1},'sent'),null);
     assert.equal(rateFor({...largeMetric,sent:NaN},'sent'),null);
+    const cleanupImage='registry.test/new@sha256:'+'a'.repeat(64);
+    const cleanupBefore={id:'cleanup-old',name:'forwarder',instance_id:'old-version',state:'started',region:'ord',config:{image:'registry.test/old:latest',env:{PRIVATE:'retained'}},image_ref:{registry:'registry.test',repository:'old',digest:'sha256:'+'b'.repeat(64)}};
+    const cleanupPlan=planFlyReplacement({id:'00000000-0000-4000-8000-000000000001',app:'cleanup-app',org:'personal',machine:cleanupBefore,volume:'vol_cleanup',volumes:[{id:'vol_cleanup',region:'ord',state:'created',encrypted:true,attached_machine_id:null}],config:{image:cleanupImage,mounts:[{path:'/var/lib/logtura',volume:'vol_cleanup'}]}});
+    let cleanupMachines=[{...cleanupBefore,state:'stopped'},{id:'cleanup-new',name:cleanupPlan.name,instance_id:'new-version',state:'started',region:'ord',config:cleanupPlan.after,image_ref:{registry:'registry.test',repository:'new',digest:'sha256:'+'a'.repeat(64)}}];
+    let cleanupJournal={plan:planFlyReplacementCleanup({replacement:{plan:cleanupPlan,phase:'installed',machineId:'cleanup-new'},machines:cleanupMachines}),phase:'prepared'},cleanupDeletes=0;
+    const cleanupClient=new FlyMachinesClient({token:'private',fetch:async(url,request)=>{
+      const path=new URL(url).pathname;assert.equal(new URL(url).origin,'https://api.machines.dev');
+      if(path.endsWith('/lease'))return request.method==='DELETE'?new Response(null,{status:204}):Response.json({data:{nonce:'private-lease'}});
+      if(path.endsWith('/volumes'))return Response.json([{id:'vol_cleanup',region:'ord',state:'created',encrypted:true,attached_machine_id:'cleanup-new'}]);
+      if(path.endsWith('/machines'))return Response.json(cleanupMachines);
+      if(request.method==='DELETE'){assert.equal(path,'/v1/apps/cleanup-app/machines/cleanup-old');assert.equal(new URL(url).search,'');assert.equal(cleanupJournal.phase,'deleting');assert.equal(request.headers['fly-machine-lease-nonce'],'private-lease');cleanupMachines=cleanupMachines.filter(m=>m.id!=='cleanup-old');cleanupDeletes++;return new Response(null,{status:204});}
+      return Response.json({name:'cleanup-app',organization:{slug:'personal'}});
+    }});
+    const cleanupStore={async runExclusive(operation){return operation({read:async()=>structuredClone(cleanupJournal),compareAndSwap:async(expected,next)=>{assert.deepEqual(cleanupJournal,expected);cleanupJournal=structuredClone(next);return true;}});}};
+    assert.equal((await executeFlyReplacementCleanup(cleanupStore,cleanupClient,{assertCurrent:async()=>{}})).phase,'deleted');
+    assert.equal(validateFlyReplacementCleanupState(cleanupJournal).phase,'deleted');
+    await executeFlyReplacementCleanup(cleanupStore,cleanupClient,{assertCurrent:async()=>{}});assert.equal(cleanupDeletes,1);assert.equal(cleanupMachines[0].id,'cleanup-new');
     const input={providers:[cloudflareWorkerTailDriver],destinations:[],monitors:[],
       connections:[{connection:{id:'fixture',provider:cloudflareWorkerTailDriver.id,displayName:'Fixture',externalAccountId:'fixture-account'},
         selectedSources:[{id:'worker',externalId:'fixture-worker',displayName:'fixture-worker',sourceKind:'worker',metadata:null}],credentials:{apiToken:'fixture-token'}}]};

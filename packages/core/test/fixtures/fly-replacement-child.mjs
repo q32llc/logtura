@@ -1,6 +1,6 @@
 import {readFileSync,writeFileSync,renameSync,openSync,closeSync,fsyncSync,mkdirSync,rmSync} from "node:fs";
 import {dirname} from "node:path";
-import {FlyMachinesClient,executeFlyReplacement,canonicalConfigJson} from "../../dist/index.js";
+import {FlyMachinesClient,executeFlyReplacement,executeFlyReplacementCleanup,canonicalConfigJson} from "../../dist/index.js";
 const [path,origin,killPhase,rollback]=process.argv.slice(2);
 const flush=path=>{const fd=openSync(path,"r");try{fsyncSync(fd);}finally{closeSync(fd);}};
 const store={async runExclusive(operation){
@@ -12,4 +12,4 @@ const store={async runExclusive(operation){
  }});}finally{rmSync(path+".lock",{recursive:true,force:true});}
 }};
 const client=new FlyMachinesClient({token:"private-fixture",fetch:(url,init)=>{const upstream=new URL(url);if(upstream.origin!=="https://api.machines.dev")throw new Error("Unexpected provider origin");return fetch(new URL(upstream.pathname,origin),init);}});
-try{const state=await executeFlyReplacement(store,client,{rollback:rollback==="rollback",assertCurrent:async()=>{}});console.log(state.phase);}catch(error){console.error(error.message);process.exitCode=1;}
+try{const state=await (rollback==="cleanup"?executeFlyReplacementCleanup(store,client,{assertCurrent:async()=>{}}):executeFlyReplacement(store,client,{rollback:rollback==="rollback",assertCurrent:async()=>{}}));console.log(state.phase);}catch(error){console.error(error.message);process.exitCode=1;}
