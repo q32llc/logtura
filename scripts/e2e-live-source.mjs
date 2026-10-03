@@ -42,7 +42,18 @@ const directory = cleanupOnly ? realpathSync(process.env.LOGT_E2E_LIVE_LEDGER) :
 const stat = lstatSync(directory);
 assert.ok(stat.isDirectory() && !stat.isSymbolicLink() && (stat.mode & 0o077) === 0 && stat.uid === process.getuid(), 'Ledger requires an owned private directory');
 let state;
-const save = () => { validateLiveSourceCanary(state, account); const p = join(directory, 'run.json'); writeFileSync(p + '.stage', JSON.stringify(state, null, 2), { mode: 0o600 }); const fd = openSync(p + '.stage', 'r'); fsyncSync(fd); closeSync(fd); renameSync(p + '.stage', p); const dirFd = openSync(directory, 'r'); fsyncSync(dirFd); closeSync(dirFd); };
+const save = () => {
+    validateLiveSourceCanary(state, account);
+    const p = join(directory, 'run.json');
+    writeFileSync(p + '.stage', JSON.stringify(state, null, 2), { mode: 0o600 });
+    const fd = openSync(p + '.stage', 'r');
+    fsyncSync(fd);
+    closeSync(fd);
+    renameSync(p + '.stage', p);
+    const dirFd = openSync(directory, 'r');
+    fsyncSync(dirFd);
+    closeSync(dirFd);
+};
 await withPrivateDirectoryLock(join(directory, 'run.lock'), async () => {
     if (cleanupOnly) {
         const file = lstatSync(join(directory, 'run.json'));
@@ -63,7 +74,9 @@ await withPrivateDirectoryLock(join(directory, 'run.lock'), async () => {
     }
     else {
         const nonce = randomUUID();
-        state = { schema: 1, account, name: 'logtura-canary-' + nonce.replaceAll('-', ''), nonce, version: '0.3.0', startedAt: new Date().toISOString(), worker: 'absent', container: 'absent', image: 'absent', outcome: 'running', freshNamesVerified: false };
+        state = {
+            schema: 1, account, name: 'logtura-canary-' + nonce.replaceAll('-', ''), nonce, version: '0.3.0', startedAt: new Date().toISOString(), worker: 'absent', container: 'absent', image: 'absent', outcome: 'running', freshNamesVerified: false
+        };
         save();
     }
     const { name, nonce } = state;
@@ -71,38 +84,90 @@ await withPrivateDirectoryLock(join(directory, 'run.lock'), async () => {
     const base = `https://api.cloudflare.com/client/v4/accounts/${account}`;
     let requests = 0;
     const apiDeadline = Date.now() + 10 * 60 * 1000;
-    async function api(path, init = {}, optional = false) { if (++requests > 150 || Date.now() > apiDeadline)
-        throw new Error('API budget exhausted'); const response = await fetch(base + path, { ...init, headers: { authorization: `Bearer ${token}`, ...init.headers }, redirect: 'error', signal: AbortSignal.timeout(30000) }); if (optional && response.status === 404) {
-        await response.body?.cancel();
-        return null;
-    } if (!response.ok)
-        throw new Error(`Owned canary API failed (${response.status})`); const body = await response.json(); if (!body.success)
-        throw new Error('Owned canary API rejected'); return body.result; }
-    async function command(label, args, allowFailure = false) { const child = spawn(process.execPath, ['--import', resolve('scripts/rehearsal-child-gate.mjs'), resolve('scripts/live-source-docker-child.mjs')], { env: { ...process.env, LOGT_CANARY_DOCKER_ARGS: JSON.stringify(args), LOGT_CANARY_DOCKER_TIMEOUT: String(label === 'build' ? 240000 : 30000) }, stdio: ['pipe', 'pipe', 'pipe'] }); state.childPid = child.pid; state.childOperation = label; save(); child.stdin.on('error', () => { }); child.stdin.end('go\n'); let out = ''; child.stdout.on('data', b => out += b); child.stderr.on('data', b => out += b); const timer = setTimeout(() => child.kill('SIGKILL'), label === 'build' ? 245000 : 35000); const result = await new Promise((accept, reject) => { child.once('error', reject); child.once('close', (code, signal) => accept({ code, signal })); }); clearTimeout(timer); state.childPid = null; save(); writeFileSync(join(directory, label + '.log'), out.replaceAll(token, '[redacted]').slice(-60000), { mode: 0o600 }); if (result.code && !allowFailure)
-        throw new Error(`${label} failed; private diagnostic retained`); return { out, code: result.code }; }
-    const deliveries = [];
-    const server = createServer(async (req, res) => { let body = ''; for await (const chunk of req) {
-        body += chunk;
-        if (body.length > 1048576) {
-            res.writeHead(413);
-            res.end();
-            return;
+    async function api(path, init = {}, optional = false) {
+        if (++requests > 150 || Date.now() > apiDeadline)
+            throw new Error('API budget exhausted');
+        const response = await fetch(base + path, {
+            ...init, headers: { authorization: `Bearer ${token}`, ...init.headers }, redirect: 'error', signal: AbortSignal.timeout(30000)
+        });
+        if (optional && response.status === 404) {
+            await response.body?.cancel();
+            return null;
         }
-    } try {
-        const decoded = JSON.parse(body);
-        deliveries.push(...(Array.isArray(decoded) ? decoded : [decoded]));
-        res.writeHead(200);
-        res.end('ok');
+        if (!response.ok)
+            throw new Error(`Owned canary API failed (${response.status})`);
+        const body = await response.json();
+        if (!body.success)
+            throw new Error('Owned canary API rejected');
+        return body.result;
     }
-    catch {
-        res.writeHead(400);
-        res.end();
-    } });
+    async function command(label, args, allowFailure = false) {
+        const child = spawn(process.execPath, ['--import', resolve('scripts/rehearsal-child-gate.mjs'), resolve('scripts/live-source-docker-child.mjs')], { env: {
+                ...process.env, LOGT_CANARY_DOCKER_ARGS: JSON.stringify(args), LOGT_CANARY_DOCKER_TIMEOUT: String(label === 'build' ? 240000 : 30000)
+            }, stdio: ['pipe', 'pipe', 'pipe'] });
+        state.childPid = child.pid;
+        state.childOperation = label;
+        save();
+        child.stdin.on('error', () => {
+        });
+        child.stdin.end('go\n');
+        let out = '';
+        child.stdout.on('data', b => out += b);
+        child.stderr.on('data', b => out += b);
+        const timer = setTimeout(() => child.kill('SIGKILL'), label === 'build' ? 245000 : 35000);
+        const result = await new Promise((accept, reject) => {
+            child.once('error', reject);
+            child.once('close', (code, signal) => accept({ code, signal }));
+        });
+        clearTimeout(timer);
+        state.childPid = null;
+        save();
+        writeFileSync(join(directory, label + '.log'), out.replaceAll(token, '[redacted]').slice(-60000), { mode: 0o600 });
+        if (result.code !== 0 && !allowFailure)
+            throw new Error(`${label} failed; private diagnostic retained`);
+        return { out, code: result.code };
+    }
+    const deliveries = [];
+    const server = createServer(async (req, res) => {
+        let body = '';
+        for await (const chunk of req) {
+            body += chunk;
+            if (body.length > 1048576) {
+                res.writeHead(413);
+                res.end();
+                return;
+            }
+        }
+        try {
+            const decoded = JSON.parse(body);
+            deliveries.push(...(Array.isArray(decoded) ? decoded : [decoded]));
+            res.writeHead(200);
+            res.end('ok');
+        }
+        catch {
+            res.writeHead(400);
+            res.end();
+        }
+    });
     let failure;
     try {
         if (!cleanupOnly) {
             await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-            const bundle = generateBundle({ providers: [cloudflareWorkerTailDriver], destinations: [webhookDriver], connections: [{ connection: { id: 'con_canary', provider: cloudflareWorkerTailDriver.id, displayName: 'Owned canary', externalAccountId: account }, credentials: { apiToken: token }, selectedSources: [{ id: 'src_canary', externalId: name, displayName: name, sourceKind: 'cf_worker', metadata: null }] }], monitors: [{ monitor: { id: 'mon_canary', connectionId: 'con_canary', displayName: 'Owned logs', filterSteps: [], enabled: true }, sinks: [{ sink: { id: 'sink_canary', filterSteps: [] }, destination: { id: 'dest_canary', kind: 'webhook', displayName: 'Owned receiver' }, destinationConfig: { url: `http://127.0.0.1:${server.address().port}/events` } }] }] });
+            const bundle = generateBundle({
+                providers: [cloudflareWorkerTailDriver], destinations: [webhookDriver], connections: [{
+                        connection: {
+                            id: 'con_canary', provider: cloudflareWorkerTailDriver.id, displayName: 'Owned canary', externalAccountId: account
+                        }, credentials: { apiToken: token }, selectedSources: [{
+                                id: 'src_canary', externalId: name, displayName: name, sourceKind: 'cf_worker', metadata: null
+                            }]
+                    }], monitors: [{ monitor: {
+                            id: 'mon_canary', connectionId: 'con_canary', displayName: 'Owned logs', filterSteps: [], enabled: true
+                        }, sinks: [{
+                                sink: { id: 'sink_canary', filterSteps: [] }, destination: {
+                                    id: 'dest_canary', kind: 'webhook', displayName: 'Owned receiver'
+                                }, destinationConfig: { url: `http://127.0.0.1:${server.address().port}/events` }
+                            }] }]
+            });
             const context = join(directory, 'context');
             mkdirSync(context, { mode: 0o700 });
             for (const file of selfDeployFiles(bundle)) {
@@ -129,7 +194,11 @@ await withPrivateDirectoryLock(join(directory, 'run.lock'), async () => {
             const source = `export default {fetch(request,env){const u=new URL(request.url);if(u.pathname!=='/'+env.LOGT_CANARY_OWNER)return new Response('not found',{status:404});console.error('logtura-owned-live-event',env.LOGT_CANARY_OWNER);return new Response('owned canary event');}};`;
             state.sourceDigest = createHash('sha256').update(source).digest('hex');
             const form = new FormData();
-            form.set('metadata', JSON.stringify({ main_module: 'index.js', compatibility_date: '2025-05-01', bindings: [{ type: 'plain_text', name: 'LOGT_CANARY_OWNER', text: nonce }], tags: ['logtura-owned-canary', nonce] }));
+            form.set('metadata', JSON.stringify({
+                main_module: 'index.js', compatibility_date: '2025-05-01', bindings: [{
+                        type: 'plain_text', name: 'LOGT_CANARY_OWNER', text: nonce
+                    }], tags: ['logtura-owned-canary', nonce]
+            }));
             form.set('index.js', new Blob([source], { type: 'application/javascript+module' }), 'index.js');
             state.worker = 'uploading';
             save();
@@ -142,7 +211,9 @@ await withPrivateDirectoryLock(join(directory, 'run.lock'), async () => {
             assert.match(subdomain.subdomain, /^[a-z0-9-]+$/);
             state.subdomain = 'enabling';
             save();
-            await api(`/workers/scripts/${name}/subdomain`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: true }) });
+            await api(`/workers/scripts/${name}/subdomain`, {
+                method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ enabled: true })
+            });
             state.subdomain = 'enabled';
             save();
             const args = ['run', '--detach', '--name', name, '--label', `logtura-canary=${nonce}`, '--network', 'host', ...bundle.envVars.flatMap(e => ['--env', e.name]), name];
@@ -161,7 +232,8 @@ await withPrivateDirectoryLock(join(directory, 'run.lock'), async () => {
                     if (response.status === 200)
                         invoked++;
                 }
-                catch { }
+                catch {
+                }
                 await new Promise(resolve => setTimeout(resolve, 2000));
             }
             state.invoked = invoked;
@@ -242,4 +314,7 @@ await withPrivateDirectoryLock(join(directory, 'run.lock'), async () => {
     }
     if (failure)
         throw failure;
-}, 'Live source canary').catch(error => { console.error(error.message.replaceAll(token, '[redacted]')); process.exitCode = 1; });
+}, 'Live source canary').catch(error => {
+    console.error(error.message.replaceAll(token, '[redacted]'));
+    process.exitCode = 1;
+});
