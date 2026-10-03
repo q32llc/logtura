@@ -166,11 +166,11 @@ export async function managedRuntimeJourney(options: {
         assert.ok(legacyLease);assert.equal(providerRequest.headers.get("fly-machine-lease-nonce"),legacyLease);assert.equal((await actualMachine()).state,"stopped");await run("docker",["start",legacyContainer]);oldStarts++;return new Response(null,{status:204});
       }
       if(legacyMachine && suffix===`/machines/${legacyId}`){assert.equal(providerRequest.method,"GET");return Response.json(await actualLegacy());}
-      if(legacyMachine && suffix===`/machines/${machineId}/stop`){
+      if(suffix===`/machines/${machineId}/stop`){
         assert.ok(lease);assert.equal(providerRequest.headers.get("fly-machine-lease-nonce"),lease);assert.deepEqual(await providerRequest.json(),{signal:"SIGTERM",timeout:"35s"});await run("docker",["stop","--time","35",container]);assert.equal(await run("docker",["inspect","--format","{{.State.ExitCode}}",container]),"0");candidateStops++;return new Response(null,{status:204});
       }
       if(suffix===`/machines/${machineId}/start`){
-        assert.ok(lease);assert.equal(providerRequest.headers.get("fly-machine-lease-nonce"),lease);assert.equal((await actualLegacy()).state,"stopped");await run("docker",["start",container]);candidateStarts++;return new Response(null,{status:204});
+        assert.ok(lease);assert.equal(providerRequest.headers.get("fly-machine-lease-nonce"),lease);if(legacyMachine)assert.equal((await actualLegacy()).state,"stopped");assert.equal((await actualMachine()).state,"stopped");await run("docker",["start",container]);candidateStarts++;return new Response(null,{status:204});
       }
       if (suffix === `/machines/${machineId}/lease`) {
         assert.ok(machine);
@@ -192,12 +192,11 @@ export async function managedRuntimeJourney(options: {
         assert.equal(providerRequest.method, "POST"); assert.ok(lease);
         assert.equal(providerRequest.headers.get("fly-machine-lease-nonce"), lease);
         const body = await providerRequest.json() as any; assert.equal(body.current_version, machine.instance_id);
-        // Model a real version-fenced provider update: stop before changing
-        // mounted inputs, retain the same checkpoint volume, then start new bytes.
-        await run("docker", ["stop", "--time", "35", container]);
+        // Installation is separate from launch, retaining the same checkpoint.
+        assert.equal(body.skip_launch,true);assert.equal((await actualMachine()).state,"stopped");
         assert.equal(await run("docker", ["inspect", "--format", "{{.State.ExitCode}}", container]), "0");
         await run("docker", ["rm", container]); machineUpdates++;
-        await installMachine(body.config); return Response.json(await actualMachine());
+        await installMachine(body.config,false); return Response.json(await actualMachine());
       }
       throw new Error("Unsupported managed fixture request");
     } catch (error) {
@@ -300,7 +299,7 @@ export async function managedRuntimeJourney(options: {
     options.afterReapplied?.();
     assert.ok(targetId); assert.deepEqual(service.unexpected, []);
     if(options.legacy){
-      assert.equal(oldStops,1);assert.equal(candidateStarts,1);assert.equal((await actualLegacy()).state,"stopped");
+      assert.equal(oldStops,1);assert.equal(candidateStarts,2);assert.equal((await actualLegacy()).state,"stopped");
       const row=await db.prepare("SELECT id,phase,replacement_phase,machine_id,payload_encrypted FROM managed_installations WHERE deployment_id=? AND replacement_phase='installed'").bind(deploymentId).first<{id:string;phase:string;replacement_phase:"installed";machine_id:string;payload_encrypted:ArrayBuffer|number[]}>();assert.ok(row);
       const runtimeEnv=await service.service.getBindings() as {CREDENTIAL_ENCRYPTION_KEY:string};
       const bytes=Array.isArray(row.payload_encrypted)?Uint8Array.from(row.payload_encrypted):new Uint8Array(row.payload_encrypted);
@@ -311,7 +310,7 @@ export async function managedRuntimeJourney(options: {
       const restoration=await website.restorePreviousForwarder(deploymentId);
       await waitFor(async()=>{const {job}=await request(`/api/jobs/${restoration}`);if(job.status==="failed")throw new Error(`Managed rollback job failed (${job.error})`);return job.status==="succeeded";},"actual previous forwarder restoration");
       await waitFor(async()=>{try{return(await fetch("http://127.0.0.1:8686/health",{signal:AbortSignal.timeout(1000)})).ok;}catch{return false;}},"restored actual legacy Vector readiness");
-      assert.equal(candidateStops,1);assert.equal(oldStarts,1);assert.equal((await actualMachine()).state,"stopped");assert.equal((await actualLegacy()).state,"started");assert.equal(lease,undefined);assert.equal(legacyLease,undefined);
+      assert.equal(candidateStops,2);assert.equal(oldStarts,1);assert.equal((await actualMachine()).state,"stopped");assert.equal((await actualLegacy()).state,"started");assert.equal(lease,undefined);assert.equal(legacyLease,undefined);
       const restored=(await request(`/api/deployments/${deploymentId}/config/state`)).state;
       assert.equal(restored.activeInstanceId,null);assert.equal(restored.applied,null);assert.equal(restored.lastReportSequence,0);assert.equal(restored.desired.revision,pending.desired.revision);
       assert.equal(await reporter.reportApplied(deploymentId,{instanceId:updatedArtifact.instance.instanceId,sequence:updatedArtifact.instance.sequence,revision:updatedArtifact.instance.revision,reportSequence:Number.MAX_SAFE_INTEGER}),false);
@@ -328,7 +327,7 @@ export async function managedRuntimeJourney(options: {
       await waitFor(async()=>{const {job}=await request(`/api/jobs/${replacementJob}`);if(job.status==="failed")throw new Error(`Managed post-restoration replacement failed (${job.error})`);return job.status==="succeeded";},"actual newly issued replacement after restoration and cleanup");
       const replacementState=(await request(`/api/deployments/${deploymentId}/config/state`)).state,newArtifact=JSON.parse(readFileSync(join(installed,"etc/vector/logtura-runtime.json"),"utf8"));
       assert.notEqual(machineId,retiredMachineId);assert.notEqual(newArtifact.instance.instanceId,updatedArtifact.instance.instanceId);assert.equal(replacementState.activeInstanceId,newArtifact.instance.instanceId);assert.equal(replacementState.applied.revision,replacementState.desired.revision);assert.equal(replacementState.stale,false);
-      assert.equal(machineCreates,2);assert.equal(volumeCreates,1);assert.equal(oldStops,2);assert.equal(candidateStarts,2);assert.equal((await actualLegacy()).state,"stopped");assert.equal((await actualMachine()).state,"started");
+      assert.equal(machineCreates,2);assert.equal(volumeCreates,1);assert.equal(oldStops,2);assert.equal(candidateStarts,3);assert.equal((await actualLegacy()).state,"stopped");assert.equal((await actualMachine()).state,"started");
       assert.equal(await reporter.reportApplied(deploymentId,{instanceId:updatedArtifact.instance.instanceId,sequence:updatedArtifact.instance.sequence,revision:updatedArtifact.instance.revision,reportSequence:Number.MAX_SAFE_INTEGER}),false);
       await website.applied(deploymentId,replacementState.desired.sequence,replacementState.desired.revision);options.afterRedeployed?.();
       console.log("Actual retained candidate deletion → preserved running legacy/checkpoint → newly issued replacement → accepted current report and website convergence passed");

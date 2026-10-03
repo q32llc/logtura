@@ -71,8 +71,20 @@ installation. Backend coverage is 97.52% lines, 97.14% statements and 94.60%
 branches; UI coverage is 94.95% lines and 90.71% branches. The Fly module retains
 its 100% branch gate. Local E2E now creates the forwarder container stopped and
 starts it through the SDK, matching the actual provider transition boundary.
-Candidate packed checks, protected merge and phase-fenced live acceptance are
-still required before the immutable 0.3.1 release.
+All 15 isolated packed consumers and the native packed-service lifecycle pass.
+The owned changed-line gate passes 19/19 lines. Full local workerd/browser/CLI/
+Docker E2E passes managed creation, durable restart, explicit leased reapply,
+mountless legacy handoff, rollback, retained candidate cleanup and redeployment.
+
+The exact tested archives from private `292e6a3` also pass disposable live Fly
+source delivery, restart reporting, manifest update and configuration rollback
+with matching instance/revision reports after recorded phase fences. Receipt
+`.tmp/live-fly-canary/run-zHV2DC/run.json` is private. Machine, Worker and tail
+are deleted; volume deletion is acknowledged with a detached pending-destroy
+tombstone. The original forwarder's configuration, instance and started state
+are preserved. This is candidate proof, not actual npm 0.3.1 or production
+website/forwarder acceptance. Protected public PR 4, immutable release,
+actual-registry validation and the remaining production gates are still required.
 
 The replacement CI computes separate package/backend/UI totals from Istanbul
 JSON and LCOV, publishes readable HTML and machine-readable reports as Actions
