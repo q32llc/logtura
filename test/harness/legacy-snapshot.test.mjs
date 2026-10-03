@@ -10,6 +10,7 @@ function fixture(t){
  const worker=join(root,'worker'),backup=join(root,'backup');for(const directory of [worker,backup])mkdirSync(directory,{mode:0o700});
  for(const [directory,names]of [[worker,['rollback.json','worker-content.bin','worker-content-type.txt']],[backup,['schema-17.sql','backup-receipt.json']]])for(const name of names)writeFileSync(join(directory,name),'fixture',{mode:0o600});
  writeFileSync(join(worker,'rollback.json'),JSON.stringify({sourceDigest:'0'.repeat(64)}));
+ writeFileSync(join(backup,'backup-receipt.json'),JSON.stringify({sha256:'0'.repeat(64)}));
  const run=()=>spawnSync(process.execPath,[resolve('scripts/verify-legacy-worker-snapshot.mjs'),worker,backup],{encoding:'utf8',timeout:20000,env:{...process.env,NODE_OPTIONS:''}});
  return {worker,backup,run};
 }
