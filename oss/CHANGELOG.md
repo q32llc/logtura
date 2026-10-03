@@ -1,11 +1,13 @@
 # Changelog
 
-## 0.3.0 candidate
+## 0.3.0
 
 This is a coordinated release of all 15 public packages. It adds portable
 configuration and shared backend operations while preserving independent CLI and
-library use. Publication is complete only when the release workflow verifies every
-tested archive in npm; a candidate commit is not a published release.
+library use. All 15 packages are published on npm with their exact tested archive
+hashes verified. The immutable release and receipts are available at
+[GitHub](https://github.com/logtura/logtura/releases/tag/v0.3.0). Hosted-service
+deployment and existing-forwarder upgrade remain separate staged rollouts.
 
 - Ship built JavaScript and TypeScript declarations with explicit package exports,
   both `logt` and `logtura` executables, and the `logt-forwarder` runtime executable.

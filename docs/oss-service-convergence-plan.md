@@ -4776,3 +4776,33 @@ It still runs native D1 HTTP/website assets and the missing-packed-core negative
 control. This supports exporting a rollout artifact backed by the actual published
 npm release; the first such execution is pending publication completion. All 69
 combined harness guards pass after the local dedicated-socket change.
+
+**Coordinated 0.3.0 npm publication is complete.** Recovery run `37104368124`
+finished green, preserved immutable tag/source commit
+`3223fe3c576e18d3c4671e97bb00a431d0b4149a`, reused the exact previously published
+Cloudflare-shared archive and published the other 14 tested archives. Its receipt
+is `verified` for all 15 packages. An independent full-metadata observation also
+confirms every `latest` tag is 0.3.0 and every version's SHA-512 matches the original
+tag artifact. The public [v0.3.0 release](https://github.com/logtura/logtura/releases/tag/v0.3.0)
+contains all 15 exact tarballs plus manifest, complete registry receipt and original
+validation-run recovery evidence; no tag or package bytes were replaced.
+
+The complete consumer suite then downloaded **actual npm bytes**, verified all 15
+against original release evidence, and passed ordinary JavaScript imports, strict
+NodeNext/Node16/Bundler declarations, offline configuration/generation, both CLI
+aliases and the forwarder binary/contracts. The registry-backed packed-service
+suite also returned exit 0 and exported a clean production candidate at private
+commit `3c3596792570c9eb15f50d2d2ccab42b3adeb07b`, explicitly tied to the public
+release source above. All service checks pass: installed package integrity, compiled
+entries/declarations, production source types, Worker and website build, native-D1
+HTTP lifecycle, website assets and missing-core-entry negative control. These are
+installed-registry checks, not an inference from local tarball tests.
+
+Publication is therefore no longer an open blocker. The goal remains active for
+complete selected remote/provider canaries, production migration/Worker rollout,
+actual existing-forwarder loaded manifest and delivery/rollback proof, and other
+remaining acceptance checks. Latest private full CI remains in progress at this
+checkpoint; public default-branch CI is green. Production remains on schema 17
+with its existing forwarder unchanged. Cloudflare Actions-secret transfer is still
+pending explicit authorization after the earlier automatic-review rejection; no
+Cloudflare credential has been sent to GitHub by this recovery or verification.
