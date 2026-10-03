@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { integrity, inventory, checkTag } from './release-artifacts.mjs';
 import { normalizePackedArchives } from './normalize-packed.mjs';
+import { downloadRegistryArchives } from './registry-artifacts.mjs';
 
 const root = process.cwd();
 const temporary = mkdtempSync(join(tmpdir(), "logtura-packed-"));
@@ -21,14 +22,19 @@ try {
   const packages = readdirSync(join(root, "packages")).filter((name) => {
     try { return JSON.parse(readFileSync(join(root, "packages", name, "package.json"))).name.startsWith("@logtura/"); } catch { return false; }
   });
-  for (const name of packages) run("pnpm", ["pack", "--pack-destination", artifacts], join(root, "packages", name));
+  const registryManifest=process.env.LOGT_PACKED_REGISTRY_MANIFEST;
+  if(registryManifest){
+    assert.ok(!process.env.LOGT_PACKED_ARTIFACTS,'Registry verification must not export a new release manifest');
+    const receipt=await downloadRegistryArchives(resolve(registryManifest),inventory(root),artifacts);
+    console.log(`Downloaded ${receipt.packages.length} registry archives matching the tested release`);
+  }else for (const name of packages) run("pnpm", ["pack", "--pack-destination", artifacts], join(root, "packages", name));
   const archives = readdirSync(artifacts).filter((name) => name.endsWith(".tgz")).map((name) => join(artifacts, name));
   assert.equal(archives.length, packages.length, "every package must produce a tarball");
   // pnpm resolves workspace ranges using workspace traversal order. That can
   // shuffle dependency JSON keys between identical checkouts. Normalize only
   // unordered dependency maps; preserve conditional exports' significant order.
   // Consumers below validate the final archives that will actually be published.
-  await normalizePackedArchives(archives,temporary,artifacts,(program,args,cwd)=>run(program,args,cwd??root));
+  if(!registryManifest)await normalizePackedArchives(archives,temporary,artifacts,(program,args,cwd)=>run(program,args,cwd??root));
   writeFileSync(join(consumer, "package.json"), JSON.stringify({ private: true, type: "module" }));
   run("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", ...archives], consumer);
   // Typecheck the installed tarballs with their declarations, without skipLibCheck.

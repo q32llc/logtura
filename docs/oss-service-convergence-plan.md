@@ -4711,3 +4711,32 @@ archive matches. The workflow parses as YAML and serializes publication/recovery
 without cancelling active runs. The dispatch and final all-package registry proof
 remain required. The production deployment and pending GitHub Cloudflare-secret
 transfer remain unchanged.
+
+Registry consumer verification now accepts the retained immutable release manifest
+through `LOGT_PACKED_REGISTRY_MANIFEST`. It verifies registry metadata and the actual
+downloaded SHA-512 for every public package before installing those downloaded
+archives outside the workspace. The existing complete consumer suite then checks
+strict declarations under NodeNext/Node16/Bundler, both CLI aliases, standalone
+configuration/generation with hosted networking disabled, forwarder binaries and
+manifest/apply/recovery contracts. Missing versions, foreign tarball origins and
+changed bytes fail without source-package fallback. The normal tag release runs
+this gate after publication; the current immutable-tag recovery workflow predates
+that addition, so its registry consumer gate will be executed locally. All 66
+combined coverage/release/registry/native-harness tests pass with subprocess
+permissions. Restricted subprocess execution failed before that successful run.
+
+The public recovery run `37104368124` was dispatched against the pushed recovery
+workflow on public `main`, validates original release run `37102617717`, and uses
+its exact retained archives from immutable tag `v0.3.0`. Original-tag evidence
+validation passed; publication remains in progress at this checkpoint. Independent
+registry observation already confirms the original Cloudflare-shared archive and
+new core archive match the retained SHA-512; this is not yet proof of all 15
+versions, a completed release, or installed registry consumer behavior.
+
+A fresh read-only production preflight at `2026-10-03T06:53:51Z` found schema 17,
+a 778240-byte D1 database, and one running self-managed forwarder with a heartbeat
+six seconds old. `/api/me` returned HTTP 200. Worker-version and deployment
+metadata were retained in a private local snapshot for later rollback planning;
+no production migration, Worker update or forwarder change occurred. Existing
+production delivery and the schema-17 to current staged rollout still require
+explicit executable validation, not just the healthy heartbeat observation.

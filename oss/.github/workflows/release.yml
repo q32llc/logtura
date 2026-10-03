@@ -120,6 +120,11 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: installed public registry consumer checks
+        run: pnpm test:packed
+        env:
+          LOGT_PACKED_REGISTRY_MANIFEST: .tmp/release/manifest.json
+
       - name: create GitHub release
         run: |
           gh release create "${GITHUB_REF_NAME}" \

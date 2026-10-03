@@ -71,3 +71,16 @@ artifacts contain public package code, not application credentials. Publishing
 remains a workflow action; normal test/PR jobs run guard tests without registry
 mutations. Service deployment and forwarder upgrade remain separate rollouts with
 their own migration, compatibility, image/configuration and rollback evidence.
+
+After publication, verify the installed registry packages against the retained release
+manifest and archives, from a checkout with matching package versions:
+
+```sh
+LOGT_PACKED_REGISTRY_MANIFEST=/absolute/path/to/release/manifest.json pnpm test:packed
+```
+
+This downloads each immutable version from npm, checks metadata and downloaded
+SHA-512 against the original tested archive, then runs the full isolated consumer
+suite, including strict declaration checks and offline CLI generation. It never
+rebuilds or repacks registry packages and fails on missing versions, foreign archive
+origins, or mismatched bytes. The normal release workflow runs this after publication.
