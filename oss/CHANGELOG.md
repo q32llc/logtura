@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.1 — Fly volume mount acknowledgments
+
+Fly adds `name`, `encrypted` and `size_gb` metadata to a volume mount after
+creating a machine. The shared backend now accepts these provider additions
+while checking every requested setting, mount order, volume identity and path.
+Previously, a successfully started forwarder could be reported as a failed
+creation because its returned mount object contained these fields.
+
+Requested environment and runtime files still match exactly. Unknown mount
+settings, unencrypted metadata, invalid sizes, and changed explicit metadata
+remain rejected. Provider-shaped creation and negative mutation tests cover
+the change. The package family is coordinated at 0.3.1; the 0.3.0 artifacts
+remain immutable.
+
 ## 0.3.0
 
 This is a coordinated release of all 15 public packages. It adds portable

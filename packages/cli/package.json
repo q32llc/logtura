@@ -1,6 +1,6 @@
 {
   "name": "@logtura/cli",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "OSS CLI for configuring, validating, and deploying logt forwarders.",
   "license": "Apache-2.0",
   "author": "Erik Aronesty (Logtura)",

@@ -27,10 +27,27 @@ function validateFlyVolume(value:unknown):FlyVolume {
   if(!object(value) || typeof value.id!=="string" || !/^vol_[a-z0-9]+$/.test(value.id) || typeof value.region!=="string" || !/^[a-z]{3}$/.test(value.region) || typeof value.state!=="string" || typeof value.encrypted!=="boolean" || (value.attached_machine_id!==null && typeof value.attached_machine_id!=="string") || (value.name!==undefined && typeof value.name!=="string") || (value.size_gb!==undefined && (!Number.isSafeInteger(value.size_gb) || (value.size_gb as number)<1)))throw new Error("Invalid Fly volume inventory");
   return structuredClone(value) as unknown as FlyVolume;
 }
-/** Matches every planned field, allowing only new server-populated top-level defaults.
- * Existing defaults/settings were captured in the original complete configuration. */
+/** Matches requested settings, including mount order/identity. Fly decorates mounts
+ * with volume inventory metadata after creation; those additions are not settings.
+ * Existing explicit metadata and all other requested fields still match exactly. */
 export function matchesFlyConfig(actual:FlyMachineConfig,planned:FlyMachineConfig):boolean {
-  return Object.entries(planned).every(([key,value])=>Object.hasOwn(actual,key) && canonicalConfigJson(actual[key])===canonicalConfigJson(value));
+  return Object.entries(planned).every(([key,value])=>{
+    if(!Object.hasOwn(actual,key))return false;
+    if(key!=="mounts")return canonicalConfigJson(actual[key])===canonicalConfigJson(value);
+    if(!Array.isArray(value)||!Array.isArray(actual.mounts)||actual.mounts.length!==value.length)return false;
+    const mounts=actual.mounts;
+    return value.every((mount,index)=>{
+      const observed=mounts[index];if(!object(mount)||!object(observed))return false;
+      if(!Object.entries(mount).every(([field,setting])=>Object.hasOwn(observed,field)&&canonicalConfigJson(observed[field])===canonicalConfigJson(setting)))return false;
+      return Object.entries(observed).every(([field,metadata])=>{
+        if(Object.hasOwn(mount,field))return true;
+        if(field==="encrypted")return metadata===true;
+        if(field==="size_gb")return Number.isSafeInteger(metadata)&&(metadata as number)>0;
+        if(field==="name")return typeof metadata==="string"&&/^[a-z][a-z0-9_]{0,63}$/.test(metadata);
+        return false;
+      });
+    });
+  });
 }
 /** Portable, bounded HTTP transport. Tokens and provider response bodies never enter errors.
  * An injected fetch must retain the same origin/redirect rules (useful for local fixtures). */

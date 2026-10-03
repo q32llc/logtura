@@ -25,6 +25,24 @@ machine's stable config/image/selection privately before any upgrade. The actual
 machine currently has zero mounted volumes and no loaded-manifest artifact;
 those are recorded baseline facts, not claims that upgrade or rollback occurred.
 
+The disposable live Fly canary subsequently created an encrypted checkpoint
+volume and a running machine from the published 0.3.0 backend. It exposed a real
+provider-compatibility defect: Fly decorates the returned mount with `name`,
+`encrypted` and `size_gb`, which the library incorrectly treated as a changed
+configuration. The acknowledged machine was reconciled by its random metadata,
+name, region, exact image digest and volume identity; it was stopped/deleted under
+a lease. The Worker/tail are absent, and the volume delete was acknowledged with
+a detached `pending_destroy` tombstone. The original forwarder remains unchanged.
+No failed create was blindly replayed. The initial 44-character test volume name
+was rejected with HTTP 400 and reconciled as absent; the service's existing
+27-character name shape succeeded in a fresh run.
+
+The shared comparison is corrected for the documented provider mount metadata,
+with requested settings and unknown additions still fenced. Typechecking and 69
+focused tests pass. The coordinated 0.3.1 candidate is built; full coverage,
+protected public merge, immutable release, actual-registry/live Fly rechecks and
+the remaining production CLI/forwarder acceptance gates are still required.
+
 The replacement CI computes separate package/backend/UI totals from Istanbul
 JSON and LCOV, publishes readable HTML and machine-readable reports as Actions
 artifacts (14-day retention), and writes a run summary with a download link.

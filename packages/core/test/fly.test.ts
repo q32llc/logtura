@@ -19,6 +19,31 @@ function fixture(){
  const client=new FlyMachinesClient({token:"private-token",fetch:fetcher}),plan={app:"app",machineId:"machine123",version:"version1",before:structuredClone(current.config),after:{...current.config,image}};
  return {client,plan,fetcher,calls,get current(){return current;},set current(value){current=value;},set mode(value:string){mode=value;},get updates(){return updates;},get starts(){return starts;},get releases(){return releases;}};
 }
+it("accepts Fly's returned volume metadata while rejecting changed mount settings and unknown additions",()=>{
+ const requested={image,mounts:[{volume:"vol_owned",path:"/var/lib/logtura"}]};
+ const mount={volume:"vol_owned",path:"/var/lib/logtura",name:"lt_owned",encrypted:true,size_gb:1};
+ const returned={image,mounts:[mount]};expect(matchesFlyConfig(returned,requested)).toBe(true);
+ for(const change of [{volume:"vol_other"},{path:"/other"},{encrypted:false},{size_gb:0},{size_gb:1.5},{name:1},{name:"bad/name"},{readonly:true}])expect(matchesFlyConfig({image,mounts:[{...mount,...change}]},requested)).toBe(false);
+ for(const mounts of [null,{},[],[null],[1],[mount,mount]])expect(matchesFlyConfig({image,mounts},requested)).toBe(false);
+ expect(matchesFlyConfig(returned,{image,mounts:[null]})).toBe(false);
+ expect(matchesFlyConfig(returned,{image,mounts:{}})).toBe(false);
+ expect(matchesFlyConfig(returned,{image,mounts:[{...mount,size_gb:2}]})).toBe(false);
+ expect(matchesFlyConfig(returned,{image,mounts:[{...mount,name:"explicit_other"}]})).toBe(false);
+ expect(matchesFlyConfig(returned,{image,mounts:[{...mount,encrypted:false}]})).toBe(false);
+ expect(matchesFlyConfig({image,mounts:[{...mount,readonly:false}]},{image,mounts:[{volume:"vol_owned",path:"/var/lib/logtura",readonly:false}]})).toBe(true);
+ expect(matchesFlyConfig({image,mounts:[mount,{...mount,volume:"vol_second",path:"/other"}]},{image,mounts:[{volume:"vol_second",path:"/other"},requested.mounts[0]]})).toBe(false);
+});
+it("accepts a real provider-shaped create response without weakening requested environment or runtime files",async()=>{
+ const config={image,env:{PRIVATE:"fixture-secret"},mounts:[{volume:"vol_owned",path:"/var/lib/logtura"}],files:[{guest_path:"/etc/vector/vector.yaml",raw_value:"fixture"}]};
+ const created={...machine(),name:"owned-canary",config:{...config,mounts:[{...config.mounts[0],name:"lt_owned",encrypted:true,size_gb:1}]}};
+ const fetcher=vi.fn<typeof fetch>(async()=>Response.json(created));const client=new FlyMachinesClient({token:"fixture",fetch:fetcher});
+ await expect(client.create("app",{name:"owned-canary",region:"ord",config})).resolves.toEqual(created);
+ for(const patch of [{env:{PRIVATE:"other"}},{files:[]},{mounts:[{volume:"vol_other",path:"/var/lib/logtura"}]}]){
+  fetcher.mockResolvedValueOnce(Response.json({...created,config:{...created.config,...patch}}));
+  await expect(client.create("app",{name:"owned-canary",region:"ord",config})).rejects.toThrow("different machine configuration");
+ }
+ expect(fetcher).toHaveBeenCalledTimes(4);
+});
 it("pins rollback to the actual previous digest, validates complete snapshots and compares all planned fields",()=>{
  const m=machine();expect(flyRollbackConfig(m)).toEqual({...m.config,image:`registry.test/forwarder@${m.image_ref.digest}`});expect(m.config.image).toContain(":old");
  expect(immutableFlyImage(image)).toBe(image);for(const invalid of ["latest","registry.test/forwarder:latest",image.toUpperCase(),image.replace("/forwarder","/../forwarder"),image.replace("/forwarder","//forwarder"),image.replace("sha256:","sha512:")])expect(()=>immutableFlyImage(invalid)).toThrow("pinned");
