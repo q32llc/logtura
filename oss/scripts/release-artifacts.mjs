@@ -62,13 +62,25 @@ export async function run(args,options={}){
     const args=['publish',join(directory,row.file),'--access','public','--provenance','--registry','https://registry.npmjs.org/'];
     const attempt={name:row.name,version:row.version,integrity:row.integrity,phase:'dispatching'};receipt.attempts.push(attempt);save();
     if(options.publish)await options.publish(args);else command('npm',args,root);
-    attempt.phase='acknowledged';save();console.log(`npm acknowledged ${row.name}@${row.version}; waiting for registry visibility`);
+    attempt.phase='acknowledged';save();console.log(`npm acknowledged ${row.name}@${row.version}; retaining acknowledgement for complete registry verification`);
    }
-   const visibleDeadline=Date.now()+180000;let remote;
-   for(let attempt=0;attempt<90&&Date.now()<visibleDeadline;attempt++){remote=await registry(row);if(remote!==null)break;await (options.sleep??(ms=>new Promise(r=>setTimeout(r,ms))))(2000);}
-   assert.ok(assertRegistryMatch(row,remote),`Publication is not visible for ${row.name}`);
-   receipt.packages.push({name:row.name,version:row.version,integrity:row.integrity,reused:existing.has(row.name)});save();
   }
+  // An acknowledged publish is immutable even while npm read replicas still
+  // return 404. Dispatch each missing archive once, then observe the complete
+  // release together rather than preventing later publications from proceeding.
+  const visibleDeadline=(options.now??Date.now)()+600000;
+  const pending=new Map(rows.map(row=>[row.name,row]));
+  for(let poll=0;pending.size&&poll<300&&(options.now??Date.now)()<visibleDeadline;poll++){
+   for(const row of [...pending.values()]){
+    if((options.now??Date.now)()>=visibleDeadline)break;
+    const remote=await registry(row);
+    if(remote===null)continue;
+    assertRegistryMatch(row,remote);
+    receipt.packages.push({name:row.name,version:row.version,integrity:row.integrity,reused:existing.has(row.name)});pending.delete(row.name);save();
+   }
+   if(pending.size)await (options.sleep??(ms=>new Promise(r=>setTimeout(r,ms))))(2000);
+  }
+  assert.equal(pending.size,0,`Publication is not visible for ${[...pending.keys()].join(', ')}`);
   receipt.status='verified';save();console.log(`Registry verified ${rows.length} exact tested archives for ${tag}`);
  }catch(error){receipt.status='incomplete';save();throw error;}
 }

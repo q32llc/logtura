@@ -74,3 +74,9 @@ liveness writes and no notice for its deployment, then proves a genuine notice
 after cessation at the strict ten-minute boundary. All 57 focused ingest/silence
 tests pass. The initial assertion counted notices for unrelated retained fixtures;
 scoping it to the tested deployment corrected the test without changing behavior.
+
+A fourth 45-second natural window at 13:50 UTC, more than two hours after the
+rollout, saw 29 metrics requests, all HTTP 204, with zero contention failures or
+metrics exceptions. Only the observer's WebSocket subscriber was closed; the
+existing production collector was preserved. The 0.3.2 exact private CI also
+passes the 57 focused liveness/ingest tests as part of the 1,714-test suite.

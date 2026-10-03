@@ -14,18 +14,25 @@ exposed two shared-driver bugs: AI Gateway list envelopes needed row fanout,
 and the Supabase refresh sidecar needed individual-row normalization. AI Gateway
 passed exact public/private CI and merged; the Supabase fix passes actual
 sidecar token rotation/delivery, both complete test baselines and packed checks,
-with its final protected public slice still to ship. These shared-driver fixes
-are unreleased and need a coordinated patch; immutable 0.3.1 stays unchanged.
+and merged through protected public PR 9. The immutable 0.3.1 release remains
+unchanged; both parser corrections belong to the coordinated 0.3.2 release.
 
-The coordinated 0.3.2 candidate aligns all fifteen package versions, with clean
-isolated archives and no existing conflicting npm versions. Protected public
-[PR 10](https://github.com/logtura/logtura/pull/10) awaits required CI. Independent
-public checks pass all 1,035 tests and 99.13% line coverage. The private candidate
-also updates compatible Hono/Router security patches, passes all 1,714 backend
-and 306 UI tests, typechecking, packed-service isolation and the complete real
-browser/installed-CLI/workerd/Vector lifecycle. The separate dependency plan
-records remaining Router 7 advisory decisions; the production and registry
-rollout still requires the remaining acceptance gates.
+All fifteen 0.3.2 versions are aligned. Protected public PR 10 merged as
+`fe3c174093614ae785b3ce562cf8c3ebbac60071`; exact main CI is green and immutable
+`v0.3.2` points there. Public checks pass 1,035 tests and 99.13% line coverage.
+Private source `1d5dfe4` has green exact CI with 1,714 backend and 306 UI tests,
+owned coverage reports, typechecking, packed-service isolation and the complete
+real browser/installed-CLI/workerd/Vector lifecycle. It also updates compatible
+Hono/Router security patches; remaining major/advisory decisions are separate.
+
+The tag workflow passed all transport/runtime/coverage/consumer gates, then
+stopped when an acknowledged npm package exceeded its registry visibility
+window. The subsequently visible hash matches the original tested archive.
+Recovery `37127516003` stopped at another acknowledged-package visibility timeout.
+Release tooling is being corrected to dispatch each missing archive once and
+observe the complete release together within ten minutes; complete registry validation,
+actual-registry live/staging rechecks and production rollout are still pending.
+See the [current 0.3.2 rollout evidence](service-rollout-0.3.2.md).
 
 Coverage decision, October 2, 2026: compute and enforce coverage in our own CI and publish our own reports through GitHub Actions. Codecov is no longer a requirement or blocker. Earlier milestone entries mentioning its configuration, failed uploads, or pending activation describe historical runs; no external coverage service or app installation is needed.
 
