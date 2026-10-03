@@ -1,6 +1,7 @@
 import { applyMetricsToSnapshot, type MetricsSnapshot, type ParsedMetric } from "./metrics-snapshot";
 
 type Result = "ok" | "not_found" | "invalid_token";
+type IngestResult = Result | "busy";
 type Entry = { token: string; loadedAt: number; accessedAt: number; status: string | null; seenAt: number | null; raw: string | null; persisted: MetricsSnapshot | null; snapshot: MetricsSnapshot | null; pending: Map<string, ParsedMetric> };
 type Row = { heartbeat_token: string | null; status: string | null; last_seen_at: number | null; metrics_snapshot_json: string | null };
 const TRACKED = new Set(["component_received_events_total", "component_sent_events_total", "component_errors_total", "component_discarded_events_total", "uptime_seconds", "build_info"]);
@@ -22,7 +23,9 @@ function decode(raw: string | null): MetricsSnapshot | null {
 }
 function urgent(previous: MetricsSnapshot | null, next: MetricsSnapshot): boolean {
   if (!previous || previous.processStartAt !== next.processStartAt || previous.vectorVersion !== next.vectorVersion) return true;
-  if (next.totals.errors > previous.totals.errors || next.totals.discarded > previous.totals.discarded) return true;
+  // Filters intentionally discard ordinary events. Their cumulative counter is
+  // checkpointed with received/sent traffic; it is not an urgent failure signal.
+  if (next.totals.errors > previous.totals.errors) return true;
   for (const field of ["received", "sent", "errors", "discarded"] as const) if (next.lifetimeOffset[field] > previous.lifetimeOffset[field]) return true;
   const keys = Object.keys(next.byComponent); return keys.length !== Object.keys(previous.byComponent).length || keys.some(key => !Object.hasOwn(previous.byComponent, key));
 }
@@ -80,7 +83,7 @@ export function createDeploymentIngest(options: { ttlMs?: number; checkpointMs?:
     if (!equal(current.heartbeat_token, token)) { cache.delete(id); return "invalid_token"; }
     refresh(entry, current, now); return "ok";
   }
-  async function run(db: D1Database, id: string, token: string, events: ParsedMetric[], now: number): Promise<Result> {
+  async function run(db: D1Database, id: string, token: string, events: ParsedMetric[], now: number): Promise<IngestResult> {
     const entry = await load(db, id, token, now); if (typeof entry === "string") return entry;
     if (events.length) {
       let next = applyMetricsToSnapshot(entry.snapshot, events); next.updatedAt = Math.max(now, entry.persisted?.updatedAt ?? now);
@@ -100,7 +103,14 @@ export function createDeploymentIngest(options: { ttlMs?: number; checkpointMs?:
         // checks in the public merger reject older/duplicate observations.
         const base = entry.pending.size ? applyMetricsToSnapshot(entry.persisted, [...entry.pending.values()]) : entry.persisted;
         next = applyMetricsToSnapshot(base, events); next.updatedAt = Math.max(now, entry.persisted?.updatedAt ?? now); entry.snapshot = next;
-        if (attempt === 2) { remember(entry, events); throw new Error("Deployment metrics checkpoint contention"); }
+        if (attempt === 2) {
+          remember(entry, events);
+          // The last read may prove a winner already persisted this sample, or
+          // make an ordinary checkpoint unnecessary. Otherwise retain it and
+          // ask the sender to retry without turning a normal race into a throw.
+          if (!urgent(entry.persisted, next) && entry.persisted && now - entry.persisted.updatedAt < interval) return "ok";
+          return "busy";
+        }
       }
     }
     const live = entry.status === "pending" || entry.status === "crashed" || entry.seenAt === null || now - entry.seenAt >= interval;
@@ -123,7 +133,7 @@ export function createDeploymentIngest(options: { ttlMs?: number; checkpointMs?:
     async authenticate(db: D1Database, id: string, token: string, now: number): Promise<Result> {
       return exclusive(id, async () => { const entry = await load(db, id, token, now); return typeof entry === "string" ? entry : "ok"; });
     },
-    async ingest(db: D1Database, id: string, token: string, events: ParsedMetric[], now: number): Promise<Result> {
+    async ingest(db: D1Database, id: string, token: string, events: ParsedMetric[], now: number): Promise<IngestResult> {
       return exclusive(id, () => run(db, id, token, events, now));
     },
   };

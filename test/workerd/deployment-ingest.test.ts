@@ -1,9 +1,10 @@
-import { env } from "cloudflare:test";
+import { env, createExecutionContext, waitOnExecutionContext } from "cloudflare:test";
 import { expect, it, vi } from "vitest";
 import { createDeploymentIngest } from "../../src/deployment-ingest";
 import { parseMetricsBody, type MetricsSnapshot } from "../../src/metrics-snapshot";
 import { createConnection, createDeployment } from "../../src/db";
 import { seedUser } from "./_setup";
+import worker from "../../src/index";
 
 async function fixture(status = "running") {
   const { userId } = await seedUser();
@@ -128,8 +129,45 @@ it("bounds conflict recovery and resumes after three actual competing D1 writers
     const prepared = env.DB.prepare(query); if (!query.startsWith("UPDATE deployments SET metrics_snapshot_json")) return prepared;
     return { bind(...values: unknown[]) { const bound = prepared.bind(...values); return { async run() { collisions++; await writer.ingest(env.DB, f.id, f.token, metrics(1, f.now + collisions, "sent", `writer_${collisions}`), f.now + collisions); return bound.run(); } }; } } as unknown as D1PreparedStatement;
   } } as D1Database;
-  await expect(coordinator.ingest(racing, f.id, f.token, errors(1, f.now), f.now)).rejects.toThrow("checkpoint contention"); expect(collisions).toBe(3);
+  expect(await coordinator.ingest(racing, f.id, f.token, errors(1, f.now), f.now)).toBe("busy"); expect(collisions).toBe(3);
   await coordinator.ingest(env.DB, f.id, f.token, errors(1, f.now), f.now + 4); expect(await f.snapshot()).toMatchObject({ totals: { sent: 3, errors: 1 } });
+});
+it("coalesces ordinary discarded counters until the checkpoint is due", async () => {
+  const f = await fixture(), coordinator = createDeploymentIngest(), counted = countDatabase();
+  await coordinator.ingest(counted.db, f.id, f.token, metrics(1, f.now, "discarded", "filter"), f.now);
+  const initial = counted.calls.length;
+  for (let i = 2; i <= 30; i++) await coordinator.ingest(counted.db, f.id, f.token, metrics(i, f.now + i, "discarded", "filter"), f.now + i);
+  expect(counted.calls).toHaveLength(initial);
+  expect((await f.snapshot()).totals.discarded).toBe(1);
+  await coordinator.ingest(counted.db, f.id, f.token, metrics(31, f.now + 300_000, "discarded", "filter"), f.now + 300_000);
+  expect((await f.snapshot()).totals.discarded).toBe(31);
+  expect(counted.calls.filter(sql => sql.startsWith("UPDATE"))).toHaveLength(2);
+});
+it("accepts a final collision when its winning writer already persisted the error sample", async () => {
+  const f = await fixture(), coordinator = createDeploymentIngest(), writer = createDeploymentIngest(); let collisions = 0;
+  const racing = { prepare(query: string) {
+    const prepared = env.DB.prepare(query); if (!query.startsWith("UPDATE deployments SET metrics_snapshot_json")) return prepared;
+    return { bind(...values: unknown[]) { const bound = prepared.bind(...values); return { async run() {
+      collisions++; await writer.ingest(env.DB, f.id, f.token, [...metrics(1, f.now + collisions, "sent", `writer_${collisions}`), ...(collisions === 3 ? errors(1, f.now) : [])], f.now + collisions);
+      return bound.run();
+    } }; } } as unknown as D1PreparedStatement;
+  } } as D1Database;
+  expect(await coordinator.ingest(racing, f.id, f.token, errors(1, f.now), f.now)).toBe("ok");
+  expect(collisions).toBe(3);expect(await f.snapshot()).toMatchObject({totals:{sent:3,errors:1}});
+});
+it("returns retryable metrics contention and persists the retained sample on retry without logging an exception", async () => {
+  const f = await fixture(), writer = createDeploymentIngest();let collisions = 0;
+  const racing = { prepare(query: string) {
+    const prepared = env.DB.prepare(query);if (!query.startsWith("UPDATE deployments SET metrics_snapshot_json")) return prepared;
+    return {bind(...values:unknown[]){const bound=prepared.bind(...values);return {async run(){
+      collisions++;await writer.ingest(env.DB,f.id,f.token,metrics(1,f.now+collisions,"sent",`writer_${collisions}`),f.now+collisions);return bound.run();
+    }};}} as unknown as D1PreparedStatement;
+  }} as D1Database;
+  const context=createExecutionContext(),log=vi.spyOn(console,"error"),request=()=>new Request(`https://local.test/api/metrics/${f.id}`,{method:"POST",headers:{authorization:`Bearer ${f.token}`,"content-type":"application/json"},body:JSON.stringify({name:"component_errors_total",timestamp:f.now,counter:{value:1},tags:{component_id:"sink",error_type:"http"}})});
+  const busy=await worker.fetch(request(),{...env,DB:racing},context);await waitOnExecutionContext(context);
+  expect(busy.status).toBe(503);expect(busy.headers.get("Retry-After")).toBe("1");expect(await busy.json()).toEqual({error:"metrics_checkpoint_busy"});expect(collisions).toBe(3);expect(log).not.toHaveBeenCalled();
+  const retryContext=createExecutionContext(),retried=await worker.fetch(request(),env,retryContext);await waitOnExecutionContext(retryContext);
+  expect(retried.status).toBe(204);expect(await f.snapshot()).toMatchObject({totals:{sent:3,errors:1}});expect(log).not.toHaveBeenCalled();log.mockRestore();
 });
 it("refreshes cached authorization on a backwards cache clock", async () => {
   const f = await fixture(), coordinator = createDeploymentIngest(), counted = countDatabase(); await coordinator.authenticate(counted.db, f.id, f.token, f.now);

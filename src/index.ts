@@ -1502,6 +1502,10 @@ api.post("/metrics/:id", async (c) => {
   const result = await deploymentIngest.ingest(c.env.DB, id, presented, parseMetricsBody(body), now);
   if (result === "not_found") return c.json({ error: result }, 404);
   if (result === "invalid_token") return c.json({ error: result }, 401);
+  if (result === "busy") {
+    c.header("Retry-After", "1");
+    return c.json({ error: "metrics_checkpoint_busy" }, 503);
+  }
   // D1 failures remain retryable; successful/coalesced observations are acknowledged.
   return c.body(null, 204);
 });

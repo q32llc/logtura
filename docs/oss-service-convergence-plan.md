@@ -6,6 +6,15 @@ Status: implementation in progress. The starting inventory records repository an
 
 Coverage decision, October 2, 2026: compute and enforce coverage in our own CI and publish our own reports through GitHub Actions. Codecov is no longer a requirement or blocker. Earlier milestone entries mentioning its configuration, failed uploads, or pending activation describe historical runs; no external coverage service or app installation is needed.
 
+October 3 metrics incident: the [checkpoint contention correction](metrics-checkpoint-contention.md)
+coalesces ordinary discarded counters and returns bounded, retryable contention
+without throwing a Worker exception. Native competing-writer and HTTP retry
+tests pass, as does the complete 1,712-test backend suite. Production deployment
+and observation are still required. The immutable 0.3.1 package release is in
+supported recovery after npm acknowledged core but its version endpoint remained
+invisible during the three-minute observation window; core is now visible with
+the original tested archive hash. Recovery reuses those original archives.
+
 Live delivery evidence, October 3: an isolated npm consumer using the published
 0.3.0 packages delivered real owned Cloudflare Worker events through its generated
 standalone Vector image to an owned webhook receiver. The reusable
