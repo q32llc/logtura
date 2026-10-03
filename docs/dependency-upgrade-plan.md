@@ -141,6 +141,7 @@ compatible but has no advisory-driven requirement in this slice. No automatic
 major upgrade or blind audit fix was applied. Raw registry/audit output is private
 under `/tmp/logtura-production-dependency-*-20261003.*`. All 1,714 backend tests, all 306 UI tests, typechecking, packed-service isolation
 and the complete browser/installed-CLI/workerd/actual-Vector journey pass for the
-0.3.2 candidate. Deployment still requires exact CI, actual registry archives,
-staging, fresh compatibility replay and rollback capture. The first sandboxed rebuild could not open pnpm's store
+0.3.2 candidate. The 0.3.2 production rollout now passes exact CI, actual registry archives,
+staging, fresh candidate/rollback compatibility replay and byte verification;
+see [the rollout receipt](service-rollout-0.3.2.md). The first sandboxed rebuild could not open pnpm's store
 index; rebuilding with the cache permission succeeded, without changing tests.

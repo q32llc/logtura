@@ -80,3 +80,12 @@ rollout, saw 29 metrics requests, all HTTP 204, with zero contention failures or
 metrics exceptions. Only the observer's WebSocket subscriber was closed; the
 existing production collector was preserved. The 0.3.2 exact private CI also
 passes the 57 focused liveness/ingest tests as part of the 1,714-test suite.
+
+The actual-registry 0.3.2 service deployed at 14:25 UTC preserves this correction.
+Its first post-upload 45-second window saw 28 metrics requests, all HTTP 204,
+with zero contention failures or metrics exceptions. A natural persisted
+checkpoint advanced after the upload at 14:29 UTC. Fresh 14:30 metrics show the
+original process, Vector 0.55.0 and 97 components, advancing received/sent totals
+and zero component errors. The earlier Cloudflare overload remains a separate
+diagnostic question; this bounded evidence closes neither that question nor
+the production CLI/forwarder upgrade gates.

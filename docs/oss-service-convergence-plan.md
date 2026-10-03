@@ -17,22 +17,27 @@ sidecar token rotation/delivery, both complete test baselines and packed checks,
 and merged through protected public PR 9. The immutable 0.3.1 release remains
 unchanged; both parser corrections belong to the coordinated 0.3.2 release.
 
-All fifteen 0.3.2 versions are aligned. Protected public PR 10 merged as
-`fe3c174093614ae785b3ce562cf8c3ebbac60071`; exact main CI is green and immutable
-`v0.3.2` points there. Public checks pass 1,035 tests and 99.13% line coverage.
-Private source `1d5dfe4` has green exact CI with 1,714 backend and 306 UI tests,
-owned coverage reports, typechecking, packed-service isolation and the complete
-real browser/installed-CLI/workerd/Vector lifecycle. It also updates compatible
-Hono/Router security patches; remaining major/advisory decisions are separate.
+All fifteen actual npm 0.3.2 archives now match the immutable tag's original
+tested bytes. Protected PR 10 established the tag; protected PR 11 corrected
+whole-release visibility observation and strengthened recovery gates. Corrected
+recovery `37128579718`, latest public main CI `37128549675` and exact private
+source `48b4e84` CI `37128046420` are green. The complete baseline passes 1,714
+backend, 306 UI and 1,035 independent public tests, with owned coverage reports.
 
-The tag workflow passed all transport/runtime/coverage/consumer gates, then
-stopped when an acknowledged npm package exceeded its registry visibility
-window. The subsequently visible hash matches the original tested archive.
-Recovery `37127516003` stopped at another acknowledged-package visibility timeout.
-Release tooling is being corrected to dispatch each missing archive once and
-observe the complete release together within ten minutes; complete registry validation,
-actual-registry live/staging rechecks and production rollout are still pending.
-See the [current 0.3.2 rollout evidence](service-rollout-0.3.2.md).
+The actual-registry service passes packed isolation, disposable Cloudflare
+staging and fresh production-data native replay, including its retained rollback
+Worker. Released standalone source delivery and disposable Fly restart/apply/
+rollback also pass. Production 0.3.2 was uploaded at 14:25 UTC; actual Worker and
+website bytes match, stable deployment fields and bindings are preserved, and a
+natural post-upload checkpoint advanced at 14:29 UTC. The original forwarder is
+unchanged and running. See [0.3.2 rollout evidence](service-rollout-0.3.2.md).
+
+The selected native transport matrix is complete, with fixture/live distinctions
+retained. Completion still requires the normal production CLI/website round trip
+and original forwarder loaded-manifest upgrade/rollback. The pending CLI grant,
+remote-CI credential transfer and private protection limitations remain explicit.
+Compatible Hono/Router patches are deployed; major/advisory decisions stay in the
+separate dependency plan.
 
 Coverage decision, October 2, 2026: compute and enforce coverage in our own CI and publish our own reports through GitHub Actions. Codecov is no longer a requirement or blocker. Earlier milestone entries mentioning its configuration, failed uploads, or pending activation describe historical runs; no external coverage service or app installation is needed.
 
