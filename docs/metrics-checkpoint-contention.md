@@ -53,3 +53,10 @@ A second 45-second window at 11:49 UTC, about twenty minutes after deployment,
 saw 28 metrics requests, all HTTP 204, with zero contention failures or metrics
 exceptions. Both received and sent totals had advanced naturally; the original
 process start, running state, Vector version and 97 components remained stable.
+
+A third 45-second window at 12:34 UTC, about 65 minutes after deployment,
+saw 29 metrics requests, all HTTP 204, with zero contention failures or metrics
+exceptions. A fresh D1 read found the original deployment running, its heartbeat
+one second old, naturally advancing traffic totals, zero component errors and
+the same process start, Vector version and component count. This is bounded
+observation, rather than proof that the earlier D1 overload can never recur.

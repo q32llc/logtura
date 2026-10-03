@@ -13,7 +13,7 @@ distinctions and remains part of the [acceptance audit](convergence-acceptance.m
 | Cloudflare Worker tail → webhook | Reusable `test:e2e:live-source` passes against actual npm 0.3.1, real owned Worker traces and generated standalone Vector; owned resources and repeated cleanup are verified. | Live source acceptance is selected, rather than claiming live access to every provider. |
 | Supabase PAT function and gateway polling → webhook and Slack | `test:supabase-runtime` runs generated HTTP polling, SQL, bearer interpolation, JSON decoding, source selection, normalization, error filters and both sinks through Vector 0.55.0. Only the API origin is redirected to a local fixture. It rejects unselected-function/info/warning delivery, verifies timestamps and identity, Slack single-object framing, provider failure recovery and sink retries. | Local runs pass independently in both layouts; protected public PR 5 passed exact CI 37121454039 and merged as `f2810dc`. Private exact-head CI 37121377341 is also green. Refreshable sidecar delivery is not proved by the PAT fixture. |
 | Cloudflare AI Gateway → webhook and Slack | `test:ai-gateway-runtime` reproduces the documented list response through actual generated HTTP polling and Vector. It verifies envelope fanout, row-level failure/status classification, healthy-log filtering, identity/timestamps, Slack framing and provider/sink retries. Empty/malformed envelopes and non-object array entries do not become events; individual rows and bare arrays remain compatible. | Local runtime, all 12 package tests and the full 1,712-test backend suite pass. Aggregate coverage is 97.52% lines, 97.14% statements and 94.61% branches, with module floors preserved. Exact new private/public CI remains required. The parser correction is unreleased and needs a new coordinated package release, not a retag of 0.3.1. |
-| Fly log tail | API/auth/parser/configuration tests exist. Disposable live Fly deployment tests prove runtime hosting and Cloudflare event delivery. | Those deployment tests do not prove the Fly log-source transport; generated exec-source delivery remains open. |
+| Fly log tail → webhook and Slack | `test:fly-source-runtime` builds the generated standalone image and runs the unmodified Vector exec source, shell, stdbuf and real jq against controlled Fly CLI output. It checks two app identities, pretty JSON framing, structured numeric/string severity overrides, timestamp preservation, stderr suppression, error filtering and both sink retries. | Local runtime passes; exact private/public CI remains required. The remote CLI transport is a fixture, rather than a live Fly logs subscription. |
 | Datadog metrics | Generated sink and Vector configuration validation exist. | Actual metrics intake request, authentication, encoded payload and retry acceptance remain open. |
 | Prometheus remote write | Generated sink, bearer options and Vector configuration validation exist. | Actual compressed protobuf request and retry acceptance remain open. |
 
@@ -45,10 +45,10 @@ After rebuilding the public checkout's ignored compiled artifacts, all 1,035
 public tests pass with 99.13% line and 96.67% branch coverage, and all fifteen
 isolated packed consumers pass. Four compiled-CLI crash tests failed with stale
 bundles before that rebuild; assertions and source were not weakened. Public
-[PR 6](https://github.com/logtura/logtura/pull/6) awaits its exact required CI
-`37122442615`; private code CI `37122235299` is also still pending at this record.
+[PR 6](https://github.com/logtura/logtura/pull/6) passed exact required CI
+`37122442615` and merged through protected main; private code CI `37122235299` remains pending at this record.
 The VRL edit changes configuration literals, so the JavaScript patch gate reports
-no changed instrumented lines. Actual shader execution evidence comes from the
+no changed instrumented lines. Actual remap execution evidence comes from the
 required native runtime regression, rather than an invented patch percentage.
 
 Do not mark the full delivery baseline complete until the remaining runtime rows

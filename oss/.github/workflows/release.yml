@@ -97,6 +97,9 @@ jobs:
       - name: real AI Gateway list fanout and delivery
         run: pnpm test:ai-gateway-runtime
 
+      - name: real Fly CLI transport and structured log delivery
+        run: pnpm test:fly-source-runtime
+
       - name: real Vector delivery flow
         run: pnpm test:flow
 

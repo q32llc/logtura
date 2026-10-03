@@ -39,7 +39,8 @@
     "test:e2e:live-source": "node --import tsx scripts/e2e-live-source.mjs",
     "test:legacy-snapshot": "node scripts/verify-legacy-worker-snapshot.mjs",
     "test:supabase-runtime": "node scripts/test-supabase-flow.mjs",
-    "test:ai-gateway-runtime": "node scripts/test-ai-gateway-flow.mjs"
+    "test:ai-gateway-runtime": "node scripts/test-ai-gateway-flow.mjs",
+    "test:fly-source-runtime": "node scripts/test-fly-source-flow.mjs"
   },
   "dependencies": {
     "@logtura/cloudflare-shared": "workspace:*",
