@@ -18,13 +18,13 @@ exercise actual Git histories, PR/push/initial-push handling, exact 95% and fail
 patches, malformed/missing reports, and summary output. The actual backend/package
 reports and all 280 UI tests also passed the new reader; UI now emits HTML too.
 
-Branch protection is still a separate incomplete gate: read-only inspection on
-October 2 returned no protection on public `main`; GitHub returned HTTP 403 for
-private `master`, stating the repository's current plan does not support that
-feature. Neither is claimed to enforce required checks yet. Separate private backend
-coverage now meets and enforces the final targets (see the native Fly credential
-baseline below). Per-package gates and the rest of this convergence plan remain
-unfinished.
+Public `main` now requires the strict GitHub Actions `test` check, including for
+administrators; the stored protection has been read back. A disposable coverage
+failure PR is in progress to verify blocking behavior. Private `master` remains
+an external gate: GitHub returned HTTP 403 because the repository's current plan
+does not support branch protection. Separate backend/UI/package coverage floors
+are enforced; full final acceptance and the remaining rollout gates still require
+completion. Detailed evidence and remaining work are tracked below.
 
 The replacement is pushed to private `master` (`53a1be9`) and public `main`
 (`9a9ebc2`). Both exact CI runs completed successfully, including artifact upload
@@ -4806,3 +4806,53 @@ checkpoint; public default-branch CI is green. Production remains on schema 17
 with its existing forwarder unchanged. Cloudflare Actions-secret transfer is still
 pending explicit authorization after the earlier automatic-review rejection; no
 Cloudflare credential has been sent to GitHub by this recovery or verification.
+
+The clean service candidate built from the actual published 0.3.0 archives now
+passes real Cloudflare staging too. `run-JMHD7D` exits 0, performs 254 bounded direct
+management calls, preserves the synthetic schema-17 legacy graph through migration
+32, passes real HTTPS routing and unchanged legacy heartbeat/metrics, and verifies
+all owned Worker/D1/queue resources absent with no remaining tail. This is separate
+from live source delivery or a Fly VM canary; neither is implied by these checks.
+
+Production rollback metadata now retains the exact stable 100%-active Worker
+version, settings, original 498052-byte multipart script download and deployment
+rollback request in an owned private directory. A fresh production observation
+still finds schema 17 and a running self-managed forwarder with a two-second-old
+heartbeat. Neither production Worker nor forwarder was changed.
+
+`pnpm test:legacy-snapshot` adds an executable native compatibility replay using
+that exact old Worker and the privately retained actual SQL backup. Both the old
+Worker variant and published-library candidate variant pass in real local
+workerd/D1 after restoring schema 17 and applying migrations through 32. All 22
+original deployment fields remain byte/value equivalent before reporting; the
+existing token returns 204 for heartbeat/metrics, an invalid token returns 401,
+the injected per-component counter persists, and foreign keys validate. The
+candidate persists 4294967307 without 32-bit truncation. Both replays make **zero
+outbound provider requests**. Private-input permission/hash guard tests pass.
+D1's newline-based `exec` failed on the multiline export; the shipped runner uses
+Cloudflare's SQL-aware migration splitter instead. An initial assertion wrongly
+assumed an empty aggregate when replaying restored data; it now checks the injected
+component and records the preexisting aggregate separately. The snapshot contains
+historical negative counters; this is recorded as a preexisting baseline defect,
+not evidence of a migration changing data. The candidate's wide positive counter
+check passes. No private data, token, compiled original script or diagnostic is
+committed or uploaded.
+
+The dedicated-socket local HTTP adapter now also serves the full local journey.
+Typecheck and the complete installed CLI/browser/workerd/packaged Vector run exit
+0, including managed queue apply, Docker supervisor acknowledgement, CLI edit and
+leased reapply, replacement rollback, retired-report rejection, checkpoint reuse
+and truthful website convergence. All 71 combined harness guards pass. Private
+CI `37105505862` and public CI `37105504180` finish green at their exact previous
+commits. New private harness changes still need their own pushed CI result.
+
+Public main now has a required strict GitHub Actions `test` check (app 15368),
+enforced for administrators, with force-push and deletion disabled. The initial
+request combining legacy `contexts` and `checks` was rejected with 422 and left
+protection absent; the supported checks-only request succeeded and an independent
+GET confirmed the stored policy. Public sync/contribution instructions now use a
+PR and wait for this check rather than pushing unchecked commits. A disposable
+intentionally untested source PR is being used to demonstrate an actual failing
+coverage result and merge blocking; it must never be merged. Private master
+protection remains constrained by the previously confirmed GitHub plan limitation.
+The earlier Cloudflare-secret transfer approval remains pending and untouched.

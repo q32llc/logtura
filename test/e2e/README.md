@@ -257,3 +257,29 @@ resource/candidate evidence. It requires the private repository secrets
 currently awaiting approval to transfer those credentials to GitHub; the local
 remote rehearsal has already run against Cloudflare successfully. Missing credentials
 fail the dispatched job; they do not produce a passing skipped test.
+
+## Native replay of retained production snapshots
+
+After privately capturing the original Worker download/content type/version settings
+and a schema-17 D1 SQL export, replay their compatibility locally:
+
+```sh
+pnpm test:legacy-snapshot /private/worker-snapshot /private/database-backup
+pnpm test:legacy-snapshot /private/worker-snapshot /private/database-backup /private/registry-candidate
+```
+
+Inputs require owned mode-0700 directories and mode-0600 files. The Worker snapshot
+contains `worker-content.bin`, `worker-content-type.txt` and `rollback.json` with
+its source SHA-256 and settings. The database backup contains `schema-17.sql` and
+`backup-receipt.json` with the export SHA-256. A registry candidate is an export
+from the published-archive service verifier and must identify the verified 0.3.0
+release and clean source. SQL export/import uses the Cloudflare migration splitter;
+D1's newline-based `exec` cannot safely import this multiline dump.
+
+Each replay creates a fresh local native workerd/D1 instance, restores the private
+SQL backup, applies migrations 18–32, verifies the existing deployment's original
+fields and token behavior, and checks actual persisted heartbeat and metrics.
+The candidate variant includes a counter above the 32-bit range. Outbound provider
+requests are denied and must remain zero. It neither reads live credentials nor
+changes production. Every attempt gets a new private evidence directory; detailed
+failures and snapshots stay local and must never become public CI artifacts.

@@ -23,7 +23,7 @@ cp -r packages/driver-fly-log-tail packages/driver-railway-logs
 # Replace the Fly-specific verify/discover/generatePipeline logic.
 ```
 
-Test with `pnpm vitest run --project @logtura/driver-railway-logs`. Add a `test/vector-validate.test.ts` that pipes the generated bundle through `docker run timberio/vector:latest-debian validate`. Every existing driver has one. It is the only check that catches VRL syntax errors before deploy.
+Test with `pnpm vitest run --project @logtura/driver-railway-logs`. Add a `test/vector-validate.test.ts` that pipes the generated bundle through `docker run timberio/vector:0.55.0-debian validate`. Every existing driver has one. It is the only check that catches VRL syntax errors before deploy.
 
 ## Adding a destination driver
 
@@ -45,11 +45,11 @@ Package id, displayName, and sourceLabel all live in the driver const. Adding a 
 
 - `pnpm vitest run` runs every package's tests plus the root vitest projects.
 - `pnpm typecheck` runs across the whole workspace.
-- Each driver needs a `test/unit.test.ts` (pure renderer + API client) and a `test/vector-validate.test.ts` (docker-based black-box validate). The docker test is skipped automatically when docker is not available, so CI environments without docker access still pass the unit half.
+- Each driver needs a `test/unit.test.ts` (pure renderer + API client) and a `test/vector-validate.test.ts` (docker-based black-box validate). Local unit runs can skip Docker validation when Docker is absent; CI requires Docker and real runtime validation.
 
 ## Submitting
 
-Open a PR against `main`. The CI workflow at `.github/workflows/test.yml` runs the full test matrix on push and PR.
+Open a PR against `main`. The CI workflow at `.github/workflows/test.yml` runs the full test matrix on main pushes and pull requests. Protected `main` requires the GitHub Actions `test` check, an up-to-date branch, and our owned coverage gates, including for administrators. Wait for the check to pass before merging; do not disable protection to sync a release.
 
 ## Releasing
 

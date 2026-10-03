@@ -10,6 +10,7 @@ import { randomUUID, createHash } from "node:crypto";
 import { startBrowser } from "../test/e2e/browser";
 import { startLocalService } from "../test/e2e/local-workerd";
 import { managedRuntimeJourney } from "../test/e2e/managed-runtime";
+import { localHttpFetch } from "../test/e2e/local-http.mjs";
 
 if (process.platform !== "linux") throw new Error("Local runtime E2E requires Linux Docker host networking");
 const injectedFailure = process.env.LOGT_E2E_INJECT_FAILURE;
@@ -82,7 +83,7 @@ try {
   const request = async (path: string, body?: unknown, method = "GET") => {
     const headers = new Headers({ cookie: service.cookie, origin: service.url });
     if (body !== undefined && !(body instanceof FormData)) headers.set("content-type", "application/json");
-    const response = await fetch(service.url + path, { method, headers, body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body), redirect: "manual" });
+    const response = await localHttpFetch(service.url + path, { method, headers, body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body), redirect: "manual" });
     assert.equal(response.status, 200, `${method} ${path} must succeed`);
     return response.json() as Promise<any>;
   };
