@@ -94,6 +94,9 @@ jobs:
       - name: real Supabase polling and Slack delivery
         run: pnpm test:supabase-runtime
 
+      - name: real Supabase refresh sidecar token rotation and delivery
+        run: pnpm test:supabase-refresh-runtime
+
       - name: real AI Gateway list fanout and delivery
         run: pnpm test:ai-gateway-runtime
 

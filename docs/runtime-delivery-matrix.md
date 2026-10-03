@@ -11,7 +11,7 @@ distinctions and remains part of the [acceptance audit](convergence-acceptance.m
 | Railway → webhook | `test:railway-runtime` runs the generated helper under actual Bun and the generated Vector exec source through controlled WebSocket/API fixtures. | This is not a live Railway account test. |
 | Vercel → webhook | `test:vercel-runtime` runs the generated helper under actual Bun and full generated Vector context, checks delivery and rejects an injected post-delivery failure. | This is not a live Vercel account test. |
 | Cloudflare Worker tail → webhook | Reusable `test:e2e:live-source` passes against actual npm 0.3.1, real owned Worker traces and generated standalone Vector; owned resources and repeated cleanup are verified. | Live source acceptance is selected, rather than claiming live access to every provider. |
-| Supabase PAT function and gateway polling → webhook and Slack | `test:supabase-runtime` runs generated HTTP polling, SQL, bearer interpolation, JSON decoding, source selection, normalization, error filters and both sinks through Vector 0.55.0. Only the API origin is redirected to a local fixture. It rejects unselected-function/info/warning delivery, verifies timestamps and identity, Slack single-object framing, provider failure recovery and sink retries. | Local runs pass independently in both layouts; protected public PR 5 passed exact CI 37121454039 and merged as `f2810dc`. Private exact-head CI 37121377341 is also green. Refreshable sidecar delivery is not proved by the PAT fixture. |
+| Supabase PAT function and gateway polling → webhook and Slack | `test:supabase-runtime` runs generated HTTP polling, SQL, bearer interpolation, JSON decoding, source selection, normalization, error filters and both sinks through Vector 0.55.0. Only the API origin is redirected to a local fixture. It rejects unselected-function/info/warning delivery, verifies timestamps and identity, Slack single-object framing, provider failure recovery and sink retries. | Local runs pass independently in both layouts; protected public PR 5 passed exact CI 37121454039 and merged as `f2810dc`. Private exact-head CI 37121377341 is also green. The separate `test:supabase-refresh-runtime` now runs the actual generated sidecar and verifies scoped token exchange, short-lived token refresh, both channels and sink retries. Private refreshable and PAT runtimes, all 1,712 backend tests, typechecking and isolated packed-service checks pass. Aggregate coverage is 97.5% lines and 94.6% branches with module floors retained; exact protected public CI remains required. |
 | Cloudflare AI Gateway → webhook and Slack | `test:ai-gateway-runtime` reproduces the documented list response through actual generated HTTP polling and Vector. It verifies envelope fanout, row-level failure/status classification, healthy-log filtering, identity/timestamps, Slack framing and provider/sink retries. Empty/malformed envelopes and non-object array entries do not become events; individual rows and bare arrays remain compatible. | Local runtime, all 12 package tests and the full 1,712-test backend suite pass. Aggregate coverage is 97.52% lines, 97.14% statements and 94.61% branches, with module floors preserved. Exact private CI 37122235299 and public CI 37122442615 are green. The parser correction is unreleased and needs a new coordinated package release, not a retag of 0.3.1. |
 | Fly log tail → webhook and Slack | `test:fly-source-runtime` builds the generated standalone image and runs the unmodified Vector exec source, shell, stdbuf and real jq against controlled Fly CLI output. It checks two app identities, pretty JSON framing, structured numeric/string severity overrides, timestamp preservation, stderr suppression, error filtering and both sink retries. | Public protected PR 7 passed exact CI 37123551312 and merged as `c1ab85d`; private CI 37123438844 remains pending. The remote CLI transport is a fixture, rather than a live Fly logs subscription. |
 | Datadog metrics | `test:metrics-runtime` runs native Vector v2 intake into a controlled receiver, checks the API-key header, Zstandard compression, protobuf series/component tags and timestamps, and exact rejected-payload retry. | Local positive-counter runtime passes; exact private/public CI remains required; the intake is a fixture, rather than a live Datadog account. |
@@ -70,3 +70,21 @@ assertion initially timed out when the fixture sent traffic only before that
 baseline. Bounded follow-up source events now prove positive increments without
 changing native scraping or normalization. The corrected final runtime passes
 both destinations, including cleanup; the timed-out run is not acceptance.
+
+The Supabase refresh fixture exposed a second transport mismatch: its sidecar
+extracts `$.result` and emits individual rows, while both normalizers previously
+accepted only result arrays or bare arrays. Token exchange and polling succeeded
+but no sinks received events. Function and gateway normalizers now also accept
+individual rows with their channel identity fields; empty envelopes stay empty.
+The real refresh-sidecar regression passes with scoped authorization, short-lived
+access credentials, first-poll failure, both channels and both sink retries. Its
+standalone image, container, receiver and files are cleaned and checked. The PAT
+fixture remains an independent regression gate. Like the AI Gateway fix, this
+shared-driver correction requires a new coordinated release after final checks.
+
+The native metrics fixture passes independently in the public layout as well.
+Public [PR 8](https://github.com/logtura/logtura/pull/8), head `c17653f`, awaits
+exact required CI `37124095944`. Private metrics commit `1dee0c9` is pushed
+and awaits exact CI `37124001163`. These are test additions rather than a
+new package release; the decoder is a bounded fixture implementation and does
+not change destination production code.

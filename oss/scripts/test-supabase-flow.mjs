@@ -1,16 +1,19 @@
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
-import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,writeFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {spawnSync} from 'node:child_process';
 
 const load = name => import(pathToFileURL(join(process.cwd(), 'packages', name, 'dist/index.js')));
-const {generateBundle} = await load('core');
+const {generateBundle,selfDeployFiles} = await load('core');
 const {supabaseEdgeLogsDriver} = await load('driver-supabase-edge-logs');
 const {webhookDriver} = await load('destination-webhook');
 const {slackDriver} = await load('destination-slack');
+const refreshable=process.env.LOGT_SUPABASE_FIXTURE_AUTH==='refreshable';
+const issued=new Set();let tokenRequests=0;
+const image=refreshable?`logtura-supabase-refresh-${crypto.randomUUID()}`:'timberio/vector:0.55.0-debian';
 const temporary = mkdtempSync(join(tmpdir(), 'logtura-supabase-flow-'));
 const container = `logtura-supabase-flow-${crypto.randomUUID()}`;
 const selectedFunction = '11111111-1111-4111-8111-111111111111';
@@ -30,8 +33,9 @@ let failure;
 const server = createServer(async (request,response) => {
   try {
     const url = new URL(request.url,'http://fixture.invalid');
+    if(url.pathname==='/tokens'){assert.ok(refreshable);assert.equal(request.method,'POST');assert.equal(request.headers.authorization,'Bearer fixture-tail-token');const token=`refreshed-fixture-${++tokenRequests}`;issued.add(token);response.writeHead(200,{'content-type':'application/json'});response.end(JSON.stringify({access_token:token,expires_in:1}));return;}
     if (url.pathname === '/v1/projects/fixture-project/analytics/endpoints/logs.all') {
-      assert.equal(request.method,'GET');assert.equal(request.headers.authorization,'Bearer fixture-supabase-pat');
+      assert.equal(request.method,'GET');if(refreshable)assert.ok(issued.has(request.headers.authorization?.replace(/^Bearer /,'')),'Sidecar used an unissued access token');else assert.equal(request.headers.authorization,'Bearer fixture-supabase-pat');
       const sql=url.searchParams.get('sql');assert.ok(sql.includes('LIMIT 100') && sql.includes('interval 90 second'));
       const channel=sql.includes('FROM function_edge_logs')?'functions':'gateway';
       assert.ok(channel==='functions' || sql.includes('FROM edge_logs'));
@@ -53,7 +57,7 @@ const server = createServer(async (request,response) => {
   } catch(error){failure=error;response.writeHead(400);response.end('fixture protocol mismatch');}
 });
 function docker(args,optional=false){
-  const result=spawnSync('docker',args,{encoding:'utf8',timeout:30000});
+  const result=spawnSync('docker',args,{encoding:'utf8',timeout:args[0]==='build'?180000:30000});
   if(!optional)assert.equal(result.status,0,`Docker command failed: ${result.stderr}`);
   return result;
 }
@@ -61,7 +65,7 @@ try {
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
   const origin=`http://127.0.0.1:${server.address().port}`;
   const bundle=generateBundle({providers:[supabaseEdgeLogsDriver],destinations:[webhookDriver,slackDriver],
-    connections:[{connection:{id:'con_fixture',provider:supabaseEdgeLogsDriver.id,displayName:'Supabase fixture',externalAccountId:'fixture-project'},credentials:{pat:'fixture-supabase-pat'},selectedSources:[
+    connections:[{connection:{id:'con_fixture',provider:supabaseEdgeLogsDriver.id,displayName:'Supabase fixture',externalAccountId:'fixture-project'},credentials:refreshable?{refreshToken:'fixture-refresh-token',tailToken:'fixture-tail-token',tailTokenUrl:origin+'/tokens'}:{pat:'fixture-supabase-pat'},selectedSources:[
       {id:'src_function',externalId:'selected-function',displayName:'Selected function',sourceKind:'supabase_edge_fn',metadata:{function_id:selectedFunction}},
       {id:'src_gateway',externalId:'_gateway_',displayName:'Gateway',sourceKind:'supabase_gateway',metadata:null},
     ]}],monitors:[{monitor:{id:'errors',connectionId:'con_fixture',displayName:'Errors',enabled:true,filterSteps:[{kind:'errors'}]},sinks:[
@@ -74,13 +78,15 @@ try {
   const yaml=bundle.vectorYaml.replaceAll('https://api.supabase.com',origin)
     .replace('0.0.0.0:8686','127.0.0.1:0');
   assert.ok(!yaml.includes('https://api.supabase.com'));
+  if(refreshable){const context=join(temporary,'image');mkdirSync(context);for(const file of selfDeployFiles(bundle)){const path=join(context,file.name);mkdirSync(join(path,'..'),{recursive:true});writeFileSync(path,file.content,{mode:file.mode});}docker(['build','--quiet','--tag',image,context]);}
   writeFileSync(join(temporary,'vector.yaml'),yaml);
   const env=bundle.envVars.flatMap(v=>v.value===null?[]:['--env',`${v.name}=${v.value}`]);
-  docker(['run','--detach','--name',container,'--network','host','--mount',`type=bind,src=${temporary},dst=/etc/vector,readonly`,...env,'timberio/vector:0.55.0-debian','--config','/etc/vector/vector.yaml']);
+  docker(['run','--detach','--name',container,'--network','host','--mount',`type=bind,src=${temporary},dst=/etc/vector,readonly`,...env,image,'--config','/etc/vector/vector.yaml']);
   const deadline=Date.now()+85000;
   const complete=()=>['selected-error','gateway-error'].every(id=>deliveries.some(e=>e.id===id)) &&
     ['[selected-function] error: selected fixture','[rest] gateway fixture'].every(text=>slack.some(e=>e.text===text));
   while(!complete() && Date.now()<deadline){if(failure)throw failure;await new Promise(resolve=>setTimeout(resolve,200));}
+  if(!complete())console.error(JSON.stringify({refreshable,tokenRequests,polls,attempts}));
   assert.ok(complete(),`Supabase/Slack delivery timed out: ${docker(['logs',container],true).stderr}`);
   assert.equal(failure,undefined);assert.deepEqual([...queries].sort(),['functions','gateway']);assert.ok(polls.functions>=2);
   for(const event of deliveries){
@@ -93,11 +99,13 @@ try {
   for(const event of slack)assert.ok(['[selected-function] error: selected fixture','[rest] gateway fixture'].includes(event.text));
   assert.ok(slack.some(e=>e.text===rejected.slack.text),'Slack did not retry the rejected message');
   assert.ok(rejected.webhook.every(e=>deliveries.some(d=>d.id===e.id)),'Webhook did not retry its rejected batch');
+  if(refreshable){assert.ok(tokenRequests>=3,'Refreshable channels did not reacquire short-lived access tokens');console.log('Actual Supabase refresh sidecar exchanged scoped tokens, refreshed short-lived access credentials and delivered both generated channels');}
   console.log('Real Vector Supabase polling/selection/normalization delivered errors to webhook and Slack object framing; provider and sink failures recovered');
 } finally {
   docker(['rm','--force',container],true);
   const remaining=docker(['ps','--all','--filter',`name=${container}`,'--format','{{.Names}}']);
   assert.equal(remaining.stdout.trim(),'','Owned Supabase container leaked');
+  if(refreshable){docker(['image','rm','--force',image],true);assert.equal(docker(['image','ls','--filter',`reference=${image}`,'--format','{{.Repository}}']).stdout.trim(),'','Owned Supabase sidecar image leaked');}
   await new Promise(resolve=>server.close(resolve));rmSync(temporary,{recursive:true,force:true});
   console.log('Owned Supabase runtime container, fixture receiver and temporary configuration cleaned');
 }

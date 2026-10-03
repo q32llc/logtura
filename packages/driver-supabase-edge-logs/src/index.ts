@@ -464,7 +464,9 @@ function functionNormalizeYaml(
       : `  # script == "" means this event is for an unselected function; drop`;
 
   const vrl = [
-    `records = array(.result) ?? array(.) ?? []`,
+    // The refresh sidecar emits individual rows; direct PAT polling emits envelopes.
+    `fallback = if exists(.function_id) { [.] } else { [] }`,
+    `records = array(.result) ?? array(.) ?? fallback`,
     `out = []`,
     `for_each(records) -> |_i, rec| {`,
     `  fn_id = string(rec.function_id) ?? ""`,
@@ -509,7 +511,9 @@ function functionNormalizeYaml(
  *  "functions") so monitors can route by surface. */
 function gatewayNormalizeYaml(inputKeys: string[]): string {
   const vrl = [
-    `records = array(.result) ?? array(.) ?? []`,
+    // Preserve the same gateway normalization for sidecar rows and API envelopes.
+    `fallback = if exists(.status_code) { [.] } else { [] }`,
+    `records = array(.result) ?? array(.) ?? fallback`,
     `out = []`,
     `for_each(records) -> |_i, rec| {`,
     `  status = int(rec.status_code) ?? 0`,

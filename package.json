@@ -41,7 +41,8 @@
     "test:supabase-runtime": "node scripts/test-supabase-flow.mjs",
     "test:ai-gateway-runtime": "node scripts/test-ai-gateway-flow.mjs",
     "test:fly-source-runtime": "node scripts/test-fly-source-flow.mjs",
-    "test:metrics-runtime": "node scripts/test-metrics-flow.mjs"
+    "test:metrics-runtime": "node scripts/test-metrics-flow.mjs",
+    "test:supabase-refresh-runtime": "node scripts/test-supabase-refresh-flow.mjs"
   },
   "dependencies": {
     "@logtura/cloudflare-shared": "workspace:*",
