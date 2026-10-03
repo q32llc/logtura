@@ -4591,3 +4591,29 @@ runbook rather than recommending unchecked recursive publication.
 The final combined harness passes all 58 tests, including ten release-specific
 guards. Hash comparison confirms the packed-service gate installed the same exact
 15 normalized tarball bytes as the independent public/private consumer exports.
+
+### Coordinated 0.3.0 package candidate
+
+Read-only registry checks confirm `0.3.0` is unused for every public package, and
+the public `v0.3.0` tag is absent. All 15 source manifests now use `0.3.0`; workspace
+dependency ranges remain linked until packing resolves them to that same version.
+Lockfile-only installation makes no lockfile change. The built core generator
+reports `0.3.0` while the generated runtime remains pinned to Vector `0.55.0`.
+Public candidate release notes are in `oss/CHANGELOG.md`.
+
+The full build, installed-consumer checks and packed-service gate pass for the
+candidate. Hash comparison confirms the service and CLI/library consumers tested
+the same exact 15 version-0.3.0 archives. Native/backend/package coverage passes
+1,682 tests in 140 files; UI coverage passes 306 tests in 23 files, preserving the
+previous owned coverage totals/floors. The actual local browser/installed-CLI,
+workerd/D1 and Docker/Vector journey passes synchronization, loaded-byte manifest
+reporting, CLI-edited leased reapply, legacy replacement/rollback, retired-machine
+cleanup and subsequent redeployment while retaining checkpoint state.
+
+The preceding final public release-infrastructure commit `9921645` has green CI;
+its private counterpart `63a22f5` remains live at the last inspection. The package
+candidate still requires exact committed candidate CI, a clean packed service
+export/real remote rehearsal and verified registry publication. No release tag,
+npm publication, production migration or existing-forwarder update is claimed.
+The pending Cloudflare credential transfer is not authorization for a GitHub
+secret write; the local remote rehearsal remains available without that transfer.

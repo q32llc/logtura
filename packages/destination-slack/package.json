@@ -1,6 +1,6 @@
 {
   "name": "@logtura/destination-slack",
-  "version": "0.2.11",
+  "version": "0.3.0",
   "description": "Logtura destination driver for Slack incoming-webhook posts.",
   "license": "Apache-2.0",
   "author": "Erik Aronesty (Logtura)",
