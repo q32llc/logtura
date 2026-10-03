@@ -4740,3 +4740,28 @@ metadata were retained in a private local snapshot for later rollback planning;
 no production migration, Worker update or forwarder change occurred. Existing
 production delivery and the schema-17 to current staged rollout still require
 explicit executable validation, not just the healthy heartbeat observation.
+
+Pre-rollout backup and restored production-data rehearsal now pass. The documented
+Cloudflare SQL-export endpoint completed in 1.6 seconds and produced a 576540-byte
+schema-17 SQL snapshot, retained exclusively in a private local directory with
+owner-only files; exported credentials and signed download URLs are not committed
+or uploaded. Export can pause D1 queries while it runs, so this was a deliberate
+backup operation, not classified as an impact-free metadata read. A fresh local
+SQLite restore validates its SHA-256, applies every migration 18 through 32 with
+foreign keys enabled, and confirms **all 840 original rows across 12 tables** retain
+their original columns and values (including the first 17 migration-history rows).
+SQLite integrity and foreign-key checks both pass. This establishes an actual
+production-data migration rehearsal; production itself remains on schema 17.
+Private backup and restore receipts are retained for the later controlled rollout.
+
+Private CI `37104649620` exposed another local keep-alive socket closure (`EPIPE`)
+in the isolated packed-service HTTP lifecycle before coverage ran. The local
+transport now sends each exchange on a dedicated native HTTP socket (`agent:false`),
+retains real workerd/D1 HTTP routing and website-asset checks, and performs no
+automatic request replay. Dedicated transport guards verify distinct sockets,
+unchanged cookie/body/status handling, rejection of provider origins, and exactly
+one dispatched mutation when its response socket closes. The complete packed
+service gate passes with this transport, including all 15 installed candidate
+archives, Worker/website builds, declarations and missing-entry negative control.
+Public registry-consumer CI `37104649207` is green. The npm recovery and complete
+installed-registry consumer result remain pending at this checkpoint.

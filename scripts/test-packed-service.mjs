@@ -9,6 +9,7 @@ import {build as workerBuild} from 'esbuild';
 import {build as websiteBuild} from 'vite';
 import {startLocalService} from '../test/e2e/local-workerd.ts';
 import {runRoutingLifecycle} from '../test/e2e/lifecycle.ts';
+import {localHttpFetch} from '../test/e2e/local-http.mjs';
 
 const root=process.cwd(),temporary=mkdtempSync(join(tmpdir(),'logtura-packed-service-'));
 const consumer=join(temporary,'service'),artifacts=join(temporary,'packages'),report=join(root,'.tmp/packed-service-report.json');
@@ -80,10 +81,10 @@ try{
  assert.ok(publicModules.has('@logtura/core'),'Worker did not use the installed core package');
  await websiteBuild({root:consumer,configFile:join(consumer,'vite.config.ts'),logLevel:'warn',plugins:[{name:'audit-packed-public-dependencies',moduleParsed(info){auditModule(info.id);}}]});
  const script=worker.outputFiles[0].text;local=await startLocalService({serviceRoot:consumer,compiledWorker:script});
- await runRoutingLifecycle({baseUrl:local.url,fetch:request=>fetch(request),sessionCookie:local.cookie,expectedUserId:local.userId,runId:randomUUID()});
+ await runRoutingLifecycle({baseUrl:local.url,fetch:localHttpFetch,sessionCookie:local.cookie,expectedUserId:local.userId,runId:randomUUID()});
  assert.deepEqual(local.unexpected,[]);
- const homepage=await fetch(local.url+'/');assert.equal(homepage.status,200);const html=await homepage.text();assert.match(html,/<div id="root"><\/div>/);
- for(const match of html.matchAll(/(?:src|href)="(\/assets\/[^"?#]+)"/g)){const response=await fetch(local.url+match[1]);assert.equal(response.status,200);assert.ok((await response.arrayBuffer()).byteLength>0);}
+ const homepage=await localHttpFetch(local.url+'/');assert.equal(homepage.status,200);const html=await homepage.text();assert.match(html,/<div id="root"><\/div>/);
+ for(const match of html.matchAll(/(?:src|href)="(\/assets\/[^"?#]+)"/g)){const response=await localHttpFetch(local.url+match[1]);assert.equal(response.status,200);assert.ok((await response.arrayBuffer()).byteLength>0);}
  const evidence={schemaVersion:1,sourceCommit:(await run('git',['rev-parse','HEAD'],root)).trim(),candidateSourceClean:(await run('git',['status','--porcelain','--','src','packages','migrations'],root)).trim()==='',lockfileDigest:sha256(readFileSync(join(root,'pnpm-lock.yaml'))),installedLockfileDigest:sha256(readFileSync(join(consumer,'package-lock.json'))),publicExternalVersions:externalVersions,packages:packages.map(p=>({name:p.manifest.name,version:p.manifest.version,mainDigest:sha256(readFileSync(join(consumer,'node_modules',p.manifest.name,p.manifest.main))),declarationsDigest:sha256(readFileSync(join(consumer,'node_modules',p.manifest.name,p.manifest.types)))})).sort((a,b)=>a.name.localeCompare(b.name)),tarballs:archives.map(file=>({file,digest:sha256(readFileSync(join(artifacts,file)))})),publicModules:[...publicModules].sort(),workerDigest:sha256(script),migrations:readdirSync(join(consumer,'migrations')).filter(file=>file.endsWith('.sql')).sort().map(file=>({file,digest:sha256(readFileSync(join(consumer,'migrations',file)))})),websiteArtifacts:readdirSync(join(consumer,'dist/assets')).sort().map(file=>({file,digest:sha256(readFileSync(join(consumer,'dist/assets',file)))})),checks:{noWorkspacePackages:true,installedIntegrityVerified:true,compiledPublicEntries:true,missingEntryRejected:true,productionSourceTypes:true,websiteBuild:true,nativeD1RoutingLifecycle:true,websiteAssets:true},thirdPartyDependencies:'Reused declared dependencies from the frozen-lockfile installation; public dependencies npm-installed from candidate tarballs.'};
  mkdirSync(dirname(report),{recursive:true});writeFileSync(report,JSON.stringify(evidence,null,2)+'\n');
  if(process.env.LOGT_PACKED_SERVICE_OUTPUT){
