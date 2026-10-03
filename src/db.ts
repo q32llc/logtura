@@ -476,13 +476,14 @@ export async function createDestination(
   db: D1Database,
   env: Env,
   input: {
+    id?: string;
     userId: string;
     kind: string;
     displayName: string;
     config: unknown;
   },
 ): Promise<DestinationRow> {
-  const id = newId("dst");
+  const id = input.id ?? newId("dst");
   const ts = now();
   const ct = await encryptSecret(
     JSON.stringify(input.config),
@@ -632,6 +633,7 @@ export async function getMonitor(
 export async function createMonitor(
   db: D1Database,
   input: {
+    id?: string;
     userId: string;
     connectionId: string | null;
     displayName: string;
@@ -639,7 +641,7 @@ export async function createMonitor(
     enabled?: boolean;
   },
 ): Promise<MonitorRow> {
-  const id = newId("mon");
+  const id = input.id ?? newId("mon");
   const ts = now();
   const stepsJson =
     input.filterSteps.length > 0 ? JSON.stringify(input.filterSteps) : null;
@@ -780,12 +782,13 @@ export const DEFAULT_SINK_STEPS: FilterStep[] = [
 export async function createSink(
   db: D1Database,
   input: {
+    id?: string;
     monitorId: string;
     destinationId: string;
     filterSteps?: FilterStep[];
   },
 ): Promise<SinkRow> {
-  const id = newId("snk");
+  const id = input.id ?? newId("snk");
   const ts = now();
   const steps = input.filterSteps ?? DEFAULT_SINK_STEPS;
   const stepsJson = steps.length > 0 ? JSON.stringify(steps) : null;

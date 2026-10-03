@@ -23,6 +23,7 @@
     "test:coverage": "node scripts/test-coverage.mjs",
     "test": "pnpm typecheck && vitest run && pnpm test:ui",
     "test:e2e:http": "tsx scripts/e2e-http.ts",
+    "test:e2e:cleanup": "tsx scripts/e2e-http.ts --cleanup",
     "build:packages": "pnpm -r --workspace-concurrency=1 --if-present build",
     "test:packed": "node scripts/test-packed.mjs",
     "test:flow": "node scripts/test-vector-flow.mjs",

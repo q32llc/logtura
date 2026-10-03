@@ -41,6 +41,7 @@ export interface Env {
 export type AppContext = {
   Bindings: Env;
   Variables: {
+    creationResourceId?: string;
     authKind?: "session" | "cli";
     cliTokenId?: string;
     user?: {

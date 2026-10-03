@@ -4361,3 +4361,72 @@ investigation; retry cannot silently reset the durable dispatch marker. Pre-crea
 cancellation, durable remote recovery/target disconnect, live provider canaries,
 coordinated publication and staged production migration/deployment remain open.
 This slice changes neither npm package versions nor existing production resources.
+
+### Durable HTTP routing recovery and cancellation fencing
+
+The shared SELF/HTTP routing scenario now records an owned, private, versioned run
+ledger before creating a webhook destination, monitor or sink. The ledger pins its
+origin, account and run identities, the baseline resource IDs and three UUID request
+identities. It contains no session credentials, destination configuration or provider
+secrets. POSIX file writes fsync stages and directory metadata around atomic commits;
+an exclusive process lock refuses live owners and recovers only OS-confirmed dead
+owners. `LOGT_E2E_LEDGER` selects an explicit private path. The default run path is
+printed before dispatch. `pnpm test:e2e:cleanup` reads that ledger under the same lock
+with separately supplied matching account/target credentials. It never repeats POST.
+
+Source migration `0032` adds general, opt-in authenticated creation receipts for
+monitor, destination and sink POSTs. `X-Logtura-Request-Id` must be a lowercase UUIDv4.
+An identity authorizes exactly one dispatch: reuse returns HTTP 409, including a
+changed request body. This is **not** a request-body replay API. The receipt table
+stores only owner/kind/resource/request identities, status and timestamp. Existing
+POSTs without the header continue generating normal IDs. Existing resource rows,
+configuration clocks and deployed forwarders are unchanged by this migration.
+
+`GET /api/creation-requests` reports protocol version 1. Authenticated
+`DELETE /api/creation-requests/:requestId?kind=monitor|destination|sink` returns an
+owned receipt or a static conflict. It atomically installs an absent-request
+cancellation tombstone or cancels a pending request. Resource BEFORE INSERT triggers
+require the corresponding pending receipt and exact owner/kind; AFTER INSERT marks
+completion in the same SQLite transaction. AFTER DELETE records deletion. Immutable
+identities and monotonic states prevent a cancelled/deleted identity being revived.
+Cancellation therefore either observes committed creation or prevents a late INSERT;
+an empty inventory alone no longer proves that an in-flight creation cannot appear.
+Tombstones are retained until account deletion. Pruning them without equivalent
+fencing is outside this contract.
+
+Routing cleanup resolves authoritative receipt IDs, verifies expected names and
+parent references, rechecks the account, deletes sinks before parents, blocks
+cascades through other dependent routing, requires terminal cancellation/deletion
+receipts and verifies all baseline IDs remain.
+Renames/ownership drift, failed deletion or corrupted ledgers retain recovery evidence
+and fail. A familiar display name cannot authorize deletion of another object.
+Remote selection requires HTTPS and explicit opt-in, response redirects are refused,
+HTTP durations/body sizes are bounded, and the account must have no connections or
+deployments. An older service fails capability checks before resource mutation.
+
+Native child-process/HTTP tests kill the executor at creation-intent, response,
+acknowledgement, deletion and final-commit boundaries, recover stale locks, refuse a
+live owner and reconcile lost responses. A request held in flight during SIGKILL is
+cancelled by the recovered run; releasing the original request cannot leave an
+orphan. Real D1 tests separately prove both transaction orderings, all three resource
+kinds, ordinary API compatibility, owner isolation, terminal-state/identity guards,
+validation failures, cascades and migration preservation of the prior routing graph.
+CI runs these harnesses with the normal TypeScript import loader and owns its coverage
+reports; no external coverage service is required.
+
+This completes durable recovery for the **HTTP routing scenario**. Remote execution
+against a real disposable account, the complete provider/destination/browser matrix,
+durable remote provider/deployment recovery, live canaries, coordinated npm release
+and staged production migration/deployment remain required. Neither production
+migrations nor existing forwarders nor npm package versions changed in this slice.
+
+Validation for this slice: 1,681 native/package tests across 140 files, 306 website
+tests across 23 files and all 44 CI report/native harness tests pass. Backend/package
+coverage is 97.12% statements, 94.55% branches, 98.90% functions and 97.50% lines;
+website coverage remains 93.77%, 90.71%, 96.51% and 94.95%. All enforced floors pass.
+Creation receipts have dedicated 100/90/100/100 floors and measure
+100/92.30/100/100. Private types, E2E types, package/website builds and the complete
+actual local browser/workerd/packed-CLI/Docker journey pass, including legacy rollback,
+retained candidate deletion, preserved checkpoint and newly issued replacement.
+The final routing harness also proves that stale/empty inventories cannot claim
+cleanup while the durable receipt still records a completed resource.

@@ -38,7 +38,7 @@ jobs:
         run: pnpm typecheck
 
       - name: coverage report and failure-gate tests
-        run: node --test oss/scripts/coverage-report.test.mjs oss/scripts/test-coverage.test.mjs test/harness/*.test.mjs
+        run: node --import tsx --test oss/scripts/coverage-report.test.mjs oss/scripts/test-coverage.test.mjs test/harness/*.test.mjs
 
       - name: pull vector image
         # All per-package vector-validate tests reach for

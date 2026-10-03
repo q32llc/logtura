@@ -74,6 +74,7 @@ export default defineConfig({
 
         "src/deploy-targets/fly-macaroon.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/deploy-targets/fly-machines.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "src/creation-requests.ts": { statements: 100, branches: 90, functions: 100, lines: 100 },
         "src/deployment-input.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/providers/index.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/destinations/index.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },

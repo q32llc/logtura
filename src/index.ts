@@ -1,3 +1,4 @@
+import {creationRequestMiddleware,creationRequestRoutes} from "./creation-requests";
 import { DeploymentInputError, parseDeploymentCreation, parseDeploymentMutation, parseManagedDeployInput } from "./deployment-input";
 import { GraphInputError, parseMonitorMutation, parseSinkMutation } from "./graph-input";
 import { exchangeSlackWebhook, readSlackOAuthState } from "./destinations/slack-oauth";
@@ -276,6 +277,8 @@ const apiAuth = new Hono<AppContext>();
 apiAuth.use("/deployments/:id/config",async(c,next)=>{c.header("cache-control","no-store");if(!c.get("user"))return c.json({error:"auth_required"},401);await next();});
 apiAuth.use("/deployments/:id/config/*",async(c,next)=>{c.header("cache-control","no-store");if(!c.get("user"))return c.json({error:"auth_required"},401);await next();});
 apiAuth.use("*", requireAuth);
+apiAuth.use("*", creationRequestMiddleware);
+apiAuth.route("/",creationRequestRoutes());
 apiAuth.route("/",deploymentStateRoutes());
 apiAuth.route("/",managedRollbackRoutes(async(driver,job)=>toApiJob((await aggregateJobWithKids(driver,job)).job)));
 apiAuth.route("/",managedCleanupRoutes(async(driver,job)=>toApiJob((await aggregateJobWithKids(driver,job)).job)));
@@ -1677,6 +1680,7 @@ apiAuth.post("/destinations", async (c) => {
     }
   }
   const destination = await createDestination(c.env.DB, c.env, {
+    id: c.get("creationResourceId"),
     userId: user.id,
     kind,
     displayName,
@@ -2280,6 +2284,7 @@ apiAuth.post("/monitors", async (c) => {
   catch (error) { return c.json({ error: error instanceof GraphInputError ? error.code : "invalid_form" }, 400); }
   if (body.connectionId && !await getConnection(c.env.DB, user.id, body.connectionId)) return c.json({ error: "connection_not_found" }, 404);
   const monitor = await createMonitor(c.env.DB, {
+    id: c.get("creationResourceId"),
     userId: user.id, connectionId: body.connectionId ?? null,
     displayName: body.displayName!, filterSteps: body.filterSteps ?? [], enabled: body.enabled,
   });
@@ -2319,6 +2324,7 @@ apiAuth.post("/monitors/:id/sinks", async (c) => {
   const dest = await getDestination(c.env.DB, user.id, body.destinationId!);
   if (!dest) return c.json({ error: "destination_not_found" }, 404);
   const sink = await createSink(c.env.DB, {
+    id: c.get("creationResourceId"),
     monitorId,
     destinationId: body.destinationId!,
     filterSteps: body.filterSteps,

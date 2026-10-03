@@ -17,13 +17,51 @@ it is a complete authenticated cookie header. Do not put it in command history
 or committed files. The account ID is checked before any mutation. Remote
 selection requires `LOGT_E2E_ALLOW_REMOTE=1`; localhost does not.
 
-The current scenario creates a webhook destination, monitor, and sink; verifies
-validation, updates and deletion; and removes its resources after failures as
-well as success. It records ownership in memory and preserves pre-existing
-resources. It does not deploy paid infrastructure. Do not use your normal
-production account: mutations can affect deployment-outdated flags. Persistent
-cleanup ledgers and the complete provider/deployment/browser matrix remain
-planned work in `docs/oss-service-convergence-plan.md`.
+The routing scenario creates a webhook destination, monitor, and sink; verifies
+validation, updates and deletion; and removes its resources after ordinary failures
+and success. It requires a disposable account with **no connections or deployments**;
+pre-existing routing objects are recorded and preserved. It does not create provider
+resources. Remote targets require HTTPS. Redirects are refused, response sizes and
+request durations are bounded, and account identity is rechecked before mutations.
+The service must include source migration `0032` and creation-receipt support. An
+older deployment fails capability checks before creating anything.
+
+Every run writes a private mode-0600 ledger in an owned mode-0700 directory before
+its first creation. The default path is `.tmp/e2e-ledgers/<run-id>.json`; the runner
+prints it before dispatch. Set `LOGT_E2E_LEDGER` to an explicit path in a private
+directory when planning an interruption test. Ledgers contain the target origin,
+account/run IDs, initial resource IDs and three creation intentions with UUID request
+identities. They never contain cookies, destination configuration or provider tokens.
+Writes use fsynced stages, atomic replacement and directory fsync. The whole run is
+locked; a live owner cannot be displaced, and stale owners require OS proof of death.
+This durable file implementation requires a POSIX host with directory fsync.
+
+To recover after SIGKILL, supply the same target/account credentials and recorded
+ledger path, then run:
+
+```sh
+LOGT_E2E_LEDGER=.tmp/e2e-ledgers/recorded-run-id.json pnpm test:e2e:cleanup
+```
+
+Cleanup never replays creation. It cancels each dispatched creation request through
+the ordinary authenticated API before accepting resource absence. A D1 transaction
+and resource INSERT triggers ensure an in-flight create either commits with an exact
+receipt or is fenced against any later INSERT. Cleanup verifies the exact receipt ID,
+expected resource name and owned parent references, deletes sinks before parents,
+blocks parent deletion while other routing references remain, verifies durable deletion
+receipts and
+preserves all baseline IDs. Repeating cleanup is safe. A changed account, target,
+resource identity/name or dependent routing retains the ledger and fails. Investigate
+and restore the intended ownership before retrying; do not edit the ledger to authorize
+an unrelated deletion. Keep completed ledgers as recovery evidence.
+
+Actual Node child-process tests SIGKILL at creation, response, deletion and completion
+boundaries; they also cover lost responses, a still-in-flight POST, live/stale locks,
+private-file validation and ownership failures. The same routing scenario runs against
+native SELF/workerd and configurable HTTP targets. **A real remote run is still a
+separate release gate.** The installed-CLI/browser/provider/deployment runner below
+still needs its own durable remote resource recovery; this routing ledger does not
+claim that matrix is complete. See `docs/oss-service-convergence-plan.md`.
 
 The suite fails when credentials are missing, rather than silently skipping.
 Run the workerd scenario with:
@@ -131,4 +169,5 @@ removes the unique container/checkpoint volume/image tag, disposes workerd, and
 removes private temporary files. Cleanup failure fails the scenario. Injected
 failure cases pass only if their specified boundary is reached and cleanup passes.
 They demonstrate teardown on interruption paths, not SIGKILL recovery of the E2E
-runner itself; persistent remote ledgers remain planned work.
+runner itself; durable recovery of that broader deployment/runtime runner remains
+planned work. The separate HTTP routing ledger above already proves SIGKILL recovery.
