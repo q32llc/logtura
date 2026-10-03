@@ -48,3 +48,8 @@ remained running with its original process start, Vector 0.55.0, 97 components
 and nonnegative counters. This is bounded recovery evidence; longer monitoring
 is still appropriate. The earlier Cloudflare overload error remains a separate
 diagnostic question, not evidence resolved by this compare-and-swap correction.
+
+A second 45-second window at 11:49 UTC, about twenty minutes after deployment,
+saw 28 metrics requests, all HTTP 204, with zero contention failures or metrics
+exceptions. Both received and sent totals had advanced naturally; the original
+process start, running state, Vector version and 97 components remained stable.
