@@ -9,11 +9,19 @@ Coverage decision, October 2, 2026: compute and enforce coverage in our own CI a
 October 3 metrics incident: the [checkpoint contention correction](metrics-checkpoint-contention.md)
 coalesces ordinary discarded counters and returns bounded, retryable contention
 without throwing a Worker exception. Native competing-writer and HTTP retry
-tests pass, as does the complete 1,712-test backend suite. Production deployment
-and observation are still required. The immutable 0.3.1 package release is in
-supported recovery after npm acknowledged core but its version endpoint remained
-invisible during the three-minute observation window; core is now visible with
-the original tested archive hash. Recovery reuses those original archives.
+tests pass, as does the complete 1,712-test backend suite. The immutable 0.3.1
+release recovery completed successfully using the original tested archives;
+all fifteen registry archives match and isolated consumer checks pass. Protected
+public PR 4 and exact-main CI passed; tag `v0.3.1` remains immutable. The actual
+npm-backed service passed staging and fresh production-data replay and was
+deployed at 11:29 UTC. Its uploaded Worker and served website assets match the
+tested artifact. The first 45-second observation had 29 metrics requests, all
+204 with zero contention failures. A subsequent natural persisted checkpoint
+and heartbeat advanced with the original forwarder running and its process,
+version and component identity preserved. See the [0.3.1 rollout receipt](service-rollout-0.3.1.md).
+Continued monitoring and the remaining production CLI/forwarder acceptance
+gates still apply; candidate live Fly evidence below is not actual-registry
+production acceptance.
 
 Live delivery evidence, October 3: an isolated npm consumer using the published
 0.3.0 packages delivered real owned Cloudflare Worker events through its generated

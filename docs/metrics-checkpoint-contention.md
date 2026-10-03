@@ -30,6 +30,21 @@ Native workerd tests exercise actual competing D1 writers, the three-attempt
 bound, retained observations, successful retry, the already-persisted final
 collision and zero extra D1 calls for 29 ordinary discarded-count updates.
 The complete 1,712-test backend suite and all module coverage floors pass.
-Deployment and post-rollout observation remain required before calling the
-production incident resolved. No schema, token or forwarder configuration
-change is needed for this fix.
+All 306 UI tests also pass, and the owned changed-line coverage gate covers
+8/8 changed lines. No schema, token or forwarder configuration change is
+needed for this fix.
+
+The actual npm-backed 0.3.1 service passed disposable Cloudflare staging and
+native replay of fresh schema-32 production data before deployment. It was
+deployed at 11:29 UTC on October 3, with the previous Worker and fresh database
+backup retained privately. The uploaded Worker and all served website assets
+match the tested artifact; existing bindings and deployment fields are preserved.
+
+The first 45-second post-rollout observation saw 29 metrics requests, all HTTP
+204, with zero checkpoint-contention failures or metrics exceptions. At 11:36
+UTC, natural traffic had advanced the persisted checkpoint and heartbeat by
+330,001 ms relative to the deployment preflight snapshot. The original forwarder
+remained running with its original process start, Vector 0.55.0, 97 components
+and nonnegative counters. This is bounded recovery evidence; longer monitoring
+is still appropriate. The earlier Cloudflare overload error remains a separate
+diagnostic question, not evidence resolved by this compare-and-swap correction.
