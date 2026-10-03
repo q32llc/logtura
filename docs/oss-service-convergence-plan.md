@@ -4172,3 +4172,73 @@ applied state and physical target rebinding. Durable remote resource-ledger reco
 retained machine cleanup, live canary, coordinated npm publication and staged
 production rollout remain required. This adapter adds source migration 0029;
 it has not applied migrations or changed existing production resources.
+
+### Explicit managed rollback: native queue and truthful legacy restoration
+
+The preceding adapter commit `cc7f920` completed both exact
+[private test CI](https://github.com/q32llc/logtura/actions/runs/37083316791) and
+[private image CI](https://github.com/q32llc/logtura/actions/runs/37083316818).
+Its owned changed-line gate passed 101/101 instrumented lines. Public continuation
+commit `05f0b78` remains the shared backend used by these private adapters.
+
+Source migration `0030` adds an encrypted immutable rollback journal. Its private
+plan combines the original complete legacy snapshot/immutable rollback image with
+the candidate configuration from the actual latest issued installation. Rollback
+therefore works after later candidate updates rather than assuming the original
+candidate bytes remain installed. The journal retains both machine identities and
+the checkpoint reference. Migration tests preserve existing deployments, graph
+clocks and installations, including ordinary native installation claims.
+
+An explicit authenticated owner request uses a current account graph fence. Its D1
+transaction reserves the rollback and retires the candidate reporting instance,
+clears applied state and makes outstanding installation intents obsolete before
+provider writes. SQL triggers check ownership, desired sequence/revision, physical
+binding, active instance and live installation claims in the reservation itself.
+While rollback is pending, new native installation claims and CLI/server instance
+activation are blocked. A repeated request with a newer explicitly reviewed graph
+base rebases only the fences; it never replaces the immutable private provider plan.
+
+The native `fly_rollback` queue invokes public `executeFlyReplacement` under an
+exclusive D1 claim with both provider leases. Candidate shutdown precedes old-machine
+restoration/start. Lost responses, partial replacement and asynchronous transitions
+retain the same journal. Queue continuations keep a fixed five-minute deadline;
+expired jobs cannot dispatch another provider write. Atomic postconditions prevent
+partial target rebinding if a claim changes between the final read and commit.
+Completion restores the old physical binding/image digest, retains desired history,
+and leaves the portable applied revision and active reporting instance unset.
+Provider health cannot establish which portable manifest a legacy runtime loaded.
+
+The account API exposes only public identities, phase and graph version. It bounds
+streamed request bodies, checks the owned Fly target, shares the existing deploy job
+lock and serializer/child aggregation, and rehydrates pending work without another
+intent or job. The website offers restoration/retry, prevents duplicate submission,
+checks that the reviewed replacement did not change, blocks deployment while
+restoration is pending, and explicitly shows the restored legacy revision as unknown
+after reload. Private errors and provider payloads are not rendered.
+
+All 1,570 native/package tests across 135 files and 295 website tests across 22 files
+pass. Native cases include replacement-stage response loss, later issued updates,
+missing checkpoint storage, instance/claim races, rejected obsolete reports, explicit
+graph rebase, immutable and corrupt journals, bounded requests/deadlines, owned API
+checks, real queue continuations and failed-job recovery. Test-only SQLite trigger
+changes are restored in `finally`; schema changes cannot leak to later cases.
+Backend/package coverage is 97.05% statements, 94.45% branches, 98.87% functions and
+97.44% lines. Website coverage is 93.66%, 90.58%, 96.44% and 94.89%. Existing gates
+pass; rollback storage/routes/UI have dedicated 95/90/100/100 floors, and the queue
+handler has 100% statements/branches/functions/lines. Builds/types, E2E types and all
+fifteen packed consumers, both CLI aliases and the runtime binary pass.
+
+The full local browser/workerd/packed-CLI/actual-Docker journey passes through
+legacy replacement, CLI update, website rollback, actual candidate shutdown before
+legacy Vector restart, readiness, obsolete-report rejection, exact old file/environment
+verification and truthful unknown applied status after reload. The injected
+`after-legacy-rollback` run verifies cleanup while the restored VM is running and
+the candidate is retained stopped; all owned containers, checkpoint storage, service
+objects and temporary files are removed. CI requires this deepest failure boundary.
+These runs use controlled Fly transport and do not prove live Fly restoration.
+
+Retained provider resource cleanup, subsequent deployment after restoration, durable
+remote resource-ledger recovery, live provider canaries, coordinated publication and
+staged production rollout remain required. Cancellation before create dispatch is
+distinct from rollback of an observed/dispatched candidate and remains separate work.
+No npm version, production migration or existing forwarder changed in this slice.

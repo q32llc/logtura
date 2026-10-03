@@ -285,3 +285,8 @@ export interface ApiJob {
    *  itself (kids). null when no handler has set it. */
   progress: ApiJobProgress | null;
 }
+export interface ApiManagedRollbackState {
+ configurationVersion:number;
+ availableReplacementId:string|null;
+ rollback:{id:string;replacementId:string;status:"pending"|"completed";phase:string;oldMachineId:string;candidateMachineId:string|null}|null;
+}

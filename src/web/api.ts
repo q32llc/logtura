@@ -7,6 +7,7 @@ import type {
   ApiDestination,
   ApiDestinationDriver,
   ApiJob,
+  ApiManagedRollbackState,
   ApiMonitor,
   ApiProvider,
   ApiSinkRecord,
@@ -330,6 +331,8 @@ export const api = {
       `/deployments/${encodeURIComponent(deploymentId)}/deploy`,
       { method: "POST", body: JSON.stringify(body) },
     ),
+  getManagedRollback: (id:string)=>request<ApiManagedRollbackState>(`/deployments/${encodeURIComponent(id)}/rollback`),
+  restoreManagedForwarder: (id:string,body:{replacementId:string;configurationVersion:number;deployTargetId:string})=>request<{job:ApiJob;deduped:boolean}>(`/deployments/${encodeURIComponent(id)}/rollback`,{method:"POST",body:JSON.stringify(body)}),
   markDeploymentDeployed: (deploymentId: string) =>
     request<{ deployment: ApiDeployment | null }>(
       `/deployments/${encodeURIComponent(deploymentId)}/mark-deployed`,

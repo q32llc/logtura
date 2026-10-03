@@ -2,6 +2,9 @@ import { afterEach,expect,it,vi } from "vitest";
 import { hashConfigDocument } from "@logtura/core";
 import { api,ApiError } from "./api";
 afterEach(()=>vi.unstubAllGlobals());
+it("keeps rollback IDs in one path segment and sends only reviewed public references and fences",async()=>{
+ const fetch=vi.fn(async(_input:RequestInfo|URL,_init?:RequestInit)=>Response.json({ok:true}));vi.stubGlobal("fetch",fetch);await api.getManagedRollback("dep /?");expect(fetch.mock.calls[0]?.[0]).toBe("/api/deployments/dep%20%2F%3F/rollback");const body={replacementId:"replacement",configurationVersion:4,deployTargetId:"target"};await api.restoreManagedForwarder("dep /?",body);expect(fetch.mock.calls[1]).toEqual(["/api/deployments/dep%20%2F%3F/rollback",expect.objectContaining({method:"POST",credentials:"include",body:JSON.stringify(body)})]);
+});
 async function fixture(){const document={kind:"logtura.deployment" as const,schema_version:1 as const,connections:[],monitors:[],runtimeEnv:null},revision=await hashConfigDocument(document);return {desired:{sequence:1,document,revision,configurationVersion:4},applied:null,activeInstanceId:null,lastReportSequence:0,stale:false};}
 it("reads validated public deployment revisions with session auth and an encoded deployment ID",async()=>{
  const state=await fixture(),fetch=vi.fn(async()=>Response.json({state}));vi.stubGlobal("fetch",fetch);expect(await api.getDeploymentConfigurationState("dep id/?")).toEqual(state);const [url,init]=fetch.mock.calls[0]! as unknown as [string,RequestInit];expect(url).toBe("/api/deployments/dep%20id%2F%3F/config/state");expect(init).toMatchObject({credentials:"include",headers:{accept:"application/json"}});expect(init.signal).toBeInstanceOf(AbortSignal);

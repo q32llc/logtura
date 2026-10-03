@@ -1,6 +1,7 @@
 export type JobKind =
   | "discovery"
   | "fly_deploy"
+  | "fly_rollback"
   | "fly_deploy.discharge_create_app"
   | "fly_deploy.ensure_checkpoint"
   | "fly_deploy.create_or_update_machine"
@@ -82,6 +83,7 @@ export interface FlyDeployPayload {
   orgSlug?: string;
   region?: string;
 }
+export interface FlyRollbackPayload extends FlyDeployPayload {rollbackId:string;deadline:number;}
 
 /** Step 1: discharge the Fly token, resolve org slug, create app
  *  (idempotent). Each provider step independently loads discharged auth;

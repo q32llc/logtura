@@ -2,6 +2,7 @@ import { BundleFileView } from "../components/BundleFileView";
 import { rateFor } from "@logtura/core";
 import { DeploymentRevisionStatus } from "../components/DeploymentRevisionStatus";
 import { deploymentSourceSummary } from "../deployment-selection";
+import {ManagedRollback} from "../components/ManagedRollback";
 import {
   Alert,
   ActionIcon,
@@ -1721,6 +1722,7 @@ function ManagedDeployCard({
     initialDeployJob,
   );
   const [deploying, setDeploying] = useState(false);
+  const [rollbackPending,setRollbackPending]=useState(false);
   const deployInFlightRef = useRef(false);
   const [autoTriggered, setAutoTriggered] = useState(false);
   const [lastRefreshedJobId, setLastRefreshedJobId] = useState<string | null>(
@@ -1938,14 +1940,14 @@ function ManagedDeployCard({
         {targets === null ? (
           <Loader size="xs" />
         ) : flyTarget ? (
-          <FlyDeployRunner
+          <><FlyDeployRunner
             target={flyTarget}
             deployJob={deployJob}
-            deploying={deploying}
+            deploying={deploying || rollbackPending}
             onDeploy={() => startDeploy(flyTarget.id)}
             onReconnect={startConnect}
             connecting={connecting !== null}
-          />
+          /><ManagedRollback deploymentId={deployment.id} targetId={flyTarget.id} job={deployJob} onJob={setDeployJob} onPending={setRollbackPending}/></>
         ) : connecting ? (
           <ConnectingState
             authUrl={connecting.authUrl}

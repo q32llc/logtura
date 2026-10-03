@@ -103,6 +103,17 @@ export async function startBrowser(service: { url: string; cookie: string }) {
         assert.equal(detail.latestDeployJob?.id, body.job.id, "reload must retain the actual managed parent job");
         return body.job.id as string;
       },
+      async restorePreviousForwarder(id:string){
+        await page.goto(`${service.url}/app/deployments/${id}?tab=run`);
+        const started=responseFor(response=>response.url()===`${service.url}/api/deployments/${id}/rollback` && response.request().method()==="POST");
+        await page.getByRole("button",{name:"Restore previous forwarder",exact:true}).click();
+        const response=await started;assert.equal(response.status(),200);const body=await response.json();assert.equal(body.job.kind,"fly_rollback");return body.job.id as string;
+      },
+      async restoredLegacyForwarder(id:string){
+        await page.goto(`${service.url}/app/deployments/${id}?tab=run`);await page.reload();
+        await page.getByText("Previous forwarder restored. Its portable configuration revision is unknown.",{exact:true}).waitFor();
+        assert.equal(await page.getByRole("button",{name:"Restore previous forwarder",exact:true}).count(),0);
+      },
       async approve(code: string) {
         await page.goto(`${service.url}/app/cli?code=${encodeURIComponent(code)}`);
         await page.getByText(code, { exact: true }).waitFor();

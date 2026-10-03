@@ -22,7 +22,7 @@ type RequestApi = (path: string, body?: unknown, method?: string) => Promise<any
  * The Fly/registry transport is an owned fixture; no live Fly resource is touched. */
 export async function managedRuntimeJourney(options: {
   service: Service; website: Website; request: RequestApi; run: Run;
-  connectionId: string; temporary: string; runId: string; afterApplied?: () => void; afterReapplied?: () => void; legacy?: boolean;
+  connectionId: string; temporary: string; runId: string; afterApplied?: () => void; afterReapplied?: () => void; afterRolledBack?:()=>void; legacy?: boolean;
   editAndPush: (deploymentId: string) => Promise<void>;
   image: { tag: string; dockerId: string; platformDigest: string; platformManifest: string; indexDigest: string; index: string };
 }) {
@@ -37,7 +37,7 @@ export async function managedRuntimeJourney(options: {
   let deploymentId: string | undefined, targetId: string | undefined, appName: string | undefined;
   let appCreated = false, volume: any, machine: any,legacyMachine:any;
   let appCreates = 0, volumeCreates = 0, machineCreates = 0, machineUpdates = 0, registryReads = 0;
-  let legacyLease:string|undefined,oldStops=0,candidateStarts=0;
+  let legacyLease:string|undefined,oldStops=0,candidateStarts=0,candidateStops=0,oldStarts=0;
   let lease: string | undefined, leaseCreates = 0, leaseReleases = 0;
   let providerFailure: string | undefined, failure: unknown;
   async function waitFor(check: () => Promise<boolean>, label: string, timeout = 120_000) {
@@ -161,7 +161,13 @@ export async function managedRuntimeJourney(options: {
         assert.ok(legacyLease);assert.equal(providerRequest.headers.get("fly-machine-lease-nonce"),legacyLease);assert.deepEqual(await providerRequest.json(),{signal:"SIGTERM",timeout:"35s"});
         await run("docker",["stop","--time","35",legacyContainer]);assert.equal(await run("docker",["inspect","--format","{{.State.ExitCode}}",legacyContainer]),"0");oldStops++;return new Response(null,{status:204});
       }
+      if(legacyMachine && suffix===`/machines/${legacyId}/start`){
+        assert.ok(legacyLease);assert.equal(providerRequest.headers.get("fly-machine-lease-nonce"),legacyLease);assert.equal((await actualMachine()).state,"stopped");await run("docker",["start",legacyContainer]);oldStarts++;return new Response(null,{status:204});
+      }
       if(legacyMachine && suffix===`/machines/${legacyId}`){assert.equal(providerRequest.method,"GET");return Response.json(await actualLegacy());}
+      if(legacyMachine && suffix===`/machines/${machineId}/stop`){
+        assert.ok(lease);assert.equal(providerRequest.headers.get("fly-machine-lease-nonce"),lease);assert.deepEqual(await providerRequest.json(),{signal:"SIGTERM",timeout:"35s"});await run("docker",["stop","--time","35",container]);assert.equal(await run("docker",["inspect","--format","{{.State.ExitCode}}",container]),"0");candidateStops++;return new Response(null,{status:204});
+      }
       if(suffix===`/machines/${machineId}/start`){
         assert.ok(lease);assert.equal(providerRequest.headers.get("fly-machine-lease-nonce"),lease);assert.equal((await actualLegacy()).state,"stopped");await run("docker",["start",container]);candidateStarts++;return new Response(null,{status:204});
       }
@@ -297,6 +303,18 @@ export async function managedRuntimeJourney(options: {
       validateFlyReplacementState({plan:{schemaVersion:1,id:row.id,app:appName!,org:"personal",name:payload.name,before:payload.before,after:payload.after,rollback:payload.rollback,volume:volumeId},phase:row.replacement_phase,machineId:row.machine_id});
       assert.equal(await run("docker",["exec",container,"printenv","PRIVATE_OLD"]),"fixture-old-private");
       console.log("Actual mountless legacy Vector → stopped checkpoint candidate → leased handoff → accepted report and website convergence → installed CLI edit and same-machine update passed; exact old config retained");
+      const restoration=await website.restorePreviousForwarder(deploymentId);
+      await waitFor(async()=>{const {job}=await request(`/api/jobs/${restoration}`);if(job.status==="failed")throw new Error(`Managed rollback job failed (${job.error})`);return job.status==="succeeded";},"actual previous forwarder restoration");
+      await waitFor(async()=>{try{return(await fetch("http://127.0.0.1:8686/health",{signal:AbortSignal.timeout(1000)})).ok;}catch{return false;}},"restored actual legacy Vector readiness");
+      assert.equal(candidateStops,1);assert.equal(oldStarts,1);assert.equal((await actualMachine()).state,"stopped");assert.equal((await actualLegacy()).state,"started");assert.equal(lease,undefined);assert.equal(legacyLease,undefined);
+      const restored=(await request(`/api/deployments/${deploymentId}/config/state`)).state;
+      assert.equal(restored.activeInstanceId,null);assert.equal(restored.applied,null);assert.equal(restored.lastReportSequence,0);assert.equal(restored.desired.revision,pending.desired.revision);
+      assert.equal(await reporter.reportApplied(deploymentId,{instanceId:updatedArtifact.instance.instanceId,sequence:updatedArtifact.instance.sequence,revision:updatedArtifact.instance.revision,reportSequence:Number.MAX_SAFE_INTEGER}),false);
+      const physical=(await request(`/api/deployments/${deploymentId}`)).deployment;assert.equal(physical.externalId,`fly:${appName}:${legacyId}`);assert.equal(physical.bundleOutdated,true);
+      assert.equal(await run("docker",["exec",legacyContainer,"printenv","PRIVATE_OLD"]),"fixture-old-private");assert.equal(await run("docker",["exec",legacyContainer,"cat","/etc/vector/vector.yaml"]),Buffer.from(legacyMachine.config.files[0].raw_value,"base64").toString().trim());
+      await website.restoredLegacyForwarder(deploymentId);options.afterRolledBack?.();
+      await run("docker",["stop","--time","35",legacyContainer]);assert.equal(await run("docker",["inspect","--format","{{.State.ExitCode}}",legacyContainer]),"0");
+      console.log("Website rollback → native private journal → actual candidate stop before legacy restart → retired report rejection → truthful unknown applied revision after reload passed");
     }
     await run("docker", ["stop", "--time", "35", container]);
     assert.equal(await run("docker", ["inspect", "--format", "{{.State.ExitCode}}", container]), "0");
