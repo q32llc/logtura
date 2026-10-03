@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync, mkdirSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync, mkdirSync, rmSync, statSync, copyFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname, basename } from "node:path";
 import { spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { integrity, inventory, checkTag } from './release-artifacts.mjs';
 
 const root = process.cwd();
 const temporary = mkdtempSync(join(tmpdir(), "logtura-packed-"));
@@ -412,6 +413,15 @@ globalThis.fetch = async (input, init) => {
     assert.ok(readFileSync(join(bundleDirectory,"vector.yaml"),"utf8").includes(marker));
   }
   console.log(`Packed consumer checks passed for ${packages.length} packages, both CLI aliases and the forwarder runtime binary`);
+  if(process.env.LOGT_PACKED_ARTIFACTS){
+    const output=resolve(process.env.LOGT_PACKED_ARTIFACTS),publicPackages=inventory(root);
+    const version=publicPackages[0].version;checkTag(publicPackages,`v${version}`);
+    mkdirSync(dirname(output),{recursive:true});mkdirSync(output);
+    const rows=publicPackages.map(p=>{const file=`${p.name.replace('@','').replace('/','-')}-${p.version}.tgz`;const archive=archives.find(a=>basename(a)===file);assert.ok(archive,`Missing tested archive ${file}`);copyFileSync(archive,join(output,file));return {name:p.name,version:p.version,file,integrity:integrity(readFileSync(archive))};});
+    const manifest={schemaVersion:1,version,sourceCommit:run('git',['rev-parse','HEAD'],root).trim(),sourceClean:run('git',['status','--porcelain','--','packages','scripts','oss','pnpm-lock.yaml','package.json'],root).trim()==='',packages:rows};
+    writeFileSync(join(output,'manifest.json'),JSON.stringify(manifest,null,2)+'\n');
+    console.log(`Exported ${rows.length} tested release archives to ${output}`);
+  }
 } finally {
   rmSync(temporary, { recursive: true, force: true });
 }

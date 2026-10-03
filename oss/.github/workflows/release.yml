@@ -19,7 +19,8 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -45,6 +46,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: require every package version to match the release tag
+        run: node scripts/release-artifacts.mjs --check-tag
+
+      - name: release artifact and recovery guards
+        run: node --test scripts/release-artifacts.test.mjs
+
       - name: pull vector image
         run: docker pull timberio/vector:0.55.0-debian
 
@@ -53,6 +60,8 @@ jobs:
 
       - name: packed consumer checks
         run: pnpm test:packed
+        env:
+          LOGT_PACKED_ARTIFACTS: .tmp/release
 
       - name: typecheck
         run: pnpm typecheck
@@ -70,7 +79,7 @@ jobs:
         run: pnpm test:flow
 
       - name: test
-        run: pnpm vitest run
+        run: pnpm test:coverage
         env:
           LOGT_REQUIRE_DOCKER: "1"
       - name: publish to npm
@@ -79,12 +88,27 @@ jobs:
         # per-package trusted-publisher config on npmjs.com authorize
         # the publish. Also produces SLSA provenance attestations
         # visible on each package's npm page.
-        run: pnpm publish -r --access public --no-git-checks --provenance
+        # Publish the tested bytes with npm's supported OIDC client. Existing
+        # immutable versions must match their integrity; collisions fail before
+        # any publish. All registry hashes must verify before creating a release.
+        run: node scripts/release-artifacts.mjs --publish .tmp/release/manifest.json
+
+      - name: retain tested archives and complete or partial registry receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-evidence
+          path: |
+            .tmp/release/
+            coverage/
+          if-no-files-found: error
+          retention-days: 30
 
       - name: create GitHub release
         run: |
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
-            --generate-notes
+            --generate-notes \
+            .tmp/release/*.tgz .tmp/release/manifest.json .tmp/release/registry-receipt.json
         env:
           GH_TOKEN: ${{ github.token }}

@@ -4539,3 +4539,38 @@ WebSocket retained Node after cleanup; the runner now exits explicitly only afte
 the exclusive run callback and lock release finish. The corrected runner returned
 exit code zero after the real HTTPS checks, migration preservation and verified
 cloud teardown. This changes CLI process termination, not provider outcome proof.
+
+### Coordinated release artifact and registry gates
+
+The old recursive publishing step could silently skip the unchanged `0.2.11`
+versions and create a GitHub release without publishing this candidate. The public
+tag workflow now fences all package versions against its stable `vX.Y.Z` tag,
+exports the exact installed-consumer tarballs, and records their clean commit and
+SHA-512 hashes. It publishes those bytes through npm's OIDC client in dependency
+order. All immutable registry versions are inspected before mutation: different
+bytes are a collision, while matching existing bytes permit partial-release
+recovery. A durable registry receipt records each verified package; all packages
+must verify before a GitHub release is created. Partial publication is explicitly
+incomplete and preserves evidence; no npm multi-package atomicity is claimed.
+
+Release CI now enforces coverage floors and retains tested archives, coverage and
+complete/incomplete receipts. Required private and public CI run the release guard
+tests, including actual isolated Git checkouts, dependency ordering, missing
+versions, changed archives, collisions before first publish, partial recovery and
+registry observation failures. The one-time publisher setup derives every public
+package from inventory (all 15, including CLI/custom Vector/Railway/Vercel), and
+requests npm's explicit publish action. The public release runbook is
+`oss/RELEASING.md`.
+
+Read-only registry inspection still reports `0.2.11` for core and CLI; no new
+version/tag/publication occurred in this slice. Local `npm whoami` returned HTTP
+401. This proves the local session is unusable, not that GitHub OIDC is missing;
+its per-package configuration remains unverified. The GitHub Cloudflare-secret
+transfer question remains pending, and no credentials were transferred.
+
+The complete installed tarball consumer gate passed for all 15 packages and
+exported their archives and manifest. All 57 combined coverage/release/native
+harness tests passed (including nine release-specific tests). The current
+`v0.2.11` version check passes; a `v0.2.12` tag without the coordinated bump fails.
+All three changed workflow files parse as YAML. A dirty local export correctly
+records `sourceClean: false` and cannot be published.
