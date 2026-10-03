@@ -204,16 +204,23 @@ try {
       assert.equal(request.headers.authorization, "Bearer fixture-fly-token");
       let result: any;
       if (path.endsWith("/lease")) result = request.method === "DELETE" ? null : { data: { nonce: "fixture-lease" } };
+      else if (request.method === "POST" && path.endsWith("/stop")) {
+        if (deployed) await run("docker", ["stop", "--time", "35", container]);
+        machine.state = "stopped"; result = null;
+      } else if (request.method === "POST" && path.endsWith("/start")) {
+        assert.ok(deployed); await run("docker", ["start", container]); machine.state = "started"; result = null;
+      }
       else if (request.method === "POST" && path.endsWith("/machines/abc123")) {
         let body = ""; for await (const chunk of request) body += chunk;
         const update = JSON.parse(body); assert.equal(update.current_version, machine.instance_id);
+        assert.equal(update.skip_launch, true); assert.equal(machine.state, "stopped");
         assert.equal(request.headers["fly-machine-lease-nonce"], "fixture-lease");
         assert.equal(update.config.image, platformImage);
         for (const file of update.config.files) {
           assert.ok(file.guest_path.startsWith("/etc/vector/") || file.guest_path.startsWith("/opt/logtura/assets/"));
           const path = join(installed, file.guest_path.slice(1)); mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, Buffer.from(file.raw_value, "base64")); chmodSync(path, file.mode);
         }
-        const args = ["run", "--detach", "--name", container, "--network", "host", "--stop-timeout", "35", "--volume", `${join(installed, "etc/vector")}:/etc/vector:ro`, "--volume", `${volume}:/var/lib/logtura`];
+        const args = ["create", "--name", container, "--network", "host", "--stop-timeout", "35", "--volume", `${join(installed, "etc/vector")}:/etc/vector:ro`, "--volume", `${volume}:/var/lib/logtura`];
         for (const [key, value] of Object.entries(update.config.env)) args.push("--env", `${key}=${value}`);
         args.push(imageTag, ...update.config.init.cmd);
         installationAttempted = true;

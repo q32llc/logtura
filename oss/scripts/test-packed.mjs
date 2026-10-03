@@ -249,6 +249,9 @@ monitors: []
     let applyMachine={id:'machine123',instance_id:'version1',state:'started',region:'ord',config:{image:'registry.test/old:latest',env:{OLD:'private-old-fixture'}},image_ref:{registry:'registry.test',repository:'old',digest:'sha256:'+'b'.repeat(64)}};
     const fly=new FlyMachinesClient({token:'fly-fixture',fetch:async(url,init)=>{
       if(url.endsWith('/lease'))return init.method==='DELETE'?new Response(null,{status:204}):Response.json({data:{nonce:'lease-fixture'}});
+      if(url.endsWith('/stop')){assert.ok(await readPendingFlyApply('packed-apply/logt.yaml'));applyMachine.state='stopped';return new Response(null,{status:204});}
+      if(url.endsWith('/start')){applyMachine.state='started';return new Response(null,{status:204});}
+      if(init.method==='POST'){assert.equal(applyMachine.state,'stopped');assert.equal(JSON.parse(init.body).skip_launch,true);}
       if(init.method==='POST'){applyUpdates++;const intent=await readPendingFlyApply('packed-apply/logt.yaml'),request=JSON.parse(init.body);assert.deepEqual(request.config,intent.plan.after);assert.equal(request.current_version,'version1');applyMachine={...applyMachine,instance_id:'version2',config:request.config,image_ref:{registry:'registry.test',repository:'forwarder',digest:applyDigest}};applyState.lastReportSequence=1;applyState.stale=false;applyState.applied={sequence:1,revision:applyRevision,at:Date.now()};if(loseUpdate)throw new TypeError('packed provider acknowledgement lost');return Response.json(applyMachine);}
       if(url.endsWith('/machines'))return Response.json([applyMachine]);
       if(url.endsWith('/volumes'))return Response.json([{id:'vol_checkpoint',region:'ord',state:'created',encrypted:true,attached_machine_id:applyUpdates?applyMachine.id:null}]);

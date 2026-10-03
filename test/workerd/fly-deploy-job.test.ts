@@ -85,6 +85,8 @@ it("updates a named existing machine instead of creating another", async () => {
   mockFetch("https://api.machines.dev", async req => { const path = new URL(req.url).pathname;
     if(path===`/v1/apps/${f.appName}`)return Response.json({name:f.appName,organization:{slug:"personal"}});
     if(path.endsWith("/lease"))return req.method==="DELETE"?new Response(null,{status:204}):Response.json({data:{nonce:"private-lease"}});
+    if(path.endsWith("/stop")){current.state="stopped";return new Response(null,{status:204});}
+    if(path.endsWith("/start")){current.state="started";return new Response(null,{status:204});}
     if (path.endsWith("/machines") && req.method === "GET") return Response.json([current]);
     if(path.endsWith("/machines/machine1") && req.method==="GET")return Response.json(current);
     if (path.endsWith("/machines/machine1") && req.method === "POST") { const body=await req.json() as {config:typeof current.config;current_version:string};expect(body).toHaveProperty("config.files");expect(body.current_version).toBe("version1");expect(req.headers.get("fly-machine-lease-nonce")).toBe("private-lease");current={...current,config:body.config,instance_id:"version2"}; updated = true; return Response.json(current); } throw new Error("unexpected provider write"); });
@@ -183,6 +185,8 @@ it("reuses an existing mounted checkpoint and preserves unrelated provider confi
   if(path===`/v1/apps/${f.appName}`)return Response.json({name:f.appName,organization:{slug:"personal"}});
   if(path.endsWith("/volumes")){expect(req.method).toBe("GET");return Response.json([{id:"vol_checkpoint",region:"ord",encrypted:true,state:"created",attached_machine_id:"machine1"}]);}
   if(path.endsWith("/lease"))return req.method==="DELETE"?new Response(null,{status:204}):Response.json({data:{nonce:"private-lease"}});
+  if(path.endsWith("/stop")){current.state="stopped";return new Response(null,{status:204});}
+  if(path.endsWith("/start")){current.state="started";return new Response(null,{status:204});}
   if(path.endsWith("/machines")){expect(req.method).toBe("GET");return Response.json([current]);}
   if(path.endsWith("/machines/machine1")){
    if(req.method==="GET")return Response.json(current);

@@ -43,6 +43,37 @@ focused tests pass. The coordinated 0.3.1 candidate is built; full coverage,
 protected public merge, immutable release, actual-registry/live Fly rechecks and
 the remaining production CLI/forwarder acceptance gates are still required.
 
+The first patch-candidate live Fly run delivered a real selected Worker event
+through the candidate forwarder. Its update then exposed eventual readback:
+the acknowledged write initially returned the old config, and a subsequent
+read proved the exact requested config installed. The backend now performs
+bounded read-only observation. Apply stops under the lease and fences the
+configuration again before installing with automatic launch disabled. It waits
+for the installed configuration and quiescent state, then starts once under the
+lease. Direct update defaults stay compatible, and recovery of an already
+configured stopped machine still starts it. Focused tests cover delayed readback,
+no repeated write or premature start, observation budgets and the existing
+fences. Both test machines and
+their Workers/tails are absent; acknowledged volume deletions retain detached
+`pending_destroy` records. Complete phase-fenced restart/update/rollback proofs
+and actual-registry validation remain required after this correction.
+
+The mount-metadata fix passed 1,702 backend/native/package tests, all 306 UI
+tests, all 15 packed consumers and the native packed-service lifecycle. Our
+owned changed-line gate passed 14/14 lines. Private commit `c73015c` has a green
+forwarder-image run `37113884571`; public PR 3 passed required run `37114015818`
+and merged to protected main as `3351743`. The async-readback correction is a
+follow-up to the still-unpublished 0.3.1 candidate, not a retagged 0.3.0 release.
+
+The controlled stop/install/start correction passes all 1,709 backend tests and
+306 UI tests, including compiled CLI crash recovery over real HTTP and workerd
+installation. Backend coverage is 97.52% lines, 97.14% statements and 94.60%
+branches; UI coverage is 94.95% lines and 90.71% branches. The Fly module retains
+its 100% branch gate. Local E2E now creates the forwarder container stopped and
+starts it through the SDK, matching the actual provider transition boundary.
+Candidate packed checks, protected merge and phase-fenced live acceptance are
+still required before the immutable 0.3.1 release.
+
 The replacement CI computes separate package/backend/UI totals from Istanbul
 JSON and LCOV, publishes readable HTML and machine-readable reports as Actions
 artifacts (14-day retention), and writes a run summary with a download link.

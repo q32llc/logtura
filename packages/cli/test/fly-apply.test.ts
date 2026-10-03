@@ -36,9 +36,10 @@ async function fixture(){
   expect(new URL(String(url)).origin).toBe("https://api.machines.dev");
   if(path.endsWith("/lease")){expect(fs.existsSync(pendingFlyApplyPath(config))).toBe(true);if(init!.method==="DELETE")return new Response(null,{status:releaseFailure?500:204});if(leaseFailure)return new Response(null,{status:409});return Response.json({data:{nonce:"lease-secret"}});}
   if(path.endsWith("/start")){machine.state="started";return new Response(null,{status:204});}
+  if(path.endsWith("/stop")){expect(fs.existsSync(pendingFlyApplyPath(config))).toBe(true);machine.state="stopped";return new Response(null,{status:204});}
   if(init?.method==="POST"){
    updates++;const pending=await readPendingFlyApply(config);expect(pending).not.toBeNull();expect(fs.statSync(pendingFlyApplyPath(config)).mode&0o777).toBe(0o600);
-   const body=JSON.parse(init.body as string);expect(body.current_version).toBe("version1");expect(body.config).toEqual(pending!.plan.after);expect(init.headers).toMatchObject({"fly-machine-lease-nonce":"lease-secret"});
+   const body=JSON.parse(init.body as string);expect(body.current_version).toBe("version1");expect(body.skip_launch).toBe(true);expect(machine.state).toBe("stopped");expect(body.config).toEqual(pending!.plan.after);expect(init.headers).toMatchObject({"fly-machine-lease-nonce":"lease-secret"});
    machine={...machine,instance_id:"version2",config:body.config,image_ref:{registry:"registry.test",repository:"forwarder",digest:platformDigest}};
    if(lost)throw new TypeError("machine update acknowledgement lost");return Response.json(machine);
   }

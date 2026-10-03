@@ -110,7 +110,10 @@ export class FlyMachinesClient {
     if(!object(result) || !object(result.data) || typeof result.data.nonce!=="string" || !result.data.nonce || /[\s\x00-\x1f\x7f]/.test(result.data.nonce))throw new Error("Invalid Fly machine lease");return result.data.nonce;
   }
   async release(app:string,id:string,nonce:string):Promise<void> {await this.request(`${identifier(app)}/machines/${identifier(id)}/lease`,"DELETE",undefined,nonce);}
-  async update(app:string,id:string,config:FlyMachineConfig,version:string,nonce:string):Promise<void> {identifier(version);await this.request(`${identifier(app)}/machines/${identifier(id)}`,"POST",{config,current_version:version},nonce);}
+  async update(app:string,id:string,config:FlyMachineConfig,version:string,nonce:string,options:{skipLaunch?:true}={}):Promise<void> {
+    identifier(version);if(options.skipLaunch!==undefined&&options.skipLaunch!==true)throw new Error("Invalid Fly update launch setting");
+    await this.request(`${identifier(app)}/machines/${identifier(id)}`,"POST",{config,current_version:version,...(options.skipLaunch?{skip_launch:true}:{})},nonce);
+  }
   async stop(app:string,id:string,nonce:string):Promise<void> {await this.request(`${identifier(app)}/machines/${identifier(id)}/stop`,"POST",{signal:"SIGTERM",timeout:"35s"},nonce);}
   async start(app:string,id:string,nonce:string):Promise<void> {await this.request(`${identifier(app)}/machines/${identifier(id)}/start`,"POST",{},nonce);}
   /** No force flag: callers must prove the saved machine is quiescent under a
@@ -119,16 +122,38 @@ export class FlyMachinesClient {
 }
 /** Intent must already be durable. A lost update response is recovered by reading
  * the complete planned configuration, never by blindly repeating a write. */
-export async function applyFlyMachine(client:FlyMachinesClient,plan:FlyMachinePlan):Promise<void> {
+export async function applyFlyMachine(client:FlyMachinesClient,plan:FlyMachinePlan,options:{waitMs?:number;pollMs?:number}={}):Promise<void> {
+  const waitMs=options.waitMs??30_000,pollMs=options.pollMs??250;
+  if(!Number.isSafeInteger(waitMs)||waitMs<1||waitMs>30_000||!Number.isSafeInteger(pollMs)||pollMs<1||pollMs>1_000)throw new Error("Invalid Fly installation observation budget");
   const nonce=await client.lease(plan.app,plan.machineId);let failure:unknown;
   try {
     const current=await client.machine(plan.app,plan.machineId);
     if(!matchesFlyConfig(current.config,plan.after)) {
       if(current.instance_id!==plan.version || !matchesFlyConfig(current.config,plan.before) || Object.keys(current.config).length!==Object.keys(plan.before).length)throw new Error("Fly machine changed after planning; retain apply state for recovery");
-      await client.update(plan.app,plan.machineId,plan.after,current.instance_id,nonce);
+      // skip_launch only suppresses launch of a non-running machine. Stop first
+      // so installation and the one subsequent start have distinct boundaries.
+      if(current.state==="started")await client.stop(plan.app,plan.machineId,nonce);
+      const stopDeadline=Date.now()+waitMs;let writable=await client.machine(plan.app,plan.machineId);
+      while(!["created","stopped","suspended"].includes(writable.state)){
+        if(Date.now()>=stopDeadline)throw new Error("Fly machine did not become quiescent; retain apply state for recovery");
+        await new Promise(resolve=>setTimeout(resolve,Math.min(pollMs,Math.max(1,stopDeadline-Date.now()))));
+        if(Date.now()>=stopDeadline)throw new Error("Fly machine did not become quiescent; retain apply state for recovery");
+        writable=await client.machine(plan.app,plan.machineId);
+      }
+      if(!matchesFlyConfig(writable.config,plan.before)||Object.keys(writable.config).length!==Object.keys(plan.before).length)throw new Error("Fly machine changed while stopping; retain apply state for recovery");
+      await client.update(plan.app,plan.machineId,plan.after,writable.instance_id,nonce,{skipLaunch:true});
     }
-    const updated=await client.machine(plan.app,plan.machineId);
-    if(!matchesFlyConfig(updated.config,plan.after))throw new Error("Fly did not install the planned configuration");
+    // An accepted update can briefly read back the previous configuration. Only
+    // observe: replaying the write or starting during its pending installation
+    // races Fly's operation. Apply explicitly skips automatic launch, then starts
+    // once the installed configuration is quiescent. Readiness is checked later.
+    const deadline=Date.now()+waitMs;let updated=await client.machine(plan.app,plan.machineId);
+    while(!matchesFlyConfig(updated.config,plan.after)||!["created","stopped","suspended","started"].includes(updated.state)){
+      if(Date.now()>=deadline)throw new Error("Fly did not install the planned configuration; retain apply state for recovery");
+      await new Promise(resolve=>setTimeout(resolve,Math.min(pollMs,Math.max(1,deadline-Date.now()))));
+      if(Date.now()>=deadline)throw new Error("Fly did not install the planned configuration; retain apply state for recovery");
+      updated=await client.machine(plan.app,plan.machineId);
+    }
     if(["created","stopped","suspended"].includes(updated.state))await client.start(plan.app,plan.machineId,nonce);
   } catch(error){failure=error;throw error;}
   finally {try{await client.release(plan.app,plan.machineId,nonce);}catch(error){if(failure===undefined)throw error;}}

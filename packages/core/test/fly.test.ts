@@ -3,13 +3,14 @@ import {FlyMachinesClient,FlyMachineError,applyFlyMachine,validateFlyMachine,imm
 const image=`registry.test/forwarder@sha256:${"a".repeat(64)}`;
 function machine():FlyMachine{return {id:"machine123",instance_id:"version1",state:"started",region:"ord",config:{image:"registry.test/forwarder:old",env:{PRIVATE:"never-log"}},image_ref:{registry:"registry.test",repository:"forwarder",digest:`sha256:${"b".repeat(64)}`}};}
 function fixture(){
- let current=machine(),mode="normal",updates=0,starts=0,releases=0;
+ let current=machine(),mode="normal",updates=0,starts=0,stops=0,releases=0;
  const calls:Array<{url:string;init:RequestInit}>=[];
  const fetcher=vi.fn<typeof fetch>(async(url,init)=>{
   calls.push({url:String(url),init:init!});
   const path=new URL(String(url)).pathname;
   if(path.endsWith("/lease")){if(init!.method==="DELETE"){releases++;if(mode==="release-error")return new Response("never-log",{status:500});return new Response(null,{status:204});}return Response.json({data:{nonce:"lease-secret"}});}
   if(path.endsWith("/start")){starts++;current.state="started";return new Response(null,{status:204});}
+  if(path.endsWith("/stop")){stops++;current.state="stopped";return new Response(null,{status:204});}
   if(init!.method==="POST"){updates++;const body=JSON.parse(init!.body as string);expect(body.current_version).toBe("version1");current={...current,instance_id:"version2",config:body.config};if(mode==="loss")throw new TypeError("acknowledgement lost");if(mode==="no-install")current.config=machine().config;return Response.json(current);}
   if(path.endsWith("/volumes"))return Response.json([{id:"vol_test",region:"ord",state:"created",encrypted:true,attached_machine_id:null}]);
   if(path.endsWith("/machines"))return Response.json([current]);
@@ -17,7 +18,7 @@ function fixture(){
   return Response.json({name:"app",organization:{slug:"personal"}});
  });
  const client=new FlyMachinesClient({token:"private-token",fetch:fetcher}),plan={app:"app",machineId:"machine123",version:"version1",before:structuredClone(current.config),after:{...current.config,image}};
- return {client,plan,fetcher,calls,get current(){return current;},set current(value){current=value;},set mode(value:string){mode=value;},get updates(){return updates;},get starts(){return starts;},get releases(){return releases;}};
+ return {client,plan,fetcher,calls,get current(){return current;},set current(value){current=value;},set mode(value:string){mode=value;},get updates(){return updates;},get starts(){return starts;},get stops(){return stops;},get releases(){return releases;}};
 }
 it("accepts Fly's returned volume metadata while rejecting changed mount settings and unknown additions",()=>{
  const requested={image,mounts:[{volume:"vol_owned",path:"/var/lib/logtura"}]};
@@ -53,18 +54,101 @@ it("pins rollback to the actual previous digest, validates complete snapshots an
 });
 it("uses bounded authenticated requests with explicit origin, manual redirects and nonce/version fences",async()=>{
  const f=fixture();expect(await f.client.app("app")).toEqual({name:"app",organization:{slug:"personal"}});expect(await f.client.machines("app")).toEqual([f.current]);expect(await f.client.volumes("app")).toHaveLength(1);
- await applyFlyMachine(f.client,f.plan);expect(f.updates).toBe(1);expect(f.releases).toBe(1);expect(f.starts).toBe(0);
+ await applyFlyMachine(f.client,f.plan);expect(f.updates).toBe(1);expect(f.releases).toBe(1);expect(f.starts).toBe(1);expect(f.stops).toBe(1);
  for(const {url,init} of f.calls){expect(new URL(url).origin).toBe("https://api.machines.dev");expect(init).toMatchObject({credentials:"omit",redirect:"manual"});expect(init.signal).toBeInstanceOf(AbortSignal);expect((init.headers as Record<string,string>).authorization).toBe("Bearer private-token");}
- const write=f.calls.find(call=>call.init.method==="POST" && !call.url.endsWith("/lease"))!;expect(write.init.headers).toMatchObject({"fly-machine-lease-nonce":"lease-secret"});expect(JSON.parse(write.init.body as string)).toEqual({config:f.plan.after,current_version:"version1"});
+ const write=f.calls.find(call=>call.init.method==="POST" && new URL(call.url).pathname.endsWith("/machine123"))!;expect(write.init.headers).toMatchObject({"fly-machine-lease-nonce":"lease-secret"});expect(JSON.parse(write.init.body as string)).toEqual({config:f.plan.after,current_version:"version1",skip_launch:true});
  for(const token of ["fm1r_secret","fm2_secret","token,fm2_secret"]){const capture=vi.fn<typeof fetch>(async()=>Response.json({name:"app",organization:{slug:"personal"}}));await new FlyMachinesClient({token,fetch:capture}).app("app");expect(capture.mock.calls[0]![1]!.headers).toMatchObject({authorization:`FlyV1 ${token}`});}
 });
 it("recovers lost update acknowledgement without issuing another update and starts stopped machines",async()=>{
  const f=fixture();f.mode="loss";await expect(applyFlyMachine(f.client,f.plan)).rejects.toThrow("lost");expect(f.releases).toBe(1);f.mode="normal";f.current.state="stopped";await applyFlyMachine(f.client,f.plan);expect(f.updates).toBe(1);expect(f.starts).toBe(1);expect(f.releases).toBe(2);
  for(const state of ["created","suspended"]){f.current.state=state;await applyFlyMachine(f.client,f.plan);}expect(f.starts).toBe(3);
 });
+it("installs into an already stopped machine without issuing a redundant stop",async()=>{
+ const f=fixture();f.current.state="stopped";
+ await applyFlyMachine(f.client,f.plan);
+ expect(f.stops).toBe(0);expect(f.updates).toBe(1);expect(f.starts).toBe(1);expect(f.releases).toBe(1);
+});
+it("observes delayed installation without replaying the accepted write or starting its pending transition",async()=>{
+ const before=machine(),after={...before.config,image};let dispatched=false,stopped=false,reads=0,updates=0,starts=0,releases=0;
+ const fetcher=vi.fn<typeof fetch>(async(url,init)=>{
+  const path=new URL(String(url)).pathname;
+  if(path.endsWith('/lease')){if(init!.method==='DELETE'){releases++;return new Response(null,{status:204});}return Response.json({data:{nonce:'owned-lease'}});}
+  if(path.endsWith('/stop')){stopped=true;return new Response(null,{status:204});}
+  if(path.endsWith('/start')){expect(reads).toBe(4);starts++;return new Response(null,{status:204});}
+  if(init!.method==='POST'){expect(JSON.parse(init!.body as string)).toMatchObject({skip_launch:true});updates++;dispatched=true;return Response.json({...before,state:'replacing'});}
+  if(!dispatched)return Response.json({...before,state:stopped?'stopped':'started'});
+  reads++;return Response.json({...before,instance_id:reads<3?'version1':'version2',state:reads===3?'replacing':'stopped',config:reads<3?before.config:after});
+ });
+ const client=new FlyMachinesClient({token:'fixture',fetch:fetcher});
+ await applyFlyMachine(client,{app:'app',machineId:before.id,version:before.instance_id,before:before.config,after},{waitMs:100,pollMs:1});
+ expect(reads).toBe(4);expect(updates).toBe(1);expect(starts).toBe(1);expect(releases).toBe(1);
+ expect(fetcher.mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(4); // lease, one stop, one update, one start
+});
+it("rejects invalid observation budgets before leasing or mutating a machine",async()=>{
+ const f=fixture();for(const options of [{waitMs:0},{waitMs:30_001},{waitMs:NaN},{waitMs:1.5},{pollMs:0},{pollMs:1_001},{pollMs:NaN},{pollMs:1.5}])await expect(applyFlyMachine(f.client,f.plan,options)).rejects.toThrow('observation budget');
+ expect(f.fetcher).not.toHaveBeenCalled();
+});
+it("waits for a delayed stop and uses the refreshed provider version for installation",async()=>{
+ const before=machine(),after={...before.config,image};let stopping=false,installed=false,reads=0;
+ const calls:Array<{path:string;init:RequestInit}>=[];
+ const client=new FlyMachinesClient({token:'fixture',fetch:async(url,init)=>{
+  const path=new URL(String(url)).pathname;calls.push({path,init:init!});
+  if(path.endsWith('/lease'))return init!.method==='DELETE'?new Response(null,{status:204}):Response.json({data:{nonce:'owned'}});
+  if(path.endsWith('/stop')){stopping=true;return new Response(null,{status:204});}
+  if(path.endsWith('/start'))return new Response(null,{status:204});
+  if(init!.method==='POST'){expect(JSON.parse(init!.body as string)).toMatchObject({current_version:'version-stopped',skip_launch:true});installed=true;return Response.json(before);}
+  if(stopping)reads++;
+  return Response.json({...before,instance_id:stopping?'version-stopped':before.instance_id,state:stopping?(reads===1?'stopping':'stopped'):'started',config:installed?after:before.config});
+ }});
+ await applyFlyMachine(client,{app:'app',machineId:before.id,version:before.instance_id,before:before.config,after},{waitMs:100,pollMs:1});
+ expect(calls.filter(call=>call.path.endsWith('/stop'))).toHaveLength(1);
+ expect(calls.filter(call=>call.path.endsWith('/start'))).toHaveLength(1);
+});
+it("retains stopped recovery state instead of overwriting a config changed during stop",async()=>{
+ for(const change of [{env:{PRIVATE:'external'}},{extra:true}]){
+  const f=fixture(),fetcher=vi.fn<typeof fetch>(async(url,init)=>{
+   const response=await f.fetcher(url,init);
+   if(String(url).endsWith('/stop'))f.current={...f.current,config:{...f.current.config,...change}};
+   return response;
+  });
+  await expect(applyFlyMachine(new FlyMachinesClient({token:'fixture',fetch:fetcher}),f.plan)).rejects.toThrow('changed while stopping');
+  expect(f.stops).toBe(1);expect(f.updates).toBe(0);expect(f.starts).toBe(0);expect(f.releases).toBe(1);
+ }
+});
+it("bounds stop and installation observation without dispatching reads after the deadline",async()=>{
+ vi.useFakeTimers();
+ try{
+  for(const phase of ['stop','install'])for(const expiresInRead of [false,true]){
+   vi.setSystemTime(0);const f=fixture();let stopped=false,updated=false,reads=0;
+   const fetcher=vi.fn<typeof fetch>(async(url,init)=>{
+    const path=new URL(String(url)).pathname;
+    if(init!.method==='GET'&&path.endsWith('/machine123')){
+     const pending=phase==='stop'?stopped:updated;
+     if(pending){reads++;if(expiresInRead)vi.setSystemTime(10);return Response.json({...machine(),state:phase==='stop'?'stopping':'stopped'});}
+    }
+    const response=await f.fetcher(url,init);
+    if(path.endsWith('/stop'))stopped=true;
+    if(init!.method==='POST'&&path.endsWith('/machine123'))updated=true;
+    return response;
+   });
+   const rejected=expect(applyFlyMachine(new FlyMachinesClient({token:'fixture',fetch:fetcher}),f.plan,{waitMs:10,pollMs:10})).rejects.toThrow(phase==='stop'?'did not become quiescent':'did not install');
+   await vi.advanceTimersByTimeAsync(10);await rejected;
+   expect(reads).toBe(1);expect(f.updates).toBe(phase==='stop'?0:1);expect(f.starts).toBe(0);expect(f.releases).toBe(1);
+  }
+ }finally{vi.useRealTimers();}
+});
+it("keeps direct update launch defaults and rejects malformed skip-launch before dispatch",async()=>{
+ const fetcher=vi.fn<typeof fetch>(async()=>Response.json(machine()));const client=new FlyMachinesClient({token:'fixture',fetch:fetcher});
+ await client.update('app','machine123',{image},'version1','owned-lease');
+ expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toEqual({config:{image},current_version:'version1'});
+ await client.update('app','machine123',{image},'version1','owned-lease',{skipLaunch:true});
+ expect(JSON.parse(fetcher.mock.calls[1]![1]!.body as string)).toEqual({config:{image},current_version:'version1',skip_launch:true});
+ for(const skipLaunch of [false,null,'true',1])await expect(client.update('app','machine123',{image},'version1','owned-lease',{skipLaunch} as unknown as {skipLaunch:true})).rejects.toThrow('launch setting');
+ expect(fetcher).toHaveBeenCalledTimes(2);
+});
 it("rejects competing edits and failed installation, retaining the primary error when releasing fails",async()=>{
  for(const mutation of [(f:ReturnType<typeof fixture>)=>{f.current.instance_id="version-other";},(f:ReturnType<typeof fixture>)=>{f.current.config.env={PRIVATE:"changed"};},(f:ReturnType<typeof fixture>)=>{f.current.config.extra=true;}]){const f=fixture();mutation(f);await expect(applyFlyMachine(f.client,f.plan)).rejects.toThrow("changed");expect(f.updates).toBe(0);expect(f.releases).toBe(1);}
- const f=fixture();f.mode="no-install";await expect(applyFlyMachine(f.client,f.plan)).rejects.toThrow("did not install");
+ const f=fixture();f.mode="no-install";await expect(applyFlyMachine(f.client,f.plan,{waitMs:5,pollMs:1})).rejects.toThrow("did not install");expect(f.updates).toBe(1);expect(f.releases).toBe(1);
  const release=fixture();release.mode="release-error";await expect(applyFlyMachine(release.client,release.plan)).rejects.toThrow("HTTP 500");release.current.config.env={PRIVATE:"external"};await expect(applyFlyMachine(release.client,release.plan)).rejects.toThrow("changed");
 });
 it("rejects invalid tokens, request identities, schemas and lease values without emitting response contents",async()=>{

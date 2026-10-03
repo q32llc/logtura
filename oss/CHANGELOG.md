@@ -8,6 +8,13 @@ while checking every requested setting, mount order, volume identity and path.
 Previously, a successfully started forwarder could be reported as a failed
 creation because its returned mount object contained these fields.
 
+Fly's acknowledged updates may briefly return the previous configuration.
+Apply stops the machine under its lease, verifies its configuration again,
+then installs with automatic launch disabled. It observes the installed
+configuration and quiescent state for a bounded interval before starting once. It never replays
+the write or starts during a pending transition. Direct `update` calls keep
+their original launch default; recovery still starts a settled stopped machine.
+
 Requested environment and runtime files still match exactly. Unknown mount
 settings, unencrypted metadata, invalid sizes, and changed explicit metadata
 remain rejected. Provider-shaped creation and negative mutation tests cover

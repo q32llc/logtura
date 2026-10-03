@@ -17,6 +17,8 @@ async function fixture(update=false){
   expect(req.headers.get("authorization")).toBe("Bearer private-fly-token");const path=new URL(req.url).pathname;
   if(path==="/v1/apps/app")return Response.json({name:"app",organization:{slug:"personal"}});
   if(path.endsWith("/lease")){if(req.method==="DELETE"){releases++;return new Response(null,{status:204});}leases++;return Response.json({data:{nonce:"private-lease"}});}
+  if(path.endsWith("/stop")){live!.state="stopped";return new Response(null,{status:204});}
+  if(path.endsWith("/start")){live!.state="started";return new Response(null,{status:204});}
   if(req.method==="POST"){
    const row=await env.DB.prepare("SELECT phase,CAST(payload_encrypted AS TEXT) AS payload FROM managed_installations WHERE id=?").bind(install.id).first<{phase:string;payload:string}>();expect(row!.phase).toBe("dispatched");expect(row!.payload).not.toContain("private-install-token");
    const body=await req.json() as {config:FlyMachineConfig;name:string;region:string;current_version:string};expect(body.config).toEqual(install.payload.after);

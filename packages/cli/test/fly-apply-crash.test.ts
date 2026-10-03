@@ -22,9 +22,11 @@ for(const boundary of ["intent-file","intent-parent","activation-cleared","archi
      expect(request.headers.authorization).toBeUndefined();const content=registryBody(path.slice("/registry".length));expect(content).not.toBeNull();response.writeHead(200,{"content-type":"application/json"});response.end(content);return;
     }else if(path.startsWith("/fly/")){
      if(path.endsWith("/lease"))result=request.method==="DELETE"?null:{data:{nonce:"lease-private"}};
+     else if(path.endsWith("/stop")){expect(existsSync(pendingFlyApplyPath(config))).toBe(true);machine.state="stopped";result=null;}
+     else if(path.endsWith("/start")){machine.state="started";result=null;}
      else if(request.method==="POST"){
       expect(existsSync(pendingFlyApplyPath(config))).toBe(true);const intent=JSON.parse(readFileSync(pendingFlyApplyPath(config),"utf8")),input=JSON.parse(body);expect(input.config).toEqual(intent.plan.after);expect(input.current_version).toBe("version1");expect(request.headers["fly-machine-lease-nonce"]).toBe("lease-private");updates++;
-      machine={...machine,config:input.config,instance_id:"version2",image_ref:{registry:"registry.test",repository:"forwarder",digest:platformDigest}};result=machine;
+      expect(input.skip_launch).toBe(true);expect(machine.state).toBe("stopped");machine={...machine,config:input.config,instance_id:"version2",image_ref:{registry:"registry.test",repository:"forwarder",digest:platformDigest}};result=machine;
      }else if(path.endsWith("/machines"))result=[machine];
      else if(path.endsWith("/volumes"))result=[{id:"vol_checkpoint",region:"ord",state:"created",encrypted:true,attached_machine_id:updates?machine.id:null}];
      else if(path.endsWith("/machine123"))result=machine;
