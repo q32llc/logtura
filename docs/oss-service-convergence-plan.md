@@ -7,13 +7,15 @@ Status: implementation in progress. The starting inventory records repository an
 The [current acceptance index](convergence-acceptance.md) separates released,
 deployed and observed evidence from the remaining production and external gates.
 
-The [runtime delivery audit](runtime-delivery-matrix.md) found a remaining matrix
-gap. Real generated Supabase polling/selection/normalization and webhook/Slack
-retry delivery now pass in both layouts. Protected public PR 5 passed its exact
-required CI and merged as `f2810dc`. The next AI Gateway fixture reproduced an
-API-envelope parsing defect; its corrected row fanout and compatibility cases
-pass actual Vector delivery and the package suite. This shared-driver correction
-is unreleased; the original immutable 0.3.1 archives and tag remain unchanged.
+The [runtime delivery audit](runtime-delivery-matrix.md) now proves generated
+Supabase PAT polling, Fly exec-source framing and native Prometheus/Datadog
+encoded metrics delivery in both layouts, with protected public CI. It also
+exposed two shared-driver bugs: AI Gateway list envelopes needed row fanout,
+and the Supabase refresh sidecar needed individual-row normalization. AI Gateway
+passed exact public/private CI and merged; the Supabase fix passes actual
+sidecar token rotation/delivery, both complete test baselines and packed checks,
+with its final protected public slice still to ship. These shared-driver fixes
+are unreleased and need a coordinated patch; immutable 0.3.1 stays unchanged.
 
 Coverage decision, October 2, 2026: compute and enforce coverage in our own CI and publish our own reports through GitHub Actions. Codecov is no longer a requirement or blocker. Earlier milestone entries mentioning its configuration, failed uploads, or pending activation describe historical runs; no external coverage service or app installation is needed.
 

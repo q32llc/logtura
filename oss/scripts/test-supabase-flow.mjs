@@ -27,6 +27,7 @@ const gatewayRows = [
   {id:'gateway-warning',status_code:401,method:'POST',path:'/auth/v1/token',event_message:'warning fixture',timestamp:1791020000000000},
   {id:'gateway-info',status_code:200,method:'GET',path:'/storage/v1/fixture',event_message:'healthy fixture',timestamp:1791020000000000},
 ];
+const usedTokens={functions:new Set(),gateway:new Set()};
 const polls = {functions:0,gateway:0}, attempts = {webhook:0,slack:0};
 const deliveries = [], slack = [], rejected = {}, queries = new Set();
 let failure;
@@ -39,7 +40,7 @@ const server = createServer(async (request,response) => {
       const sql=url.searchParams.get('sql');assert.ok(sql.includes('LIMIT 100') && sql.includes('interval 90 second'));
       const channel=sql.includes('FROM function_edge_logs')?'functions':'gateway';
       assert.ok(channel==='functions' || sql.includes('FROM edge_logs'));
-      queries.add(channel);polls[channel]++;
+      queries.add(channel);polls[channel]++;if(refreshable)usedTokens[channel].add(request.headers.authorization);
       if(channel==='functions' && polls[channel]===1){response.writeHead(503);response.end('retry fixture');return;}
       response.writeHead(200,{'content-type':'application/json'});
       response.end(JSON.stringify({result:channel==='functions'?functionRows:gatewayRows,error:null}));return;
@@ -76,7 +77,8 @@ try {
   // bearer interpolation, JSON decoding, selection, normalization and sinks.
   assert.equal(bundle.vectorYaml.split('https://api.supabase.com').length-1,2);
   const yaml=bundle.vectorYaml.replaceAll('https://api.supabase.com',origin)
-    .replace('0.0.0.0:8686','127.0.0.1:0');
+    .replace('0.0.0.0:8686','127.0.0.1:0')
+    .replace('0.0.0.0:9598','127.0.0.1:0');
   assert.ok(!yaml.includes('https://api.supabase.com'));
   if(refreshable){const context=join(temporary,'image');mkdirSync(context);for(const file of selfDeployFiles(bundle)){const path=join(context,file.name);mkdirSync(join(path,'..'),{recursive:true});writeFileSync(path,file.content,{mode:file.mode});}docker(['build','--quiet','--tag',image,context]);}
   writeFileSync(join(temporary,'vector.yaml'),yaml);
@@ -84,7 +86,8 @@ try {
   docker(['run','--detach','--name',container,'--network','host','--mount',`type=bind,src=${temporary},dst=/etc/vector,readonly`,...env,image,'--config','/etc/vector/vector.yaml']);
   const deadline=Date.now()+85000;
   const complete=()=>['selected-error','gateway-error'].every(id=>deliveries.some(e=>e.id===id)) &&
-    ['[selected-function] error: selected fixture','[rest] gateway fixture'].every(text=>slack.some(e=>e.text===text));
+    ['[selected-function] error: selected fixture','[rest] gateway fixture'].every(text=>slack.some(e=>e.text===text)) &&
+    (!refreshable || Object.values(usedTokens).every(tokens=>tokens.size>=2));
   while(!complete() && Date.now()<deadline){if(failure)throw failure;await new Promise(resolve=>setTimeout(resolve,200));}
   if(!complete())console.error(JSON.stringify({refreshable,tokenRequests,polls,attempts}));
   assert.ok(complete(),`Supabase/Slack delivery timed out: ${docker(['logs',container],true).stderr}`);
@@ -99,7 +102,7 @@ try {
   for(const event of slack)assert.ok(['[selected-function] error: selected fixture','[rest] gateway fixture'].includes(event.text));
   assert.ok(slack.some(e=>e.text===rejected.slack.text),'Slack did not retry the rejected message');
   assert.ok(rejected.webhook.every(e=>deliveries.some(d=>d.id===e.id)),'Webhook did not retry its rejected batch');
-  if(refreshable){assert.ok(tokenRequests>=3,'Refreshable channels did not reacquire short-lived access tokens');console.log('Actual Supabase refresh sidecar exchanged scoped tokens, refreshed short-lived access credentials and delivered both generated channels');}
+  if(refreshable){assert.ok(Object.values(usedTokens).every(tokens=>tokens.size>=2),'Each channel must use refreshed access credentials');assert.ok(tokenRequests>=3,'Refreshable channels did not reacquire short-lived access tokens');console.log('Actual Supabase refresh sidecar exchanged scoped tokens, refreshed short-lived access credentials and delivered both generated channels');}
   console.log('Real Vector Supabase polling/selection/normalization delivered errors to webhook and Slack object framing; provider and sink failures recovered');
 } finally {
   docker(['rm','--force',container],true);
