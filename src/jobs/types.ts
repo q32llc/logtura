@@ -104,6 +104,8 @@ export interface FlyCreateOrUpdateMachinePayload {
   volumeId?: string;
   /** Exact retained intent when storage preparation is bypassed for recovery. */
   installationId?: string;
+  /** Fixed deadline retained by asynchronous replacement continuations. */
+  installDeadline?: number;
 }
 
 /** Poll health and, for issued-runtime installations, the exact accepted

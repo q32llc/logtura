@@ -13,7 +13,7 @@ import { managedRuntimeJourney } from "../test/e2e/managed-runtime";
 
 if (process.platform !== "linux") throw new Error("Local runtime E2E requires Linux Docker host networking");
 const injectedFailure = process.env.LOGT_E2E_INJECT_FAILURE;
-if (injectedFailure && !["after-create", "after-push", "after-runtime", "after-managed-runtime", "after-managed-update"].includes(injectedFailure)) throw new Error("Unsupported local E2E failure phase");
+if (injectedFailure && !["after-create", "after-push", "after-runtime", "after-managed-runtime", "after-managed-update", "after-legacy-runtime", "after-legacy-update"].includes(injectedFailure)) throw new Error("Unsupported local E2E failure phase");
 class InjectedFailure extends Error {}
 function injectFailure(phase: string) { if (injectedFailure === phase) throw new InjectedFailure(`Injected local E2E failure: ${phase}`); }
 const root = process.cwd(), temporary = mkdtempSync(join(tmpdir(), "logtura-local-e2e-"));
@@ -270,28 +270,29 @@ try {
   injectFailure("after-runtime");
   await run("docker", ["stop", "--time", "35", container]);
   assert.equal(await run("docker", ["inspect", "--format", "{{.State.ExitCode}}", container]), "0");
-  await managedRuntimeJourney({ service, website, request, run, connectionId, temporary, runId,
-    afterApplied: () => injectFailure("after-managed-runtime"),
-    afterReapplied: () => injectFailure("after-managed-update"),
+  for(const legacy of [false,true])await managedRuntimeJourney({ service, website, request, run, connectionId, temporary, runId:legacy?`l${runId}`:runId,legacy,
+    afterApplied: () => injectFailure(legacy?"after-legacy-runtime":"after-managed-runtime"),
+    afterReapplied: () => injectFailure(legacy?"after-legacy-update":"after-managed-update"),
     editAndPush: async managedId => {
       const login = start(bin, ["login", "--service", service.url, "--no-browser", "--name", "managed-update"]);
       const result = login.result; void result.catch(() => {});
       await waitFor(() => /Approval code: ([A-Z0-9-]+)/.test(login.stdout()), "managed update CLI login");
       await website!.approve(login.stdout().match(/Approval code: ([A-Z0-9-]+)/)![1]!); await result;
-      const managedDirectory = join(consumer, "managed update"); mkdirSync(managedDirectory);
+      const managedDirectory = join(consumer, `managed update ${managedId}`); mkdirSync(managedDirectory);
       const managedConfig = join(managedDirectory, "forwarder.yaml");
       await run(bin, ["pull", managedId, "--output", managedConfig]);
       const manifest = core.normalizeDeploymentManifest(yaml.parse(readFileSync(managedConfig, "utf8")));
-      const monitor = manifest.monitors.find((entry: any) => entry.monitor.displayName === "Website alert"); assert.ok(monitor);
+      const monitor = manifest.monitors.find((entry: any) => ["Website alert","CLI-updated managed alert"].includes(entry.monitor.displayName)); assert.ok(monitor);
       const edits = join(consumer, "managed-edits.json");
-      writeFileSync(edits, JSON.stringify([{kind: "monitor.update", id: monitor.monitor.id, patch: {displayName: "CLI-updated managed alert", filterSteps: [{kind: "errors"}, {kind: "dedup", window_secs: 45, fields: ["message"]}]}}]));
+      const displayName=legacy?"CLI-updated legacy managed alert":"CLI-updated managed alert",windowSeconds=legacy?60:45;
+      writeFileSync(edits, JSON.stringify([{kind: "monitor.update", id: monitor.monitor.id, patch: {displayName, filterSteps: [{kind: "errors"}, {kind: "dedup", window_secs: windowSeconds, fields: ["message"]}]}}]));
       await run(bin, ["--config", managedConfig, "config", "edit", edits]);
       await run(bin, ["--config", managedConfig, "push"]);
       const saved = (await request(`/api/deployments/${managedId}/config/state`)).state;
       const changed = saved.desired.document.monitors.find((entry: any) => entry.monitor.id === monitor.monitor.id);
-      assert.equal(changed.monitor.displayName, "CLI-updated managed alert");
-      assert.deepEqual(changed.monitor.filterSteps, [{kind: "errors"}, {kind: "dedup", window_secs: 45, fields: ["message"]}]);
-      await website!.cliUpdatedMonitor();
+      assert.equal(changed.monitor.displayName, displayName);
+      assert.deepEqual(changed.monitor.filterSteps, [{kind: "errors"}, {kind: "dedup", window_secs: windowSeconds, fields: ["message"]}]);
+      await website!.cliUpdatedMonitor(displayName,windowSeconds);
     },
     image: { tag: imageTag, dockerId: dockerImageId, platformDigest, platformManifest, indexDigest, index: imageIndex } });
   await run(bin, ["logout"]);

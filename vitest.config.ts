@@ -99,6 +99,7 @@ export default defineConfig({
         "src/forwarder-image.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/jobs/handlers/fly-deploy.ts": { statements: 99, branches: 90, functions: 100, lines: 100 },
         "src/managed-installations.ts": { statements: 96, branches: 95, functions: 100, lines: 100 },
+        "src/managed-machine-inventory.ts": { statements: 95, branches: 95, functions: 100, lines: 100 },
         "src/managed-checkpoints.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "src/managed-issued-installations.ts": { statements: 97, branches: 97, functions: 100, lines: 100 },
         "src/managed-runtime-inputs.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },

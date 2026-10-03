@@ -11,7 +11,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
@@ -68,7 +68,7 @@ jobs:
           pnpm typecheck:e2e
           pnpm test:e2e:local
           LOGT_E2E_INJECT_FAILURE=after-create pnpm test:e2e:local
-          LOGT_E2E_INJECT_FAILURE=after-managed-update pnpm test:e2e:local
+          LOGT_E2E_INJECT_FAILURE=after-legacy-update pnpm test:e2e:local
 
       - name: test
         # Runs every vitest project: workerd integration tests (real

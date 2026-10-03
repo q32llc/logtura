@@ -1,4 +1,4 @@
-import {buildFlyRuntimeConfig,compileForwarderRuntime,hashConfigDocument,type DeploymentManifest,type FlyMachineConfig,type FlyMachine,type GenerateInput} from "@logtura/core";
+import {buildFlyRuntimeConfig,compileForwarderRuntime,hashConfigDocument,type DeploymentManifest,type FlyMachineConfig,type FlyMachine,type GenerateInput,type FlyVolume} from "@logtura/core";
 import {commitConfiguration} from "./config-version";
 import {readDeploymentConfiguration} from "./deployment-configuration";
 import {deploymentInstanceActivationStatements} from "./deployment-instances";
@@ -7,7 +7,7 @@ import type {Env} from "./env";
 
 /** Server-owned issuance and encrypted provider intent share one transaction.
  * No provider writes occur here. Queue adapters must persist storage first. */
-export async function prepareIssuedManagedInstall(env:Env,input:{userId:string;deploymentId:string;app:string;org:string;region:string;configurationVersion:number;base:FlyMachineConfig;machine:FlyMachine|null;volume:string;service:string;document:DeploymentManifest;env:Record<string,string>;providers:GenerateInput["providers"];destinations:GenerateInput["destinations"]}):Promise<ManagedInstall>{
+export async function prepareIssuedManagedInstall(env:Env,input:{userId:string;deploymentId:string;app:string;org:string;region:string;configurationVersion:number;base:FlyMachineConfig;machine:FlyMachine|null;volume:string;service:string;document:DeploymentManifest;env:Record<string,string>;providers:GenerateInput["providers"];destinations:GenerateInput["destinations"];replacement?:{volume:string;volumes:FlyVolume[]}}):Promise<ManagedInstall>{
  const prior=await readManagedInstall(env,input.userId,input.deploymentId);
  if(prior){
   if(!prior.runtime || prior.app!==input.app || prior.org!==input.org || prior.region!==input.region)throw new Error("Managed issued installation conflicts with retained intent");return prior;
@@ -18,7 +18,7 @@ export async function prepareIssuedManagedInstall(env:Env,input:{userId:string;d
  const instance={requestId:crypto.randomUUID(),instanceId:crypto.randomUUID(),configurationVersion:input.configurationVersion,sequence:state.desired.sequence,revision:state.desired.revision};
  const compiled=await compileForwarderRuntime({service:input.service,deploymentId:input.deploymentId,document:input.document,instance,env:input.env,providers:input.providers,destinations:input.destinations});
  const config=await buildFlyRuntimeConfig({base:input.base,volume:input.volume,image:input.base.image,...compiled});
- const intent=await compileManagedInstallIntent(env,{...input,config},2);
+ const intent=await compileManagedInstallIntent(env,{...input,config},input.replacement?3:2);
  try {
   const result=await commitConfiguration(env.DB,input.userId,input.configurationVersion,[
    ...deploymentInstanceActivationStatements(env.DB,input.userId,input.deploymentId,{requestId:instance.requestId,expectedConfigurationVersion:input.configurationVersion,expectedInstanceId:state.activeInstanceId,expectedSequence:instance.sequence,revision:instance.revision},instance.instanceId),

@@ -77,7 +77,16 @@ export async function startBrowser(service: { url: string; cookie: string }) {
         return body.deployment.id as string;
       },
       async connectAndDeployManaged(id: string, onTarget: (id: string) => void) {
+        const listed = responseFor(response => response.url() === `${service.url}/api/deploy-targets` && response.request().method() === "GET");
         await page.goto(`${service.url}/app/deployments/${id}?tab=run`);
+        const targets = (await (await listed).json()).deployTargets as Array<{id:string;kind:string;externalAccountId:string}>;
+        const existing = targets.filter(target => target.kind === "fly" && target.externalAccountId === "personal");
+        assert.ok(existing.length <= 1, "the fixture must have one unambiguous owned Fly target");
+        if (existing[0]) {
+          onTarget(existing[0].id);
+          await page.getByRole("button", { name: "Deploy now", exact: true }).waitFor();
+          return this.redeployManaged(id, "Deploy now");
+        }
         const connected = responseFor(response => response.url().startsWith(`${service.url}/api/deploy-targets/fly/poll?`) && response.status() === 200);
         await page.getByRole("button", { name: "Connect Fly", exact: true }).click();
         const target = await (await connected).json(); assert.equal(target.status, "connected"); onTarget(target.deployTargetId);
@@ -204,11 +213,11 @@ export async function startBrowser(service: { url: string; cookie: string }) {
         await saved.getByRole("button", { name: "Cancel", exact: true }).click();
         return body.monitor.id as string;
       },
-      async cliUpdatedMonitor() {
+      async cliUpdatedMonitor(displayName="CLI-updated managed alert",windowSeconds=45) {
         await page.goto(service.url + "/app/monitors");
         await page.reload();
-        const card = page.getByRole("region", {name: "Monitor CLI-updated managed alert", exact: true});
-        await card.getByRole("button", {name: "Edit dedup 45s", exact: true}).click();
+        const card = page.getByRole("region", {name: `Monitor ${displayName}`, exact: true});
+        await card.getByRole("button", {name: `Edit dedup ${windowSeconds}s`, exact: true}).click();
         const dialog = page.getByRole("dialog", {name: "Edit Dedup", exact: true});
         assert.equal(await dialog.getByRole("textbox", {name: "Fields (comma-separated)", exact: true}).inputValue(), "message");
         await dialog.getByRole("button", {name: "Cancel", exact: true}).click();

@@ -135,3 +135,15 @@ it("rejects a candidate without durable dispatch and duplicate old machine obser
  const f=fixture();await f.run();f.state={...f.state,phase:"prepared",machineId:null};await expect(f.run()).rejects.toThrow("without a dispatched replacement");
  const duplicate=fixture();duplicate.machines.push(structuredClone(duplicate.machines[0]!));await expect(duplicate.run()).rejects.toThrow("saved old and candidate");
 });
+it.each(["old-stopping","new-starting"])("waits for %s without repeating an already pending mutation",async scenario=>{
+ const f=fixture();f.mode=scenario==="old-stopping"?"stop-pending":"start-pending";await expect(f.run()).rejects.toThrow("pending");f.mode="normal";
+ f.machines[scenario==="old-stopping"?0:1]!.state=scenario==="old-stopping"?"stopping":"starting";
+ const previous=f.calls.filter(call=>call.method==="POST" && !call.path.endsWith("/lease")).length;await expect(f.run()).rejects.toThrow("pending");expect(f.calls.filter(call=>call.method==="POST" && !call.path.endsWith("/lease"))).toHaveLength(previous);
+ f.machines[scenario==="old-stopping"?0:1]!.state=scenario==="old-stopping"?"stopped":"started";expect((await f.run()).phase).toBe("installed");
+});
+it.each(["new-stopping","old-starting"])("waits for rollback %s without repeating a pending mutation",async scenario=>{
+ const f=fixture();await f.run();f.mode=scenario==="new-stopping"?"stop-pending":"start-pending";await expect(f.run(true)).rejects.toThrow("pending");f.mode="normal";
+ f.machines[scenario==="new-stopping"?1:0]!.state=scenario==="new-stopping"?"stopping":"starting";
+ const previous=f.calls.filter(call=>call.method==="POST" && !call.path.endsWith("/lease")).length;await expect(f.run(true)).rejects.toThrow("pending");expect(f.calls.filter(call=>call.method==="POST" && !call.path.endsWith("/lease"))).toHaveLength(previous);
+ f.machines[scenario==="new-stopping"?1:0]!.state=scenario==="new-stopping"?"stopped":"started";expect((await f.run(true)).phase).toBe("rolled_back");
+});

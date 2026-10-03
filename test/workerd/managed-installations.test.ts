@@ -49,7 +49,7 @@ it("recovers lost updates using the same complete before/after config and one pr
 });
 it("refuses changed or missing machines without overwriting competing configuration",async()=>{
  const f=await fixture(true);f.live=null;await expect(f.execute()).rejects.toThrow("same single");f.live={...machine(),id:"other"};await expect(f.execute()).rejects.toThrow("same single");f.live={...machine(),instance_id:"outside",config:{image,env:{OUTSIDE:"change"}}};await expect(f.execute()).rejects.toThrow("changed after planning");expect(f.updates).toBe(0);
- mockFetch("https://api.machines.dev/",req=>new URL(req.url).pathname==="/v1/apps/app"?Response.json({name:"app",organization:{slug:"personal"}}):Response.json([machine(),{...machine(),id:"other"}]));await expect(f.execute()).rejects.toThrow("same single");
+ mockFetch("https://api.machines.dev/",req=>new URL(req.url).pathname==="/v1/apps/app"?Response.json({name:"app",organization:{slug:"personal"}}):Response.json([machine(),{...machine(),id:"other"}]));await expect(f.execute()).rejects.toThrow("one owned forwarder");
 });
 it("refuses counterfeit or ambiguous create observations",async()=>{
  const f=await fixture();for(const candidate of [{...machine(),config:{image}},{...machine(),region:"iad",config:f.install.payload.after},{...machine(),name:"other",config:f.install.payload.after}]){f.live=candidate;await expect(f.execute()).rejects.toThrow("saved create intent");}
@@ -111,7 +111,10 @@ it("refuses an organization mismatch before creating a machine",async()=>{
 
 // Emulate corrupted imported storage without removing production immutability guards.
 async function corrupt(id:string,encrypted:Uint8Array):Promise<void> {
- await env.DB.prepare(`INSERT OR REPLACE INTO managed_installations
+ await env.DB.prepare(`INSERT OR REPLACE INTO managed_installations(id,deployment_id,user_id,app_name,org_slug,region,configuration_version,payload_encrypted,phase,machine_id,installed_configuration_version,lease_token,lease_until,created_at,updated_at)
   SELECT id,deployment_id,user_id,app_name,org_slug,region,configuration_version,?,phase,machine_id,installed_configuration_version,lease_token,lease_until,created_at,updated_at
   FROM managed_installations WHERE id=?`).bind(encrypted,id).run();
 }
+it("rejects a replacement cursor on a legacy encrypted installation",async()=>{
+ const f=await fixture();await env.DB.prepare("UPDATE managed_installations SET replacement_phase='creating' WHERE id=?").bind(f.install.id).run();await expect(readManagedInstall(env,f.userId,f.deployment.id)).rejects.toThrow("Invalid encrypted managed installation");expect(f.creates).toBe(0);
+});

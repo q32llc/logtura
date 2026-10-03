@@ -553,7 +553,11 @@ The operation creates the candidate with `skip_launch: true`, confirms storage a
 configuration under both leases, stops the old process, then starts the candidate.
 Lost responses are reconciled by observation. An unknown create with no visible
 matching candidate is retained for recovery and never repeated automatically. Async
-stop/start transitions leave a resumable journal rather than claiming convergence.
+stop/start transitions throw `FlyReplacementPending`, whose `phase` is `switching`
+or `rolling_back`. Queue the same durable intent with a fixed overall deadline;
+do not issue a new instance or repeat a request while the provider already reports
+the corresponding transition in progress. Other errors still require recovery
+inspection. The journal remains resumable rather than claiming convergence.
 `installed` means the provider handoff happened; an owning CLI/service adapter must
 still observe the issued runtime's accepted report before reporting success.
 

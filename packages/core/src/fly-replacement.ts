@@ -7,6 +7,11 @@ export interface FlyReplacementPlan {
   before:FlyMachine;after:FlyMachineConfig;rollback:FlyMachineConfig;volume:string;
 }
 export type FlyReplacementPhase="prepared"|"creating"|"created"|"switching"|"installed"|"rolling_back"|"rolled_back";
+/** A bounded asynchronous provider transition; adapters may queue the same
+ * durable intent again. This is distinct from ownership or uncertain-create errors. */
+export class FlyReplacementPending extends Error {
+ constructor(public readonly phase:"switching"|"rolling_back",message:string){super(message);this.name="FlyReplacementPending";}
+}
 export interface FlyReplacementState {plan:FlyReplacementPlan;phase:FlyReplacementPhase;machineId:string|null;}
 /** The adapter must hold an exclusive durable claim for the whole operation.
  * compareAndSwap must commit/fsync before resolving. Unknown create dispatches
@@ -105,26 +110,34 @@ export async function executeFlyReplacement(store:FlyReplacementStore,client:Fly
       if(!options.rollback)await checkpoint(rereadCandidate);
       if(options.rollback){
         if(state.phase!=="rolled_back")await save("rolling_back");
-        if(!["created","stopped","suspended"].includes(rereadCandidate.state)){await guard();await client.stop(plan.app,candidate.id,candidateNonce);}
+        if(!["created","stopped","suspended"].includes(rereadCandidate.state)){
+          if(rereadCandidate.state!=="started")throw new FlyReplacementPending("rolling_back","Fly candidate stop is pending; resume rollback");
+          await guard();await client.stop(plan.app,candidate.id,candidateNonce);}
         const stopped=await client.machine(plan.app,candidate.id);checkCandidate(stopped,plan);
-        if(!["created","stopped","suspended"].includes(stopped.state))throw new Error("Fly candidate stop is pending; resume rollback");
+        if(!["created","stopped","suspended"].includes(stopped.state))throw new FlyReplacementPending("rolling_back","Fly candidate stop is pending; resume rollback");
         await guard();
         if(!exact(rereadOld.config,plan.rollback)){await client.update(plan.app,old.id,plan.rollback,rereadOld.instance_id,oldNonce);}
         const restored=await client.machine(plan.app,old.id);checkOld(restored,plan);
         if(!exact(restored.config,plan.rollback))throw new Error("Previous Fly configuration was not restored");
-        if(restored.state!=="started"){await guard();await client.start(plan.app,old.id,oldNonce);}
+        if(restored.state!=="started"){
+          if(!["created","stopped","suspended"].includes(restored.state))throw new FlyReplacementPending("rolling_back","Previous Fly start is pending; resume rollback");
+          await guard();await client.start(plan.app,old.id,oldNonce);}
         const running=await client.machine(plan.app,old.id);checkOld(running,plan);
-        if(running.state!=="started")throw new Error("Previous Fly start is pending; resume rollback");
+        if(running.state!=="started")throw new FlyReplacementPending("rolling_back","Previous Fly start is pending; resume rollback");
         if(state.phase!=="rolled_back")await save("rolled_back");
       } else {
         if(state.phase==="created" && !["created","stopped"].includes(rereadCandidate.state))throw new Error("Fly candidate started outside the saved handoff");
         if(state.phase==="created")await save("switching");
-        if(!["created","stopped"].includes(rereadOld.state)){await guard();await client.stop(plan.app,old.id,oldNonce);}
+        if(!["created","stopped"].includes(rereadOld.state)){
+          if(!["started","suspended"].includes(rereadOld.state))throw new FlyReplacementPending("switching","Previous Fly stop is pending; resume replacement");
+          await guard();await client.stop(plan.app,old.id,oldNonce);}
         const stopped=await client.machine(plan.app,old.id);checkOld(stopped,plan);
-        if(!["created","stopped"].includes(stopped.state))throw new Error("Previous Fly stop is pending; resume replacement");
-        if(rereadCandidate.state!=="started"){await guard();await client.start(plan.app,candidate.id,candidateNonce);}
+        if(!["created","stopped"].includes(stopped.state))throw new FlyReplacementPending("switching","Previous Fly stop is pending; resume replacement");
+        if(rereadCandidate.state!=="started"){
+          if(!["created","stopped","suspended"].includes(rereadCandidate.state))throw new FlyReplacementPending("switching","Fly candidate start is pending; resume replacement");
+          await guard();await client.start(plan.app,candidate.id,candidateNonce);}
         const running=await client.machine(plan.app,candidate.id);checkCandidate(running,plan);
-        if(running.state!=="started" || running.image_ref.digest!==plan.after.image.split("@")[1])throw new Error("Fly candidate start is pending; resume replacement");
+        if(running.state!=="started")throw new FlyReplacementPending("switching","Fly candidate start is pending; resume replacement");
         if(state.phase!=="installed")await save("installed");
       }
       return state;

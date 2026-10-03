@@ -196,14 +196,14 @@ it("reuses an existing mounted checkpoint and preserves unrelated provider confi
  expect(current.config.files).toContainEqual({guest_path:"/etc/unrelated",raw_value:btoa("keep"),mode:0o400});expect((await readManagedInstall(env,f.userId,f.deployment.id))!.runtime).not.toBeNull();
  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM managed_checkpoints WHERE deployment_id=?").bind(f.deployment.id).first("n")).toBe(0);
 });
-it.each(["organization","region","fleet","name","missing-mount"])("refuses incompatible %s before provisioning or issuing any runtime",async reason=>{
+it.each(["organization","region","fleet","name","mounted-storage"])("refuses incompatible %s before provisioning or issuing any runtime",async reason=>{
  const f=await fixture();let writes=0;
  mockFetch("https://api.machines.dev",req=>{
   if(req.method!=="GET"){writes++;throw new Error("must not write");}
   const path=new URL(req.url).pathname;
   if(path===`/v1/apps/${f.appName}`)return Response.json({name:f.appName,organization:{slug:reason==="organization"?"other":"personal"}});
   if(path.endsWith("/volumes"))return Response.json([]);
-  const m={...machine(),region:reason==="region"?"iad":"ord",name:reason==="name"?"other":"forwarder"};return Response.json(reason==="fleet"?[m,{...m,id:"other"}]:[m]);
+  const m={...machine(),region:reason==="region"?"iad":"ord",name:reason==="name"?"other":"forwarder",...(reason==="mounted-storage"?{config:{...machine().config,mounts:[{path:"/data",volume:"vol_other"}]}}:{})};return Response.json(reason==="fleet"?[m,{...m,id:"other"}]:[m]);
  });
  const storage=await f.enqueue("fly_deploy.ensure_checkpoint",{parentPayload:f.parentPayload,appName:f.appName,orgSlug:"personal",region:"ord"});expect((await consume(f,storage)).status).toBe("failed");expect(writes).toBe(0);expect(await f.driver.listChildren(storage.id)).toEqual([]);expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM deployment_configuration_state WHERE deployment_id=?").bind(f.deployment.id).first("n")).toBe(0);
 });
@@ -253,4 +253,41 @@ it.each(["missing-reservation","missing-volume","wrong-volume","attached-volume"
  else if(reason==="attached-volume")volume={...volume!,attached_machine_id:"unowned"};
  const create=await f.enqueue("fly_deploy.create_or_update_machine",{parentPayload:f.parentPayload,appName:f.appName,orgSlug:"personal",region:"ord",volumeId:"vol_checkpoint"});expect((await consume(f,create)).lastError).toContain("checkpoint is not available");expect(machineWrites).toBe(0);
  expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM deployment_configuration_state WHERE deployment_id=?").bind(f.deployment.id).first("n")).toBe(0);expect(await readManagedInstall(env,f.userId,f.deployment.id)).toBeNull();
+});
+it.each([false,true])("runs the complete legacy parent/storage/replacement/report chain with async handoff=%s",async asyncHandoff=>{
+ const f=await fixture();registry();
+ const before={...machine(),id:"legacy",instance_id:"legacy_version",image_ref:{registry:"ghcr.io",repository:"q32llc/logtura-forwarder",digest:`sha256:${"c".repeat(64)}`},config:{image:"ghcr.io/q32llc/logtura-forwarder:old",env:{PRIVATE_OLD:"private-old-source-value"},files:[{guest_path:"/etc/vector/vector.yaml",raw_value:btoa("old-vector-private"),mode:0o400}],guest:{cpu_kind:"shared",cpus:1,memory_mb:1024},init:{cmd:["--config","/etc/vector/vector.yaml"]},restart:{policy:"always"},checks:{vector_api:{port:8686}}}};
+ await env.DB.prepare("UPDATE deployments SET external_id=?,status='running' WHERE id=?").bind(`fly:${f.appName}:legacy`,f.deployment.id).run();
+ const machines:Array<ReturnType<typeof machine> & {config:FlyMachineConfig}>=[structuredClone(before)];let volume:Record<string,unknown>|null=null,volumeCreates=0,candidateCreates=0,oldStops=0,newStarts=0;
+ mockFetch("https://api.machines.dev",async req=>{
+  const path=new URL(req.url).pathname;
+  if(path===`/v1/apps/${f.appName}`)return Response.json({name:f.appName,organization:{slug:"personal"}});
+  if(path.endsWith("/volumes")){
+   if(req.method==="GET")return Response.json(volume?[volume]:[]);
+   volumeCreates++;const body=await req.json() as {name:string};expect(await env.DB.prepare("SELECT phase FROM managed_checkpoints WHERE deployment_id=?").bind(f.deployment.id).first("phase")).toBe("dispatched");volume={id:"vol_checkpoint",name:body.name,region:"ord",size_gb:1,encrypted:true,state:"created",attached_machine_id:null};return Response.json(volume);
+  }
+  const match=path.match(/\/machines\/([^/]+)(?:\/(.*))?$/),current=machines.find(m=>m.id===match?.[1]);
+  if(path.endsWith("/lease"))return req.method==="DELETE"?new Response(null,{status:204}):Response.json({data:{nonce:`nonce-${current!.id}`}});
+  if(path.endsWith("/machines")){
+   if(req.method==="GET")return Response.json(machines);
+   const body=await req.json() as {name:string;region:string;config:FlyMachineConfig;skip_launch:boolean};expect(body.skip_launch).toBe(true);expect(machines[0]!.state).toBe("started");expect((await readManagedInstall(env,f.userId,f.deployment.id))!.replacementPhase).toBe("creating");candidateCreates++;
+   const candidate={...machine("created"),id:"candidate",name:body.name,config:body.config,instance_id:"candidate_version"};machines.push(candidate);volume!.attached_machine_id="candidate";return Response.json(candidate);
+  }
+  if(path.endsWith("/stop")){expect(current!.id).toBe("legacy");expect(req.headers.get("fly-machine-lease-nonce")).toBe("nonce-legacy");oldStops++;current!.state="stopped";return new Response(null,{status:204});}
+  if(path.endsWith("/start")){expect(current!.id).toBe("candidate");expect(machines[0]!.state).toBe("stopped");newStarts++;current!.state=asyncHandoff?"starting":"started";return new Response(null,{status:204});}
+  expect(req.method).toBe("GET");return Response.json(current);
+ });
+ const parent=await f.enqueue("fly_deploy",f.parentPayload);expect((await consume(f,parent)).status).toBe("succeeded");
+ const next=async(kind:string)=>(await f.driver.listChildren(parent.id)).find(job=>job.kind===kind && job.status==="queued")!;
+ expect((await consume(f,await next("fly_deploy.discharge_create_app"))).status).toBe("succeeded");
+ expect((await consume(f,await next("fly_deploy.ensure_checkpoint"))).result).toMatchObject({volumeId:"vol_checkpoint"});
+ expect(await env.DB.prepare("SELECT COUNT(*) FROM deployment_configuration_state WHERE deployment_id=?").bind(f.deployment.id).first("COUNT(*)")).toBe(0);expect(machines[0]!.state).toBe("started");
+ const initial=await consume(f,await next("fly_deploy.create_or_update_machine"));expect(initial.status).toBe("succeeded");
+ if(asyncHandoff){expect(initial.result).toMatchObject({pending:true});expect(machines[1]!.state).toBe("starting");machines[1]!.state="started";expect((await consume(f,await next("fly_deploy.create_or_update_machine"))).status).toBe("succeeded");}
+ const installed=(await readManagedInstall(env,f.userId,f.deployment.id))!;expect(installed.payload.schemaVersion).toBe(3);expect(installed.payload.before).toEqual(before);expect(installed.payload.rollback).toEqual({...before.config,image:`ghcr.io/q32llc/logtura-forwarder@${before.image_ref.digest}`});
+ expect((await consume(f,await next("fly_deploy.wait_running"))).result).toMatchObject({polling:true});expect(await f.read()).toMatchObject({bundle_outdated:1});
+ expect(await acceptManagedRuntimeReport(installed.runtime!,machines[1]!.config,f.deployment.heartbeat_token)).toEqual({accepted:true,reportSequence:1});
+ expect((await consume(f,await next("fly_deploy.wait_running"))).status).toBe("succeeded");expect((await readManagedInstall(env,f.userId,f.deployment.id,installed.id))!.phase).toBe("completed");expect(await f.read()).toMatchObject({status:"running",bundle_outdated:0,external_id:`fly:${f.appName}:candidate`,image_digest:digest});
+ expect([volumeCreates,candidateCreates,oldStops,newStarts]).toEqual([1,1,1,1]);expect(machines.map(m=>m.state)).toEqual(["stopped","started"]);expect(machines[0]!.config).toEqual(before.config);
+ const jobs=await env.DB.prepare("SELECT payload_json,result_json,last_error FROM jobs WHERE user_id=?").bind(f.userId).all();expect(JSON.stringify(jobs)).not.toMatch(/private-old-source-value|project_token|fo1_fixture|registry_fixture/);expect(JSON.stringify(jobs)).not.toContain(f.deployment.heartbeat_token);
 });

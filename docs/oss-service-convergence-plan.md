@@ -4098,3 +4098,77 @@ its enforced module floors are 95/95/100/100. Every package and existing stronge
 module gate passes. Both full builds/types and fifteen clean packed consumers,
 both CLI aliases and the runtime binary passed. No migration, npm version or
 production resource changed in this shared operation slice.
+
+### Managed replacement adapter: encrypted D1 intent and queue continuations
+
+The preceding shared-library slice completed all three exact CI runs:
+[public tests](https://github.com/logtura/logtura/actions/runs/37080045251),
+[private tests](https://github.com/q32llc/logtura/actions/runs/37080048985) and
+[private image](https://github.com/q32llc/logtura/actions/runs/37080049000).
+
+The native managed queue now invokes the public replacement operation for a
+mountless private legacy forwarder. Source migration `0029` adds a constrained
+replacement cursor to the existing encrypted installation journal; a native
+migration test preserves pre-existing deployment, account and installation rows.
+Schema 3 retains the complete old provider snapshot and immutable rollback config.
+The same D1 batch issues the candidate instance and persists its encrypted intent.
+The adapter holds its D1 lease until the public operation settles and fences each
+CAS against lease, ownership, graph clock and active desired instance/revision.
+
+Checkpoint preparation validates the supported legacy shape before provisioning
+storage. Actual encrypted unattached storage is independently reconciled before
+replacement. Candidate creation remains stopped; both provider leases cover the
+handoff. A typed public `FlyReplacementPending` schedules a bounded continuation
+of the same installation and instance. Already stopping/starting machines are
+observed without repeated provider mutations. Lost responses and uncertain absent
+creates retain the immutable journal. Ownership and issuance failures are not
+treated as ordinary pending transitions.
+
+Binding the candidate does not complete the installation. Completion requires its
+accepted signed runtime report and the exact quiescent old VM (stopped, or still
+unlaunched in `created` state). Future inventory
+reads recognize that retained VM only through its completed owned journal; foreign
+names or metadata cannot authorize it. A later issued update uses the same active
+candidate and checkpoint while preserving the stopped rollback VM.
+
+All 1,532 private tests across 133 files and 941 independent public tests across
+79 files pass. Native tests cover the complete parent/child queue chain, initial
+and resumed pending transitions, response loss, concurrent recovery, claim theft,
+instance changes during creation and between read/CAS, report-required completion,
+retained inventory changes, an unlaunched old VM and later leased updates. Private coverage is 97.04%
+statements, 94.44% branches, 98.86% functions and 97.39% lines; public is 98.36%,
+96.53%, 99.44% and 99.11%. Existing stronger gates pass, including 100% lines and
+functions for the managed installation adapter. Public builds/types and all fifteen
+clean packed consumers pass; its changed-line gate passes 17/17 lines. These are
+owned reports generated in CI, with no external coverage dependency.
+The new retained-inventory module meets dedicated 95/95/100/100 floors for
+statements/branches/functions/lines; both layouts' packed checks cover the fifteen
+packages, both CLI aliases and the runtime binary. Private service types pass too.
+
+The complete local browser/workerd journey now runs both fresh managed installation
+and legacy replacement. It uses the installed packed CLI, real Docker Vector and
+SDK supervisor, actual checkpoint persistence and signed reports through the native
+service. The controlled Fly transport creates the candidate without launching it,
+leases both identities and observes the actual old container stop before starting
+the candidate. After accepted-report completion, CLI edits survive website reload
+and a same-candidate, same-volume update; obsolete runtime reports remain rejected.
+The old files, environment, guest and launch settings match the decrypted journal
+exactly, and unrelated old environment values survive in the actual candidate.
+Graceful shutdown and normal cleanup pass. This is local provider-transport evidence,
+not a claim about live Fly or an end-to-end service rollback.
+The injected `after-legacy-update` run also passes, verifies removal of both actual
+owned containers and their checkpoint volume, and checks the owned service objects
+and private temporary files. CI now requires that deepest cleanup boundary alongside
+the normal journey and the early creation failure boundary, with a 40-minute job
+budget for the expanded runtime suite. The disposable authorization target is still
+removed through isolated service disposal; remote disconnect remains separate work.
+
+Public continuation commit `05f0b78` completed its exact
+[CI run](https://github.com/logtura/logtura/actions/runs/37082643683), including
+runtime delivery, owned report publication and the 95% changed-line gate.
+
+Explicit service rollback still needs candidate report fencing, truthful legacy
+applied state and physical target rebinding. Durable remote resource-ledger recovery,
+retained machine cleanup, live canary, coordinated npm publication and staged
+production rollout remain required. This adapter adds source migration 0029;
+it has not applied migrations or changed existing production resources.

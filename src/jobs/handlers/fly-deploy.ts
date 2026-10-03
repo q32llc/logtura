@@ -1,5 +1,5 @@
 import { assembleDeploymentBundle } from "../../bundle-assembly";
-import { FlyMachinesClient, flyBundleFiles, matchesFlyConfig } from "@logtura/core";
+import { FlyMachinesClient, FlyReplacementPending, flyBundleFiles, matchesFlyConfig } from "@logtura/core";
 import { commitConfiguration, readStableConfiguration } from "../../config-version";
 import {
   decryptDeployTargetCredentials,
@@ -14,6 +14,7 @@ import {
   startFlyMachine,
   type FlyMachineConfig,
 } from "../../deploy-targets/fly-machines";
+import { selectManagedForwarder,assertManagedReplacementStandby } from "../../managed-machine-inventory";
 import { readManagedInstall,prepareManagedInstall,executeManagedInstall,completeManagedInstall,recordManagedInstallVersion } from "../../managed-installations";
 import { bindInstalledManagedRuntime } from "../../managed-issued-installations";
 import { readDeploymentConfiguration } from "../../deployment-configuration";
@@ -136,7 +137,8 @@ export async function runFlyCreateOrUpdateMachine(
   if(p.installationId && !activeInstall)throw new Error("Managed retained installation is missing; refuse a new provider write");
   if(activeInstall){
     if(activeInstall.app!==p.appName || activeInstall.region!==p.region || activeInstall.org!==p.orgSlug)throw new Error("Managed installation target changed; retain it for recovery");
-    const client=managedClient(flyAuth,ctx.signal),machineId=await executeManagedInstall(ctx.env,activeInstall,client,ctx.signal);
+    const client=managedClient(flyAuth,ctx.signal),machineId=await executeQueueInstall(ctx,p,activeInstall,client);
+    if(machineId===null)return {appName:p.appName,installationId:activeInstall.id,pending:true};
     const expectedVersion=activeInstall.installedConfigurationVersion??activeInstall.configurationVersion;
     const digest=activeInstall.payload.after.image.split("@")[1]!;
     const committed=activeInstall.runtime?{version:await bindInstalledManagedRuntime(ctx.env,ctx.job.userId,parent.deploymentId,activeInstall.id)}:await commitConfiguration(ctx.env.DB,ctx.job.userId,expectedVersion,[
@@ -216,11 +218,11 @@ export async function runFlyCreateOrUpdateMachine(
   };
 
   await ctx.progress({ label: "Updating Fly machine" });
-  const client=managedClient(flyAuth,ctx.signal),existing=await client.machines(p.appName);
-  if(existing.length>1 || (existing.length===1 && (existing[0] as {name?:string}).name!==MACHINE_NAME))throw new Error("Managed apply requires one owned forwarder machine");
-  const target=existing[0]??null;
+  const client=managedClient(flyAuth,ctx.signal);
+  const target=await selectManagedForwarder(ctx.env,ctx.job.userId,parent.deploymentId,p.appName,await client.machines(p.appName));
   const install=p.volumeId?await prepareManagedRuntimeForQueue(ctx.env,{userId:ctx.job.userId,payload:p,snapshot,client,machine:target,image:imageRef,defaults:{...machineConfig}}):await prepareManagedInstall(ctx.env,{userId:ctx.job.userId,deploymentId:parent.deploymentId,app:p.appName,org:p.orgSlug,region:p.region,configurationVersion:snapshot.version,config:{...target?.config,...machineConfig},machine:target});
-  const machineId=await executeManagedInstall(ctx.env,install,client,ctx.signal);
+  const machineId=await executeQueueInstall(ctx,p,install,client);
+  if(machineId===null)return {appName:p.appName,installationId:install.id,pending:true};
   await ctx.events.record({kind:target?"fly_machine.updated":"fly_machine.created",message:`Installed managed intent ${install.id} on ${p.appName}`,payload:{installationId:install.id,machineId}});
 
   // We don't issue /start here. the machine update returns before Fly
@@ -267,6 +269,7 @@ export async function runFlyWaitRunning(
 
   const install=p.installationId?await readManagedInstall(ctx.env,ctx.job.userId,parent.deploymentId,p.installationId):null;
   if(p.installationId && (!install || install.phase!=="installed" || install.machineId!==p.machineId || install.app!==p.appName || install.installedConfigurationVersion!==p.configurationVersion || !matchesFlyConfig({...m.config},install.payload.after) || (m as unknown as {image_ref?:{digest?:unknown}}).image_ref?.digest!==install.payload.after.image.split("@")[1]))throw new Error("Managed machine differs from its saved installation; retain it for recovery");
+  if(install)assertManagedReplacementStandby(install,machines as unknown as import("@logtura/core").FlyMachine[]);
   const checks = m.checks ?? [];
   const checksPassing =
     checks.length > 0 && checks.every((c) => c.status === "passing");
@@ -411,4 +414,18 @@ export function flyAppNameFor(deploymentId: string): string {
 export function managedClient(auth:string,signal:AbortSignal):FlyMachinesClient {
  const match=/^(Bearer|FlyV1) (.+)$/.exec(auth);if(!match)throw new Error("Invalid discharged Fly authorization");
  return new FlyMachinesClient({token:match[2]!,authorizationScheme:match[1] as "Bearer"|"FlyV1",signal});
+}
+
+
+async function executeQueueInstall(ctx:JobHandlerCtx,p:FlyCreateOrUpdateMachinePayload,install:import("../../managed-installations").ManagedInstall,client:FlyMachinesClient):Promise<string|null>{
+ const deadline=p.installDeadline??Date.now()+RUN_TIMEOUT_MS;
+ if(!Number.isSafeInteger(deadline) || deadline<0 || deadline>Date.now()+RUN_TIMEOUT_MS+5_000)throw new Error("Invalid managed installation deadline");
+ try{return await executeManagedInstall(ctx.env,install,client,ctx.signal);}
+ catch(error){
+  if(!(error instanceof FlyReplacementPending))throw error;
+  if(Date.now()>=deadline)throw new Error("Managed replacement handoff deadline exceeded; retain installation for recovery");
+  await ctx.progress({label:"Waiting for forwarder handoff"});
+  await ctx.enqueueSibling({kind:"fly_deploy.create_or_update_machine",payload:{...p,installationId:install.id,installDeadline:deadline},delaySecs:POLL_DELAY_SECS});
+  return null;
+ }
 }

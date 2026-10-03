@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { DeploymentReportingClient } from "@logtura/core";
+import {decryptSecret} from "../../src/crypto";
+import { DeploymentReportingClient,validateFlyReplacementState } from "@logtura/core";
 import type { startLocalService } from "./local-workerd";
 import type { startBrowser } from "./browser";
 // Keep the Node E2E contract independent of Workers-only UI type imports.
@@ -21,20 +22,22 @@ type RequestApi = (path: string, body?: unknown, method?: string) => Promise<any
  * The Fly/registry transport is an owned fixture; no live Fly resource is touched. */
 export async function managedRuntimeJourney(options: {
   service: Service; website: Website; request: RequestApi; run: Run;
-  connectionId: string; temporary: string; runId: string; afterApplied?: () => void; afterReapplied?: () => void;
+  connectionId: string; temporary: string; runId: string; afterApplied?: () => void; afterReapplied?: () => void; legacy?: boolean;
   editAndPush: (deploymentId: string) => Promise<void>;
   image: { tag: string; dockerId: string; platformDigest: string; platformManifest: string; indexDigest: string; index: string };
 }) {
   const { service, website, request, run, image } = options;
   const container = `logtura-managed-e2e-${options.runId}`;
+  const legacyContainer=`${container}-legacy`,legacyId=`legacy_${options.runId.slice(0,14)}`;
   const volumeName = `logtura-managed-e2e-volume-${options.runId}`;
   const volumeId = `vol_${options.runId}`;
   const machineId = options.runId.slice(0, 14);
-  const installed = join(options.temporary, "managed-installed");
+  const installed = join(options.temporary, `managed-installed-${options.runId}`);
   mkdirSync(installed);
   let deploymentId: string | undefined, targetId: string | undefined, appName: string | undefined;
-  let appCreated = false, volume: any, machine: any;
+  let appCreated = false, volume: any, machine: any,legacyMachine:any;
   let appCreates = 0, volumeCreates = 0, machineCreates = 0, machineUpdates = 0, registryReads = 0;
+  let legacyLease:string|undefined,oldStops=0,candidateStarts=0;
   let lease: string | undefined, leaseCreates = 0, leaseReleases = 0;
   let providerFailure: string | undefined, failure: unknown;
   async function waitFor(check: () => Promise<boolean>, label: string, timeout = 120_000) {
@@ -59,7 +62,11 @@ export async function managedRuntimeJourney(options: {
     }
     return { ...machine, state: running ? "started" : "stopped", checks: [{ name: "vector_api", status: ready ? "passing" : "critical" }] };
   }
-  async function installMachine(config: any) {
+  async function actualLegacy(){
+    const running=await run("docker",["inspect","--format","{{.State.Running}}",legacyContainer])==="true";
+    return {...legacyMachine,state:running?"started":"stopped",checks:[{name:"vector_api",status:running?"passing":"critical"}]};
+  }
+  async function installMachine(config: any,launch=true,name=machine?.name??"forwarder") {
     // Replace the stopped machine's complete file snapshot, including read-only
     // descriptor files and assets removed by the new configuration.
     rmSync(installed, {recursive: true, force: true}); mkdirSync(installed);
@@ -73,13 +80,13 @@ export async function managedRuntimeJourney(options: {
       const target = join(installed, file.guest_path.slice(1));
       mkdirSync(dirname(target), { recursive: true }); writeFileSync(target, Buffer.from(file.raw_value, "base64")); chmodSync(target, file.mode);
     }
-    const args = ["run", "--detach", "--name", container, "--network", "host", "--stop-timeout", "35", "--volume", `${join(installed, "etc/vector")}:/etc/vector:ro`, "--volume", `${volumeName}:/var/lib/logtura`];
+    const args = [launch?"run":"create",...(launch?["--detach"]:[]), "--name", container, "--network", "host", "--stop-timeout", "35", "--volume", `${join(installed, "etc/vector")}:/etc/vector:ro`, "--volume", `${volumeName}:/var/lib/logtura`];
     if (config.files.some((file: any) => file.guest_path.startsWith("/opt/logtura/assets/"))) args.push("--volume", `${join(installed, "opt/logtura/assets")}:/opt/logtura/assets:ro`);
     for (const [name, value] of Object.entries(config.env)) args.push("--env", `${name}=${value}`);
     args.push(image.tag, ...config.init.cmd);
     await run("docker", args);
     assert.equal(await run("docker", ["inspect", "--format", "{{.Image}}", container]), image.dockerId);
-    machine = { id: machineId, name: "forwarder", instance_id: `managed-version-${machineUpdates + 1}`, region: volume.region, config, image_ref: { registry: "ghcr.io", repository: "q32llc/logtura-forwarder", digest: image.platformDigest } };
+    machine = { id: machineId, name, instance_id: `managed-version-${machineUpdates + 1}`, region: volume.region, config, image_ref: { registry: "ghcr.io", repository: "q32llc/logtura-forwarder", digest: image.platformDigest } };
   }
   service.setProviderFixture(async providerRequest => {
     const url = new URL(providerRequest.url), path = url.pathname;
@@ -137,12 +144,26 @@ export async function managedRuntimeJourney(options: {
         return Response.json(volume);
       }
       if (suffix === "/machines") {
-        if (providerRequest.method === "GET") return Response.json(machine ? [await actualMachine()] : []);
+        if (providerRequest.method === "GET") return Response.json([...(legacyMachine?[await actualLegacy()]:[]),...(machine?[await actualMachine()]:[])]);
         assert.equal(providerRequest.method, "POST"); assert.equal(machine, undefined); assert.ok(volume);
         const body = await providerRequest.json() as any;
-        assert.equal(body.name, "forwarder"); assert.equal(body.region, volume.region);
-        await installMachine(body.config); machineCreates++;
+        if(options.legacy){assert.match(body.name,/^forwarder-[a-f0-9-]{36}$/);assert.equal(body.skip_launch,true);assert.equal((await actualLegacy()).state,"started");}
+        else assert.equal(body.name,"forwarder");
+        assert.equal(body.region,volume.region);
+        await installMachine(body.config,body.skip_launch!==true,body.name); machineCreates++;
         return Response.json(await actualMachine());
+      }
+      if(legacyMachine && suffix===`/machines/${legacyId}/lease`){
+        if(providerRequest.method==="POST"){assert.equal(legacyLease,undefined);legacyLease="fixture-legacy-lease";leaseCreates++;return Response.json({data:{nonce:legacyLease}});}
+        assert.equal(providerRequest.method,"DELETE");assert.equal(providerRequest.headers.get("fly-machine-lease-nonce"),legacyLease);legacyLease=undefined;leaseReleases++;return new Response(null,{status:204});
+      }
+      if(legacyMachine && suffix===`/machines/${legacyId}/stop`){
+        assert.ok(legacyLease);assert.equal(providerRequest.headers.get("fly-machine-lease-nonce"),legacyLease);assert.deepEqual(await providerRequest.json(),{signal:"SIGTERM",timeout:"35s"});
+        await run("docker",["stop","--time","35",legacyContainer]);assert.equal(await run("docker",["inspect","--format","{{.State.ExitCode}}",legacyContainer]),"0");oldStops++;return new Response(null,{status:204});
+      }
+      if(legacyMachine && suffix===`/machines/${legacyId}`){assert.equal(providerRequest.method,"GET");return Response.json(await actualLegacy());}
+      if(suffix===`/machines/${machineId}/start`){
+        assert.ok(lease);assert.equal(providerRequest.headers.get("fly-machine-lease-nonce"),lease);assert.equal((await actualLegacy()).state,"stopped");await run("docker",["start",container]);candidateStarts++;return new Response(null,{status:204});
       }
       if (suffix === `/machines/${machineId}/lease`) {
         assert.ok(machine);
@@ -176,13 +197,22 @@ export async function managedRuntimeJourney(options: {
   try {
     deploymentId = await website.createDeployment(options.connectionId, id => { deploymentId = id; }, { managed: true, name: "Website-managed fixture forwarder" });
     await website.enableMetrics(deploymentId, "No configuration revision has been recorded for this deployment.");
+    if(options.legacy){
+      const legacyDirectory=join(options.temporary,`legacy-vector-${options.runId}`);mkdirSync(legacyDirectory);
+      const yaml='api:\n  enabled: true\n  address: 0.0.0.0:8686\nsources:\n  legacy_pulse:\n    type: demo_logs\n    format: json\n    interval: 1\nsinks:\n  legacy_output:\n    type: blackhole\n    inputs: [legacy_pulse]\n';
+      writeFileSync(join(legacyDirectory,"vector.yaml"),yaml,{mode:0o400});
+      await run("docker",["run","--detach","--name",legacyContainer,"--network","host","--volume",`${legacyDirectory}:/etc/vector:ro`,"--env","PRIVATE_OLD=fixture-old-private",image.tag,"--config","/etc/vector/vector.yaml"]);
+      await waitFor(async()=>{try{return(await fetch("http://127.0.0.1:8686/health",{signal:AbortSignal.timeout(1000)})).ok;}catch{return false;}},"actual legacy Vector readiness");
+      legacyMachine={id:legacyId,name:"forwarder",instance_id:"legacy-version-1",region:"iad",config:{image:`ghcr.io/q32llc/logtura-forwarder@${image.platformDigest}`,env:{PRIVATE_OLD:"fixture-old-private"},files:[{guest_path:"/etc/vector/vector.yaml",raw_value:Buffer.from(yaml).toString("base64"),mode:0o400}],init:{cmd:["--config","/etc/vector/vector.yaml"]},guest:{cpu_kind:"shared",cpus:2,memory_mb:4096},restart:{policy:"always"}},image_ref:{registry:"ghcr.io",repository:"q32llc/logtura-forwarder",digest:image.platformDigest}};
+      appCreated=true;
+    }
     const parent = await website.connectAndDeployManaged(deploymentId, id => { targetId = id; });
     await waitFor(async () => {
       const { job } = await request(`/api/jobs/${parent}`);
       if (job.status === "failed") throw new Error(`Managed queue failed: ${job.error}`);
       return job.status === "succeeded";
     }, "website-managed queue completion");
-    assert.equal(appCreates, 1); assert.equal(volumeCreates, 1); assert.equal(machineCreates, 1); assert.equal(registryReads, 2);
+    assert.equal(appCreates, options.legacy?0:1); assert.equal(volumeCreates, 1); assert.equal(machineCreates, 1); assert.equal(registryReads, 2);
     const { state } = await request(`/api/deployments/${deploymentId}/config/state`);
     const artifact = JSON.parse(readFileSync(join(installed, "etc/vector/logtura-runtime.json"), "utf8"));
     assert.equal(state.stale, false); assert.ok(state.lastReportSequence >= 1);
@@ -239,8 +269,8 @@ export async function managedRuntimeJourney(options: {
     assert.notEqual(reapplied.activeInstanceId, artifact.instance.instanceId);
     assert.equal(reapplied.activeInstanceId, updatedArtifact.instance.instanceId);
     assert.deepEqual(updatedArtifact.document, reapplied.desired.document);
-    assert.equal(appCreates, 1); assert.equal(volumeCreates, 1); assert.equal(machineCreates, 1);
-    assert.equal(machineUpdates, 1); assert.equal(leaseCreates, 1); assert.equal(leaseReleases, 1); assert.equal(lease, undefined);
+    assert.equal(appCreates, options.legacy?0:1); assert.equal(volumeCreates, 1); assert.equal(machineCreates, 1);
+    assert.equal(machineUpdates, 1); assert.equal(leaseCreates, options.legacy?3:1); assert.equal(leaseReleases, options.legacy?3:1); assert.equal(lease, undefined);assert.equal(legacyLease,undefined);
     assert.equal(await db.prepare("SELECT COUNT(*) FROM managed_installations WHERE deployment_id=? AND phase='completed'").bind(deploymentId).first("COUNT(*)"), 2);
     assert.equal(await db.prepare("SELECT volume_id FROM managed_checkpoints WHERE deployment_id=?").bind(deploymentId).first("volume_id"), volumeId);
     // The old runtime's checkpoint survives in the same actual volume, but its
@@ -257,20 +287,30 @@ export async function managedRuntimeJourney(options: {
     assert.equal(afterOldReport.applied.revision, pending.desired.revision);
     await website.applied(deploymentId, reapplied.desired.sequence, reapplied.desired.revision);
     options.afterReapplied?.();
+    assert.ok(targetId); assert.deepEqual(service.unexpected, []);
+    if(options.legacy){
+      assert.equal(oldStops,1);assert.equal(candidateStarts,1);assert.equal((await actualLegacy()).state,"stopped");
+      const row=await db.prepare("SELECT id,phase,replacement_phase,machine_id,payload_encrypted FROM managed_installations WHERE deployment_id=? AND replacement_phase='installed'").bind(deploymentId).first<{id:string;phase:string;replacement_phase:"installed";machine_id:string;payload_encrypted:ArrayBuffer|number[]}>();assert.ok(row);
+      const runtimeEnv=await service.service.getBindings() as {CREDENTIAL_ENCRYPTION_KEY:string};
+      const bytes=Array.isArray(row.payload_encrypted)?Uint8Array.from(row.payload_encrypted):new Uint8Array(row.payload_encrypted);
+      const payload=JSON.parse(await decryptSecret(bytes,runtimeEnv.CREDENTIAL_ENCRYPTION_KEY));assert.equal(row.phase,"completed");assert.equal(payload.schemaVersion,3);assert.deepEqual(payload.before.config,legacyMachine.config);assert.deepEqual(payload.rollback,legacyMachine.config);
+      validateFlyReplacementState({plan:{schemaVersion:1,id:row.id,app:appName!,org:"personal",name:payload.name,before:payload.before,after:payload.after,rollback:payload.rollback,volume:volumeId},phase:row.replacement_phase,machineId:row.machine_id});
+      assert.equal(await run("docker",["exec",container,"printenv","PRIVATE_OLD"]),"fixture-old-private");
+      console.log("Actual mountless legacy Vector → stopped checkpoint candidate → leased handoff → accepted report and website convergence → installed CLI edit and same-machine update passed; exact old config retained");
+    }
     await run("docker", ["stop", "--time", "35", container]);
     assert.equal(await run("docker", ["inspect", "--format", "{{.State.ExitCode}}", container]), "0");
-    assert.ok(targetId); assert.deepEqual(service.unexpected, []);
     console.log("Website-managed native queue: one app/checkpoint/machine, actual packaged Vector acknowledgement, website convergence, durable restart and CLI-edited leased reapply passed");
   } catch (error) { failure = error; }
   finally {
     const errors: string[] = [];
     // Inspect actual daemon state, including resources created before a lost
     // response. These unique run-owned names can never select another fixture.
-    try {
-      const names = await run("docker", ["ps", "--all", "--format", "{{.Names}}"]);
-      if (names.split("\n").includes(container)) await run("docker", ["rm", "--force", container]);
-      assert.ok(!(await run("docker", ["ps", "--all", "--format", "{{.Names}}"])).split("\n").includes(container));
-    } catch { errors.push("managed owned container"); }
+    for(const ownedContainer of [container,legacyContainer])try {
+      const names=await run("docker",["ps","--all","--format","{{.Names}}"]);
+      if(names.split("\n").includes(ownedContainer))await run("docker",["rm","--force",ownedContainer]);
+      assert.ok(!(await run("docker",["ps","--all","--format","{{.Names}}"])).split("\n").includes(ownedContainer));
+    }catch{errors.push("managed owned container");}
     try {
       const names = await run("docker", ["volume", "ls", "--format", "{{.Name}}"]);
       if (names.split("\n").includes(volumeName)) await run("docker", ["volume", "rm", volumeName]);
