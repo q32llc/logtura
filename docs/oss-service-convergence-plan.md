@@ -4617,3 +4617,23 @@ export/real remote rehearsal and verified registry publication. No release tag,
 npm publication, production migration or existing-forwarder update is claimed.
 The pending Cloudflare credential transfer is not authorization for a GitHub
 secret write; the local remote rehearsal remains available without that transfer.
+
+The committed candidate is private `d371572` and public `cfa7c06`. Independent
+clean exports identify those exact revisions and have matching hashes for all 15
+public/service archives. The complete owned report/95% changed-line gate and E2E
+typecheck pass. The real remote rehearsal of the clean private export returned
+zero: all migrations through `0032`, prior graph and migration-tracker preservation,
+authenticated HTTPS lifecycle and unchanged legacy heartbeat/metrics reporting
+pass. Its terminal journal records `outcome: passed`, `status: cleaned`, all three
+resource phases deleted and no remaining tail session. No production resource was
+used as a destructive test fixture.
+
+Exact candidate forwarder build
+[37099717925](https://github.com/q32llc/logtura/actions/runs/37099717925) succeeded,
+publishing `ghcr.io/q32llc/logtura-forwarder:sha-d37157277b13fefe3823598625827e07936ff002`.
+The build's OCI image digest is
+`sha256:c59164d5ad6ace126e341e975cc462031e552aa38d59cd6444544c4849b8b6e8`;
+this is build/push evidence, not a claim that the production machine loaded it.
+Candidate CI remains live in private run `37099717969` and public run `37099730853`;
+npm publication stays gated on their exact terminal results. Production still has
+its existing image/configuration/schema; no tag or npm publication occurred yet.
