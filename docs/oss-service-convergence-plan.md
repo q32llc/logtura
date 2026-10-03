@@ -4529,3 +4529,13 @@ Cloudflare checks rather than that sensitive credential transfer. No credential
 transfer was performed. Local remote validation remains available. Published npm
 packages, complete provider/browser/live-runtime canaries and the staged production
 upgrade/rollback remain required before the full goal can be considered complete.
+
+Final local validation of this slice passed 1,682 backend/package tests in 140
+files and 306 UI tests in 23 files. Owned coverage reports pass their floors and
+changed-line gate: backend statements 97.10%, branches 94.54%, functions 98.90%,
+lines 97.49%; UI statements 93.77%, branches 90.71%, functions 96.51%, lines 94.95%.
+The exact `b6ab388` packed candidate passed another real remote run. A diagnostic
+WebSocket retained Node after cleanup; the runner now exits explicitly only after
+the exclusive run callback and lock release finish. The corrected runner returned
+exit code zero after the real HTTPS checks, migration preservation and verified
+cloud teardown. This changes CLI process termination, not provider outcome proof.

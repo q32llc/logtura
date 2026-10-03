@@ -104,4 +104,9 @@ await withPrivateDirectoryLock(ledgerPath+'.lock',async()=>{
  }catch(error){failure=error;state.outcome='failed';save();await new Promise(resolve=>setTimeout(resolve,2000));}
  try{await cleanup();}catch(error){throw new Error('Cloudflare rehearsal cleanup incomplete; retain the ledger',{cause:error});}
  if(failure)throw failure;console.log(`Cloudflare rehearsal passed with ${requests+cleanupRequests} direct management API requests; all owned cloud resources deleted`);
-},'Cloudflare E2E');
+},'Cloudflare E2E').then(
+ // Node's diagnostic WebSocket can retain a socket after the tail is deleted.
+ // The exclusive run lock has been released and cleanup proved absence here.
+ () => process.exit(0),
+ error => { console.error(error); process.exit(1); },
+);
