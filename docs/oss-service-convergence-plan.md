@@ -4637,3 +4637,40 @@ this is build/push evidence, not a claim that the production machine loaded it.
 Candidate CI remains live in private run `37099717969` and public run `37099730853`;
 npm publication stays gated on their exact terminal results. Production still has
 its existing image/configuration/schema; no tag or npm publication occurred yet.
+
+### Pre-publication account-owned Cloudflare token correction
+
+A live read-only credential canary exposed a missing public-library capability:
+the account-owned bootstrap token used for successful real rehearsals returned
+HTTP 401 from `/user/tokens/verify`, so both packaged verification and freshness
+incorrectly rejected it. Cloudflare's documented
+[account token endpoint](https://developers.cloudflare.com/api/resources/accounts/subresources/tokens/methods/verify/)
+returned HTTP 200 and `active` for that same token. No npm release tag was issued.
+
+The shared verifier now falls back only after user-endpoint HTTP 401/403, discovers
+accessible account IDs with the same token, verifies the owning account, and
+returns only that verified owner. It retains status/expiry handling, rejects
+inactive tokens during connection verification, bounds the account inventory to
+50 entries and shares a 60-second observation deadline. Rate limits, server
+errors and network failures are not ownership retries. Manual redirect handling
+works in both Node and Workers; the full native suite caught and corrected an
+initial Workers-incompatible `error` redirect option before publication.
+
+All 35 focused credential tests and the five affected Node/workerd files pass.
+An actual D1/Worker route regression verifies account-owned connection creation,
+owner isolation and a credential-free response. Rebuilt public-library live checks
+verify the real token's owning account and freshness, and discover Workers without
+printing IDs, names or credentials. Independently installed release tarballs
+outside the workspace also pass that live read-only contract. The patched
+consumer and packed-service gates pass and their 15 exact archive hashes match.
+The complete backend/package suite passes 1,700 tests in 140 files, with statements
+97.11%, branches 94.54%, functions 98.91% and lines 97.51%. This correction remains
+part of the unpublished `0.3.0` candidate; preceding green candidate CI does not
+prove the new source revision, which requires its own exact CI before tagging.
+
+The corrected Cloudflare module has 100% statements/branches/functions/lines.
+UI coverage recheck passes all 306 tests with unchanged totals after one local
+HTTP fixture request failed with `UND_ERR_SOCKET` (peer closed); no mutation retry
+was added to production code. Final tarballs installed outside the workspace again
+verify the actual account-owned token, freshness and Worker discovery. Public
+package documentation states the account-list requirement and bounded fallback.

@@ -176,6 +176,24 @@ describe("POST /api/connections — Cloudflare paste-token happy path", () => {
     expect(["queued", "running", "succeeded", "failed"]).toContain(job?.status);
   });
 
+  it("accepts an account-owned token through native verification and stores only its verified owner", async () => {
+    const {userId,sessionCookie}=await seedUser(),owner='b'.repeat(32),foreign='a'.repeat(32);
+    mockFetch('https://api.cloudflare.com',async req=>{
+      const path=new URL(req.url).pathname;
+      if(path==='/client/v4/user/tokens/verify' || path===`/client/v4/accounts/${foreign}/tokens/verify`)return Response.json({success:false,errors:[{message:'wrong token scope'}]},{status:401});
+      if(path==='/client/v4/accounts')return Response.json({success:true,result:[{id:foreign,name:'Foreign'},{id:owner,name:'Owner'}]});
+      if(path===`/client/v4/accounts/${owner}/tokens/verify`)return Response.json({success:true,result:{id:'t'.repeat(32),status:'active'}});
+      if(path===`/client/v4/accounts/${owner}/workers/scripts`)return Response.json({success:true,result:[]});
+      throw new Error('Unexpected Cloudflare path');
+    });
+    const form=new FormData();form.set('provider','cloudflare-worker-tail');form.set('display_name','Account-owned token');form.set('api_token','fixture-account-secret');
+    const response=await SELF.fetch('http://localhost/api/connections',{method:'POST',headers:{cookie:sessionCookie},body:form});
+    expect(response.status).toBe(200);const text=await response.text();expect(text).not.toContain('fixture-account-secret');
+    const json=JSON.parse(text) as {connection:{id:string;externalAccountId:string}};expect(json.connection.externalAccountId).toBe(owner);
+    const row=await env.DB.prepare('SELECT user_id,external_account_id FROM connections WHERE id=?').bind(json.connection.id).first<{user_id:string;external_account_id:string}>();
+    expect(row).toEqual({user_id:userId,external_account_id:owner});
+  });
+
   it("rejects an invalid token with verify_failed before touching the DB", async () => {
     const { userId, sessionCookie } = await seedUser();
 

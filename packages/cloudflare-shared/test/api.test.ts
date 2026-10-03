@@ -15,6 +15,48 @@ describe("Cloudflare credential contract", () => {
     await expect(cfFetch("/fixture", "token", { method: "POST", body: "{}", headers: { "x-fixture": "yes" } })).resolves.toEqual({ id: "result" });
     expect(fetch.mock.calls[0]![1]).toMatchObject({ method: "POST", body: "{}", headers: { authorization: "Bearer token", "x-fixture": "yes", "content-type": "application/json" } });
   });
+  it.each([401,403])("verifies account-owned tokens after user endpoint HTTP %i",async status=>{
+    const account={id:'a'.repeat(32),name:'Owned account'};
+    const fetch=vi.fn().mockResolvedValueOnce(response(null,status)).mockResolvedValueOnce(response([account])).mockResolvedValueOnce(response({status:'active'}));vi.stubGlobal('fetch',fetch);
+    await expect(verifyCfCredentials({apiToken:'account-token'})).resolves.toEqual([account]);
+    expect(fetch.mock.calls.map(([url])=>url)).toEqual([`${CF_BASE}/user/tokens/verify`,`${CF_BASE}/accounts?per_page=50`,`${CF_BASE}/accounts/${account.id}/tokens/verify`]);
+    expect(fetch.mock.calls[0]![1].signal).toBe(fetch.mock.calls[2]![1].signal);
+    expect(fetch.mock.calls[2]![1]).toMatchObject({redirect:'manual',headers:{authorization:'Bearer account-token'}});
+  });
+  it('skips inaccessible accounts and returns only the verified owner',async()=>{
+    const accounts=[{id:'a'.repeat(32),name:'Foreign'},{id:'b'.repeat(32),name:'Owner'}];
+    vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(response(null,401)).mockResolvedValueOnce(response(accounts)).mockResolvedValueOnce(response(null,403)).mockResolvedValueOnce(response({status:'active'})));
+    await expect(verifyCfCredentials({apiToken:'token'})).resolves.toEqual([accounts[1]]);
+  });
+  it.each([[],[{id:'a'.repeat(32),name:'Denied'}]].map(accounts=>({accounts})))('rejects account tokens without a verified owner %j',async ({accounts})=>{
+    vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(response(null,401)).mockResolvedValueOnce(response(accounts)).mockResolvedValue(response(null,401)));
+    await expect(verifyCfCredentials({apiToken:'token'})).rejects.toThrow('could not be verified');
+  });
+  it.each([null,Array(51).fill({id:'a'.repeat(32),name:'Owner'}),[{id:'bad',name:'Owner'}],[{id:'a'.repeat(32),name:123}]].map(accounts=>({accounts})))('rejects malformed or excessive fallback account inventory %j',async ({accounts})=>{
+    vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(response(null,401)).mockResolvedValueOnce(response(accounts)));
+    await expect(verifyCfCredentials({apiToken:'token'})).rejects.toMatchObject({status:502});
+  });
+  it.each([429,503])('does not turn account-verifier HTTP %i into an ownership probe retry',async status=>{
+    const fetch=vi.fn().mockResolvedValueOnce(response(null,401)).mockResolvedValueOnce(response([{id:'a'.repeat(32),name:'Owner'}])).mockResolvedValueOnce(response(null,status));vi.stubGlobal('fetch',fetch);
+    await expect(verifyCfCredentials({apiToken:'token'})).rejects.toMatchObject({status});expect(fetch).toHaveBeenCalledTimes(3);
+  });
+  it.each([429,503])('does not probe accounts after user-verifier HTTP %i',async status=>{
+    const fetch=vi.fn().mockResolvedValue(response(null,status));vi.stubGlobal('fetch',fetch);
+    await expect(verifyCfCredentials({apiToken:'token'})).rejects.toMatchObject({status});expect(fetch).toHaveBeenCalledTimes(1);
+  });
+  it('preserves network failures at the account verifier',async()=>{
+    vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(response(null,401)).mockResolvedValueOnce(response([{id:'a'.repeat(32),name:'Owner'}])).mockRejectedValueOnce(new Error('offline')));
+    await expect(verifyCfCredentials({apiToken:'token'})).rejects.toThrow('offline');
+  });
+  it.each(['disabled','expired'])('rejects inactive %s tokens during connection verification',async status=>{
+    vi.stubGlobal('fetch',vi.fn().mockResolvedValue(response({status})));
+    await expect(verifyCfCredentials({apiToken:'token'})).rejects.toMatchObject({status:401,message:`Token status: ${status}`});
+  });
+  it('preserves account-token expiry in freshness results',async()=>{
+    vi.useFakeTimers();vi.setSystemTime(new Date('2026-10-01T00:00:00Z'));
+    vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(response(null,401)).mockResolvedValueOnce(response([{id:'a'.repeat(32),name:'Owner'}])).mockResolvedValueOnce(response({status:'active',expires_on:'2026-10-01T12:00:00Z'})));
+    await expect(checkCfCredentialFreshness({apiToken:'token'})).resolves.toEqual({fresh:false,reason:'expiring within 24 hours',expiresAt:Date.parse('2026-10-01T12:00:00Z')});
+  });
   it.each([401, 403, 429, 503])("surfaces HTTP %i with provider error details", async (status) => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ success: false, errors: [{ message: "first" }, { message: "second" }] }, { status })));
     await expect(cfFetch("/fixture", "token")).rejects.toMatchObject({ message: "first; second", status });

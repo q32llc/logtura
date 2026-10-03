@@ -26,6 +26,8 @@ tested archive in npm; a candidate commit is not a published release.
   Cleanup preserves checkpoint volumes and refuses unresolved provider outcomes.
 - Expand Cloudflare, Railway, Vercel, Supabase and custom Vector provider fixtures,
   runtime streaming/delivery tests, and typed filter and routing validation.
+- Support user-owned and account-owned Cloudflare tokens with verified owner,
+  status and expiry handling, bounded fallback, and Node/Workers request parity.
 - Validate installed tarballs outside the workspace, ordinary JavaScript and
   strict TypeScript consumers, CLI aliases and standalone execution. Real runtime
   gates cover generated Vector topologies and Bun streaming helpers.
