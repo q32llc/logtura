@@ -8,7 +8,7 @@ import { createDeploymentLink, validateDeploymentLink, type DeploymentLink } fro
 import { assertNoPendingPush, assertTransactionClear, commitFileTransaction, deploymentLinkPath } from "./file-transaction";
 /** Stage both files before touching either destination. Roll back ordinary I/O
  * failures, preserve unrelated .env entries, and never leave public secret files. */
-export async function writePulledConfig(result: DeploymentConfigExport, path: string, force = false, link?: DeploymentLink, pendingRequestId?:string): Promise<void> {
+export async function writePulledConfig(result: DeploymentConfigExport, path: string, force = false, link?: DeploymentLink, pendingRequestId?:string,creationPermit?:string,assertCurrent?:()=>void): Promise<void> {
     const parsed = parseDeploymentManifest(result.document, { env: result.secretValues });
     if (parsed.missingEnv.length)
         throw new Error("Service export is missing required secret payloads");
@@ -19,7 +19,8 @@ export async function writePulledConfig(result: DeploymentConfigExport, path: st
     if (config === env)
         throw new Error("Configuration cannot overwrite the companion .env file");
     const checkDestinations=()=>{
-      assertNoPendingPush(config,pendingRequestId);
+      assertCurrent?.();
+      assertNoPendingPush(config,pendingRequestId,creationPermit);
       for (const target of [config, env, ...(link ? [deploymentLinkPath(config)] : [])])
         if (existsSync(target) && !lstatSync(target).isFile())
             throw new Error("Pull requires regular file destinations");

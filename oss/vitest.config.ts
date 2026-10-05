@@ -55,6 +55,8 @@ export default defineConfig({
         "packages/core/src/manifest.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/json.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/pull.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
+        "packages/cli/src/create.ts": { statements: 95, branches: 90, functions: 100, lines: 100 },
+        "packages/core/src/deployment-creation.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/file-transaction.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/core/src/deployment-target.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },
         "packages/cli/src/fly-target.ts": { statements: 100, branches: 100, functions: 100, lines: 100 },

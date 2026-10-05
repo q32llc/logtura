@@ -50,6 +50,7 @@ let local: Awaited<ReturnType<typeof startLocalService>> | undefined;
 let website: Awaited<ReturnType<typeof startBrowser>> | undefined;
 let provider: ReturnType<typeof createServer> | undefined;
 let deploymentId: string | undefined, connectionId: string | undefined;
+const additionalDeploymentIds:string[]=[];
 let deployed = false, imageBuilt = false, installationAttempted = false, volumeCreated = false;
 const legacyContainer=`${container}-linked-legacy`;
 let legacyInstalled=false;
@@ -306,6 +307,25 @@ sinks:
   await waitFor(()=>legacyDeliveries>0,"actual original legacy Vector delivery");
   const interceptor = join(consumer, "provider-fixture.mjs");
   writeFileSync(interceptor, `const native=fetch;globalThis.fetch=(input,init)=>{const url=String(input);return native(url.startsWith('https://api.machines.dev/')?${JSON.stringify(providerUrl)}+'/'+url.slice('https://api.machines.dev/'.length):url.startsWith('https://registry.fixture/')?${JSON.stringify(providerUrl)}+'/registry/'+url.slice('https://registry.fixture/'.length):input,init)};`);
+  // The reverse round trip starts with the installed CLI, then real website
+  // configuration edits and CLI pull/apply. Creation verifies and links the
+  // owned existing-machine fixture through read-only provider calls.
+  const websiteCreatedId=deploymentId;
+  const created=JSON.parse((await start(bin,["--config",config,"--json","create","--connection",connectionId,"--name",`cli-created-${runId}`,"--target","fly","--app","e2e-forwarder","--machine","abc123","--force"],consumer,{...environment,NODE_OPTIONS:`--import=${pathToFileURL(interceptor)}`}).result).stdout);
+  additionalDeploymentIds.push(websiteCreatedId);deploymentId=created.deploymentId;
+  assert.ok(deploymentId);assert.notEqual(deploymentId,websiteCreatedId);
+  assert.equal((await request(`/api/deployments/${deploymentId}`)).deployment.managed,false);
+  const creationArchive=JSON.parse(readFileSync(created.archive,"utf8"));assert.equal(creationArchive.phase,"completed");
+  const creationReceipt=await request(`/api/deployments/creations/${creationArchive.request.requestId}`);assert.equal(creationReceipt.deployment.id,deploymentId);
+  await website.deployment(deploymentId,"No configuration revision has been recorded for this deployment.");
+  await run(bin,["pull",deploymentId,"--output",config,"--force"]);await run(bin,["--config",config,"push"]);
+  const creationSequence=(await request(`/api/deployments/${deploymentId}/config/state`)).state.desired.sequence;
+  await website.enableMetrics(deploymentId);
+  await run(bin,["pull",deploymentId,"--output",config,"--force"]);await run(bin,["--config",config,"push"]);
+  desired=(await request(`/api/deployments/${deploymentId}/config/state`)).state;
+  assert.ok(desired.desired.sequence>creationSequence);assert.equal(desired.desired.document.metrics.kind,"logtura");
+  assert.equal(JSON.parse(readFileSync(`${config}.logtura-link.json`,"utf8")).deployment.id,deploymentId);
+  console.log("Installed CLI creation → real website metrics edit → CLI pull/push passed; this created identity continues through actual runtime apply/rollback/cleanup below");
   const applied = start(bin, ["--config", config, "deploy", "fly", "--image", image, "--volume", "vol_fixture", "--region", "ord", "--wait-seconds", "120"], consumer,
     { ...environment, NODE_OPTIONS: `--import=${pathToFileURL(interceptor)}` }, 180_000);
   await applied.result;
@@ -427,6 +447,7 @@ finally {
   if (volumeCreated) await run("docker", ["volume", "rm", volume]).catch(() => cleanupFailures.push("owned checkpoint volume"));
   if (imageBuilt) await run("docker", ["image", "rm", imageTag]).catch(() => cleanupFailures.push("owned image tag"));
   if (ownedRequest) {
+    for(const id of additionalDeploymentIds)await ownedRequest(`/api/deployments/${id}`,undefined,"DELETE").catch(()=>cleanupFailures.push("owned CLI creation baseline deployment"));
     if (deploymentId) await ownedRequest(`/api/deployments/${deploymentId}`, undefined, "DELETE").catch(() => cleanupFailures.push("owned deployment"));
     for (const id of monitorIds) await ownedRequest(`/api/monitors/${id}`, undefined, "DELETE").catch(() => cleanupFailures.push("owned monitor"));
     for (const id of destinationIds) await ownedRequest(`/api/destinations/${id}`, undefined, "DELETE").catch(() => cleanupFailures.push("owned destination"));

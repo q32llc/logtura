@@ -60,7 +60,9 @@ export async function deploymentStatus(path:string){
  const rollbackRecovery=rollback?{pendingRollback:{requestId:rollback.request.requestId,app:rollback.replacement.plan.app,machineId:rollback.replacement.plan.before.id,candidateMachineId:rollback.replacement.machineId,completed:rollback.completion!==null}}:{};
  const cleanup=await (await import("./fly-cleanup")).readPendingFlyCleanup(path);
  const cleanupRecovery=cleanup?{pendingCleanup:{requestId:cleanup.request.requestId,app:cleanup.state.plan.replacement.plan.app,machineId:cleanup.state.plan.survivor.id,retiredMachineId:cleanup.state.plan.retired.id,phase:cleanup.state.phase,completed:cleanup.completion!==null}}:{};
- const recovery={...cleanupRecovery,...activationRecovery,...appliedRecovery,...replacementRecovery,...rollbackRecovery};
+ const creation=(await import("./create")).readPendingDeploymentCreation(path);
+ const creationRecovery=creation?{pendingCreation:{requestId:creation.request.requestId,phase:creation.phase,deploymentId:creation.receipt?.deployment.id??null}}:{};
+ const recovery={...creationRecovery,...cleanupRecovery,...activationRecovery,...appliedRecovery,...replacementRecovery,...rollbackRecovery};
  const link=await readDeploymentLink(path);if(!link)return {linked:false as const,...recovery};
  const document=normalizeDeploymentManifest(readConfigDoc(path)) as unknown as DeploymentManifest;
  const refs=manifestReferences(document),baseline=manifestReferences(link.document),env=readConfigEnvironment(path);

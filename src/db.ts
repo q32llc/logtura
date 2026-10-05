@@ -990,6 +990,7 @@ export async function getDeployment(
 }
 
 export interface CreateDeploymentInput {
+  externalId?:string|null;
   userId: string;
   /** Anchor connection — kept on the deployments row for app
    *  naming and as the fallback when sourceIds is null. The real
@@ -1006,24 +1007,20 @@ export interface CreateDeploymentInput {
   metadata?: Record<string, unknown> | null;
 }
 
-export async function createDeployment(
-  db: D1Database,
-  input: CreateDeploymentInput,
-): Promise<DeploymentRow> {
+export function prepareDeploymentCreation(db:D1Database,input:CreateDeploymentInput):{id:string;statement:D1PreparedStatement}{
   const id = newId("dep");
   const ts = now();
   // Per-deployment heartbeat token. The running container uses this to
   // authenticate to POST /api/heartbeat/:id; receiving the request
   // bumps last_seen_at. Random 32 bytes encoded as URL-safe base64.
   const heartbeatToken = newToken();
-  await db
-    .prepare(
+  const statement=db.prepare(
       `INSERT INTO deployments
        (id, user_id, connection_id, deploy_target_id, target_kind, display_name,
         managed, status, metadata_json, source_selection_json,
         monitor_selection_json, heartbeat_target, heartbeat_token,
-        created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`,
+        created_at, updated_at, external_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -1040,8 +1037,18 @@ export async function createDeployment(
       heartbeatToken,
       ts,
       ts,
+      input.externalId??null,
     )
-    .run();
+;
+  return {id,statement};
+}
+
+export async function createDeployment(
+  db: D1Database,
+  input: CreateDeploymentInput,
+): Promise<DeploymentRow> {
+  const {id,statement}=prepareDeploymentCreation(db,input);
+  await statement.run();
   const r = await getDeployment(db, input.userId, id);
   if (!r) throw new Error("deployment vanished after insert");
   return r;

@@ -56,8 +56,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       console.log(help());
       return 0;
     }
-    const readOnly=["login","whoami","logout","stats","diff","validate","bundle","push","deploy"].includes(command) || (command==="config" && ["status","recover","hash","diff"].includes(args[0]??""));
+    const readOnly=["login","whoami","logout","stats","diff","validate","bundle","push","deploy","create"].includes(command) || (command==="config" && ["status","recover","hash","diff"].includes(args[0]??""));
     if(!readOnly)assertNoPendingPush(findConfigPath(global.config).path);
+    if(command==="create")return await cmdCreate(global,args);
     if(command==="push")return await cmdPush(global,args);
     if (command === "init") return cmdInit(global, args);
     if (command === "login" || command === "whoami" || command === "logout") return await cmdAccount(command, global, args);
@@ -78,6 +79,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     console.error(err instanceof Error ? err.message : String(err));
     return 1;
   }
+}
+
+async function cmdCreate(global:GlobalArgs,args:string[]):Promise<number>{
+ const flags=parseFlags(args);for(const flag of Object.keys(flags))if(!['service','connection','name','target','app','machine','sourceIds','monitorIds','output','resume','force','abandon'].includes(flag))throw new Error(`Unsupported create option: ${flag}`);
+ const {createLinkedDeployment}=await import('./create');
+ const recovery=booleanFlag(flags,'resume') || booleanFlag(flags,'abandon');
+ if(recovery && ['connection','name','target','app','machine','sourceIds','monitorIds'].some(k=>flags[k]!==undefined))throw new Error('Creation recovery uses the saved intent');
+ const selection=(name:string)=>{const value=stringFlag(flags,name);return value===undefined || value==='all'?null:value==='none'?[]:value.split(',').map(id=>id.trim());};
+ const app=stringFlag(flags,'app'),machine=stringFlag(flags,'machine');if(!!app!==!!machine)throw new Error('Linking an existing Fly target requires both --app and --machine');
+ const {FlyMachinesClient}=await import('@logtura/core');
+ const connection=stringFlag(flags,'connection'),name=stringFlag(flags,'name');if(!recovery && (!connection || !name))throw new Error('create requires --connection and --name');
+ const path=stringFlag(flags,'output')??findConfigPath(global.config).path;
+ const result=await createLinkedDeployment(accountClient(stringFlag(flags,'service')),path,{request:recovery?undefined:{connectionId:connection!,displayName:name!,targetKind:stringFlag(flags,'target')??'fly',sourceIds:selection('sourceIds'),monitorIds:selection('monitorIds'),fly:app?{appName:app,machineId:machine!}:null},fly:app?new FlyMachinesClient({token:process.env.FLY_API_TOKEN??''}):undefined,resume:booleanFlag(flags,'resume'),force:booleanFlag(flags,'force'),abandon:booleanFlag(flags,'abandon')});
+ console.log(global.json?JSON.stringify(result):result.abandoned?`Archived deleted creation ${result.deploymentId}`:`Created and linked ${result.deploymentId} in ${path}`);return 0;
 }
 
 async function cmdPush(global:GlobalArgs,args:string[]):Promise<number>{
@@ -533,6 +548,10 @@ function parseFlags(argv: string[]): Record<string, string | boolean> {
     else if (a === "--vector-validate") flags.vectorValidate = true;
     else if (a === "-q" || a === "--quiet") flags.quiet = true;
     else if (a === "--upload-secrets") flags.uploadSecrets = true;
+    else if (a === "--connection") flags.connection = needValue(argv, ++i, a);
+    else if (a === "--target") flags.target = needValue(argv, ++i, a);
+    else if (a === "--source-ids") flags.sourceIds = needValue(argv, ++i, a);
+    else if (a === "--monitor-ids") flags.monitorIds = needValue(argv, ++i, a);
     else if (a === "--resume") flags.resume = true;
     else if (a === "--accept-remote") flags.acceptRemote = true;
     else if (a === "--force") flags.force = true;
@@ -774,6 +793,8 @@ function help(): string {
 
 Commands:
   init                              Create logt.yaml
+  create --connection <id> --name <name> [-o file]  Create and link a hosted deployment
+  create --resume                  Recover creation; --abandon archives verified deletion
   pull <deployment-id> [-o file]     Pull a website deployment and private .env
   push [--upload-secrets]            Push a linked graph; --resume recovers an interrupted push
   login [--service URL]             Approve CLI access in your browser
@@ -839,3 +860,6 @@ export { activateLinkedDeployment, readPendingActivation, finishLinkedActivation
 export {rollbackLinkedFlyDeployment,readPendingFlyRollback,type PendingFlyRollback} from "./fly-rollback";
 
 export {cleanupLinkedFlyDeployment,readPendingFlyCleanup,PrivateFlyCleanupStore,type PendingFlyCleanup} from "./fly-cleanup";
+
+export {createLinkedDeployment,readPendingDeploymentCreation} from "./create";
+export type {PendingDeploymentCreation} from "./create";

@@ -11,6 +11,10 @@ website reports its baseline manifest in sync; natural sink delivery is observed
 Explicit rollback/cleanup and final restoration remain open;
 earlier entries saying 0.3.3 is unpublished or schema 36 is undeployed are superseded.
 
+The remaining phase-5 CLI creation/linking gap is being closed in the
+[creation slice](cli-deployment-creation.md). Its local implementation and tests
+do not imply npm publication or production schema 37 rollout.
+
 This is the current acceptance index for the [full plan](oss-service-convergence-plan.md),
 not a replacement for its baseline matrix. The goal is still in progress. Historical
 milestones in that plan describe intermediate states; the evidence below identifies

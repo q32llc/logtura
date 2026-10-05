@@ -45,6 +45,18 @@ try {
     import {type FlyReplacementStore,type FlyReplacementState} from '@logtura/core';
     import {type FlyRollbackRequest,type FlyRollbackReceipt,type FlyRollbackRebaseRequest,type FlyRollbackRebaseReceipt,validateFlyRollbackFence} from '@logtura/core';
     const rollbackClient = new LogturaServiceClient({url:'https://service.fixture',fetch});
+    import {type DeploymentCreationRequest,type DeploymentCreationReceipt,validateDeploymentCreationRequest} from '@logtura/core';
+    import {createLinkedDeployment,readPendingDeploymentCreation,type PendingDeploymentCreation} from '@logtura/cli';
+    const typedCreate:(request:DeploymentCreationRequest)=>Promise<DeploymentCreationReceipt> = rollbackClient.createDeployment.bind(rollbackClient);
+    const typedCreationLookup:(requestId:string)=>Promise<DeploymentCreationReceipt|null> = rollbackClient.getDeploymentCreation.bind(rollbackClient);
+    const typedCreationJournal:PendingDeploymentCreation|null = readPendingDeploymentCreation('config.yaml');
+    const typedLinkedCreation:typeof createLinkedDeployment = createLinkedDeployment;
+    // @ts-expect-error Creation retains complete owner intent, including explicit source and monitor selection.
+    rollbackClient.createDeployment({connectionId:'con',displayName:'Name'});
+    // @ts-expect-error Private recovery retains its request, origin, owner and receipt.
+    const invalidCreationJournal:PendingDeploymentCreation = {schemaVersion:1};
+    void typedCreate;void typedCreationLookup;void typedCreationJournal;void typedLinkedCreation;void invalidCreationJournal;void validateDeploymentCreationRequest;
+
     import {type FlyCleanupRequest,type FlyCleanupReceipt,type FlyCleanupRebaseReceipt} from '@logtura/core';
     const typedCleanupPrepare:(id:string,input:FlyCleanupRequest)=>Promise<FlyCleanupReceipt> = rollbackClient.prepareFlyCleanup.bind(rollbackClient);
     const typedCleanupComplete:(id:string,requestId:string)=>Promise<FlyCleanupReceipt> = rollbackClient.completeFlyCleanup.bind(rollbackClient);

@@ -1,3 +1,4 @@
+import {validateDeploymentCreationRequest,validateDeploymentCreationReceipt,matchesDeploymentCreation,type DeploymentCreationRequest,type DeploymentCreationReceipt} from './deployment-creation';
 import {validateFlyCleanupRequest,validateFlyCleanupReceipt,validateFlyCleanupRebaseReceipt,type FlyCleanupRequest,type FlyCleanupReceipt,type FlyCleanupRebaseReceipt} from "./fly-cleanup";
 import {validateFlyRollbackRequest,validateFlyRollbackReceipt,validateFlyRollbackRebaseRequest,validateFlyRollbackRebaseReceipt,type FlyRollbackRequest,type FlyRollbackReceipt,type FlyRollbackRebaseRequest,type FlyRollbackRebaseReceipt} from "./fly-rollback";
 import { isInstanceId,validateDeploymentActivation,validateDeploymentInstanceReceipt,validateDeploymentConfigurationState,type DeploymentConfigurationState,type DeploymentInstanceActivation,type DeploymentInstanceReceipt } from "./deployment-state";
@@ -204,6 +205,17 @@ export class LogturaServiceClient {
     catch(error){if(error instanceof ServiceError && error.status===404 && error.code==="receipt_not_found")return null;throw error;}
     if(!receipt || receipt.requestId!==requestId || Object.keys(receipt).some(key=>!["requestId","result"].includes(key)))throw new ServiceError(200,"invalid_push_receipt");
     return {requestId,result:await validateDeploymentConfigCommit(receipt.result)};
+  }
+  async createDeployment(input:DeploymentCreationRequest):Promise<DeploymentCreationReceipt>{
+    const request=validateDeploymentCreationRequest(input);
+    const value=await this.request('/deployments/creations',{method:'POST',body:JSON.stringify(request)});
+    try{const receipt=validateDeploymentCreationReceipt(value);if(!matchesDeploymentCreation(receipt,request))throw new Error();return receipt;}catch{throw new ServiceError(200,'invalid_creation_receipt');}
+  }
+  async getDeploymentCreation(requestId:string):Promise<DeploymentCreationReceipt|null>{
+    if(!isInstanceId(requestId))throw new Error('Invalid deployment creation identity');
+    try{const value=await this.request(`/deployments/creations/${requestId}`);
+      try{const receipt=validateDeploymentCreationReceipt(value);if(receipt.request.requestId!==requestId)throw new Error();return receipt;}catch{throw new ServiceError(200,'invalid_creation_receipt');}
+    }catch(error){if(error instanceof ServiceError && error.status===404 && error.code==='receipt_not_found')return null;throw error;}
   }
   async logout():Promise<void>{await this.request("/cli/logout",{method:"POST",body:"{}"});}
 }

@@ -210,8 +210,41 @@ Forwarder reporting tokens cannot authorize account configuration operations.
 
 These account commands require a service deployment with CLI authorization
 support. Standalone setup, config, bundle and provider deployment commands do not
-require login. `pull` exports existing website deployments; `push` synchronizes local edits back to the website. Forwarder apply/acknowledgement remains upcoming.
+require login. `pull` exports existing website deployments; `push` synchronizes local edits back to the website. `deploy fly` applies a linked manifest and reports its accepted revision back to the website.
 
+
+## Create and link a hosted deployment
+
+```sh
+logt login
+logt create --connection con_your_connection --name "My forwarder" -o forwarder/logt.yaml
+# Link an existing Fly machine instead:
+logt create --connection con_your_connection --name "Existing forwarder" \
+  --app your-fly-app --machine your-machine-id -o forwarder/logt.yaml
+logt -c forwarder/logt.yaml config status
+```
+
+Creation adds a self-managed deployment to your signed-in account, then pulls its
+manifest and private environment file. It does not provision provider resources.
+Optional `--app` and `--machine` must appear together and require `FLY_API_TOKEN`;
+the CLI verifies both with read-only Fly requests before creating the record.
+The linked deployment appears on the website and uses the same edit, pull, push
+and apply flow as a deployment created there. `--target fly` is the default.
+
+`--source-ids all` and `--monitor-ids all` follow all account sources and monitors
+(the defaults). Use `none` for an empty selection, or comma-separated owned IDs
+for an explicit selection. The connection must belong to your account. Existing
+local files require `--force`; unrelated `.env` entries are preserved.
+
+Creation durably saves its exact intent in `.logtura-create.json` before sending
+the request. A lost response or failed pull retains this mode-0600 journal. Run
+`logt -c forwarder/logt.yaml create --resume` to reconcile the same server receipt
+without creating another deployment. Changed local files are preserved; explicit
+`--resume --force` repairs them from the current service export. Recover a pending
+config transaction first with `config recover`. If the server deployment was
+deleted, `create --abandon` archives its observed deletion and never recreates it.
+Keep creation journals, `.logtura-create.lock/`, `.logtura-created-*.json` and
+`.logtura-abandoned-creation-*.json` private and out of version control.
 
 ## Pull a website deployment
 

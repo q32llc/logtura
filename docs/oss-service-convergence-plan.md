@@ -5262,3 +5262,21 @@ requests still pass. Receipt output exposes counts, never private row values.
 Private cleanup implementation CI `37373864643` passed. Exact version-candidate
 CI and image publication remain independent gates; a terminal image job that
 executed no steps was retried at the same commit without changing its source.
+
+### Phase 5 closure slice: CLI-owned creation and linking (October 5, 2026)
+
+The completion audit found that hosted pull/push/apply did not yet provide the
+promised CLI create/link entry point. The [creation slice](cli-deployment-creation.md)
+adds public SDK contracts, an installed CLI command, durable private recovery and
+an atomic self-managed service operation with retained deletion receipts (schema
+37). Existing Fly bindings are verified read-only and stored in that same creation
+transaction. Standalone generation still needs no service account.
+
+Local workerd/public regression and owned coverage checks pass (1,890 tests);
+new contract/service modules have full coverage, and the CLI journal has explicit
+module floors. Installed archive declarations and isolated packaged service builds
+pass. The real website reverse round trip and actual Vector replacement/update/
+restart/rollback/both cleanup modes now run on the CLI-created logical identity.
+Public PR 21 is pending protected CI and review. Do not count this slice as npm
+published or production deployed: coordinated release, fresh schema-36 backup
+compatibility replay, SQL-file import of schema 37 and live smoke remain required.

@@ -11,7 +11,12 @@ export function pendingFlyApplyPath(config:string):string{return resolve(dirname
 export function pendingFlyCleanupPath(config:string):string{return resolve(dirname(resolve(config)),".logtura-cleanup.json");}
 export function pendingFlyRollbackPath(config:string):string{return resolve(dirname(resolve(config)),".logtura-rollback.json");}
 export function pendingFlyReplacementPath(config:string):string{return resolve(dirname(resolve(config)),".logtura-replacement.json");}
-export function assertNoPendingActivation(config:string):void {
+export function pendingCreationPath(config:string):string{return resolve(dirname(resolve(config)),".logtura-create.json");}
+export function assertNoPendingActivation(config:string,creationPermit?:string):void {
+ const creation=pendingCreationPath(config);
+ if(existsSync(creation)){let permitted=false;if(creationPermit && lstatSync(creation).isFile())try{permitted=JSON.parse(readFileSync(creation,"utf8")).request?.requestId===creationPermit;}catch{}
+  if(!permitted)throw new Error("Pending creation; run logt create --resume before writing configuration");}
+
  try{lstatSync(pendingFlyCleanupPath(config));throw new Error("Pending Fly cleanup; resume it before writing configuration");}catch(error){if((error as NodeJS.ErrnoException).code!=="ENOENT")throw error;}
  try{lstatSync(pendingFlyRollbackPath(config));throw new Error("Pending Fly rollback; resume or recover it before writing configuration");}catch(error){if((error as NodeJS.ErrnoException).code!=="ENOENT")throw error;}
  try{lstatSync(pendingFlyReplacementPath(config));throw new Error("Pending Fly replacement; resume or recover it before writing configuration");}catch(error){if((error as NodeJS.ErrnoException).code!=="ENOENT")throw error;}
@@ -19,8 +24,8 @@ export function assertNoPendingActivation(config:string):void {
  try{lstatSync(pendingActivationPath(config));}catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return;throw error;}
  throw new Error("Pending activation; resume or recover it before writing configuration");
 }
-export function assertNoPendingPush(config:string,permit?:string):void {
- assertNoPendingActivation(config);
+export function assertNoPendingPush(config:string,permit?:string,creationPermit?:string):void {
+ assertNoPendingActivation(config,creationPermit);
  const path=pendingPushPath(config);if(!existsSync(path))return;
  if(permit && lstatSync(path).isFile())try{if(JSON.parse(readFileSync(path,"utf8")).request?.requestId===permit)return;}catch{}
  throw new Error("Pending push; run logt push --resume before writing configuration");
@@ -28,9 +33,9 @@ export function assertNoPendingPush(config:string,permit?:string):void {
 export function assertTransactionClear(config:string):void {
   if(existsSync(transactionPath(config)))throw new Error("Configuration transaction pending; run logt config recover before reading or writing");
 }
-function assertConfigDestination(config:string):void {
+export function assertConfigDestination(config:string):void {
   const journal=transactionPath(config);
-  if([resolve(dirname(config),".env"),journal,`${journal}.commit`,pendingPushPath(config),pendingActivationPath(config),pendingFlyApplyPath(config),pendingFlyReplacementPath(config),pendingFlyRollbackPath(config),pendingFlyCleanupPath(config),resolve(dirname(config),".logtura-cleanup.lock"),resolve(dirname(config),".logtura-cleanup-command.lock"),resolve(dirname(config),".logtura-rollback.lock"),resolve(dirname(config),".logtura-replacement.lock"),resolve(dirname(config),".logtura-push.lock"),resolve(dirname(config),".logtura-apply.lock")].includes(resolve(config)))throw new Error("Configuration destination is reserved for private transaction state");
+  if([resolve(dirname(config),".env"),journal,`${journal}.commit`,pendingPushPath(config),pendingCreationPath(config),resolve(dirname(config),".logtura-create.lock"),pendingActivationPath(config),pendingFlyApplyPath(config),pendingFlyReplacementPath(config),pendingFlyRollbackPath(config),pendingFlyCleanupPath(config),resolve(dirname(config),".logtura-cleanup.lock"),resolve(dirname(config),".logtura-cleanup-command.lock"),resolve(dirname(config),".logtura-rollback.lock"),resolve(dirname(config),".logtura-replacement.lock"),resolve(dirname(config),".logtura-push.lock"),resolve(dirname(config),".logtura-apply.lock")].includes(resolve(config)))throw new Error("Configuration destination is reserved for private transaction state");
 }
 function syncFile(path:string):void {const fd=openSync(path,"r");try{fsyncSync(fd);}finally{closeSync(fd);}}
 function syncDirectory(path:string):void {

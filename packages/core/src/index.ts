@@ -105,3 +105,5 @@ export type {FlyRollbackRequest,FlyRollbackReceipt,FlyRollbackFence,FlyRollbackR
 
 export {validateFlyCleanupRequest,validateFlyCleanupReceipt,validateFlyCleanupRebaseReceipt} from "./fly-cleanup";
 export type {FlyCleanupRequest,FlyCleanupReceipt,FlyCleanupRebaseReceipt} from "./fly-cleanup";
+export {validateDeploymentCreationRequest,validateDeploymentCreationReceipt,matchesDeploymentCreation} from './deployment-creation';
+export type {DeploymentCreationRequest,DeploymentCreationReceipt} from './deployment-creation';

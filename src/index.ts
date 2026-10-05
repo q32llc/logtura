@@ -1,3 +1,5 @@
+import {createOwnedDeployment,readDeploymentCreation,DeploymentCreationError} from './deployment-creation';
+import {validateDeploymentCreationRequest,isInstanceId} from '@logtura/core';
 import {creationRequestMiddleware,creationRequestRoutes} from "./creation-requests";
 import { DeploymentInputError, parseDeploymentCreation, parseDeploymentMutation, parseManagedDeployInput } from "./deployment-input";
 import { GraphInputError, parseMonitorMutation, parseSinkMutation } from "./graph-input";
@@ -126,6 +128,8 @@ import {
 
 const app = new Hono<AppContext>();
 
+app.use('/api/deployments/creations',async(c,next)=>{c.header('cache-control','no-store');await next();});
+app.use('/api/deployments/creations/*',async(c,next)=>{c.header('cache-control','no-store');await next();});
 app.use("/api/deployments/:id/config",async(c,next)=>{c.header("cache-control","no-store");await next();});
 app.use("/api/deployments/:id/config/*",async(c,next)=>{c.header("cache-control","no-store");await next();});
 app.use("/api/applied/:id",async(c,next)=>{c.header("cache-control","no-store");await next();});
@@ -1283,6 +1287,18 @@ apiAuth.get("/connections/:id/deployments", async (c) => {
   const id = c.req.param("id");
   const rows = await listDeploymentsForConnection(c.env.DB, user.id, id);
   return c.json({ deployments: rows.map(toApiDeployment) });
+});
+
+apiAuth.get('/deployments/creations/:requestId',async c=>{
+ const requestId=c.req.param('requestId');if(!isInstanceId(requestId))return c.json({error:'invalid_creation_request'},400);
+ const receipt=await readDeploymentCreation(c.env.DB,c.get('user')!.id,requestId);
+ return receipt?c.json(receipt):c.json({error:'receipt_not_found'},404);
+});
+apiAuth.post('/deployments/creations',async c=>{
+ let request;try{request=validateDeploymentCreationRequest(await c.req.json());}catch{return c.json({error:'invalid_creation_request'},400);}
+ if(!getDeployTargetDriver(request.targetKind))return c.json({error:'unknown_target'},400);
+ try{return c.json(await createOwnedDeployment(c.env.DB,c.get('user')!.id,request));}
+ catch(error){if(error instanceof DeploymentCreationError)return c.json({error:error.code},error.status);throw error;}
 });
 
 apiAuth.post("/deployments", async (c) => {
