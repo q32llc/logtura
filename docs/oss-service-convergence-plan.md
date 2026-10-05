@@ -5184,3 +5184,18 @@ image/service release, fresh backup and schema 33–36 compatibility/rollback pr
 and original production upgrade/loaded-manifest/delivery/rollback/final restoration.
 The logged-in logtura.com browser session is authorized for production acceptance.
 No cleanup/replacement/rollback protocol or schema 33–36 is deployed to production.
+
+
+### Hosted private CI runner recovery
+
+The schema-36 protocol is merged through protected public PR #17 (`5b68832a`)
+with required CI passing and a fresh review audit showing no reviews/comments/
+threads to resolve. Private image CI passed. Private test jobs on `ubuntu-24.04`
+were repeatedly cancelled before any steps, with GitHub's annotation: “The job
+was not acquired by Runner of type hosted even after multiple attempts.”
+
+Private tests now request `ubuntu-latest`, matching the successful private image
+and public test jobs. The public job's setup log verifies Ubuntu 24.04.5 and runner
+image `ubuntu-24.04` version `20260927.320.1`; this fixes runner allocation rather
+than lowering Node, Vector, native service, browser, coverage or artifact gates.
+A successful private current-source execution remains required evidence.

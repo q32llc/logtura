@@ -10,7 +10,8 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-24.04
+    # Match the available hosted pool used by public CI and image builds.
+    runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
