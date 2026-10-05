@@ -15,7 +15,7 @@ tested archives. Production uses those actual npm packages. See [current rollout
 | --- | --- | --- |
 | Standalone published CLI and libraries | All 15 npm 0.3.2 archives match the original immutable release manifest; isolated JavaScript, NodeNext/Bundler TypeScript, both CLI aliases, runtime binary and offline generation checks pass. Public [release](https://github.com/logtura/logtura/releases/tag/v0.3.2) retains archives and recovery receipts. | Preserve these checks for subsequent releases. |
 | Service uses packaged public operations | `test:packed:service` compiles the actual service and website outside the workspace, verifies package isolation, rejects a missing core entry and runs native D1 lifecycle checks. Production 0.3.2 consumes actual registry archives. | No workspace-only build is accepted as release evidence. |
-| Portable desired configuration and loaded manifests | Public config/manifest APIs, service revision APIs, CLI pull/push/apply and runtime reporting ship together. Full private CI exercises browser edits, installed CLI edits, native workerd, actual Vector and applied acknowledgement. | Production account round trip and original forwarder loaded-manifest proof remain open. |
+| Portable desired configuration and loaded manifests | Public config/manifest APIs, service revision APIs, CLI pull/push/apply and runtime reporting ship together. Full private CI exercises browser edits, installed CLI edits, native workerd, actual Vector and applied acknowledgement. | Production CLI push → website and website edit → published CLI pull passed with exact graph restoration. Original forwarder loaded-manifest proof remains open. |
 | Thorough deterministic baseline | Workerd, package, UI, provider runtime and local browser/CLI/Vector suites pass in private [CI 37128046420](https://github.com/q32llc/logtura/actions/runs/37128046420). Public protected-main [CI 37128549675](https://github.com/logtura/logtura/actions/runs/37128549675) passes independently. | The selected native matrix audit is complete; preserve the distinction between fixture contracts and live accounts. |
 | High owned coverage and failure enforcement | Vitest includes backend, package and UI production sources with per-package/module floors. CI uploads LCOV/JSON/HTML and enforces 95% changed executable lines. An intentionally untested public PR failed at 0/2 lines and was blocked, then closed without merging. No Codecov service is required. | Private branch protection remains unavailable under the repository's current GitHub plan; this external limitation is not represented as an enforced private merge gate. |
 | Remote lifecycle and cleanup | `test:e2e:http` accepts a selected remote test account; `test:e2e:cloudflare` stages an audited artifact on disposable Worker/D1/queue resources. Actual npm-backed 0.3.2 staging passed and cleaned its resources. Ledgers, uncertain-dispatch fences and subprocess guards are tracked and tested. | Required CI uses workerd/Miniflare without Cloudflare credentials. Remote harnesses remain optional operator tools; the Cloudflare-backed Actions workflow has been removed. |
@@ -33,14 +33,19 @@ Its owned machine, Worker and tail are deleted. Volume deletion was acknowledged
 and the detached `pending_destroy` tombstone was verified; absence is not claimed.
 The original forwarder's config, instance and started state remained unchanged.
 
-The production browser's ordinary GitHub sign-in works. The CLI reached its
-normal device-approval screen, but the requested account grant was not approved
-and expired without issuing a token. That is not an authentication success or a
-production synchronization proof. Reissue the bounded request only when approval
-is available, then pull/edit/apply, observe the loaded runtime report, inspect the
-same deployment through the website, test rollback and revoke the canary grant.
-Never replace that acceptance flow with a fabricated session or reporting token.
+The ordinary production browser session approved the user-authorized temporary
+published CLI grant. Reversible CLI and website edits passed in both directions,
+and the original graph was restored. A separate local smoke client is also approved;
+its read-only probe passes liveness while truthfully reporting no applied manifest.
+Persistent lifetime support is locally tested and still needs verified deployment
+and its explicit browser decision.
 
-Completion still requires the production round trip and original forwarder
-upgrade, and accurate disposition of the private branch-protection limitation. Production snapshots, raw receipts,
+The original mountless Fly upgrade exposed a real provider constraint: its separately
+created checkpoint volume cannot be attached through the existing in-place update.
+Fly returned HTTP 400; the exact old configuration was verified and restarted.
+The issued runtime and private apply/volume journals remain for recovery through the
+retained-machine replacement path. No loaded-manifest upgrade is claimed.
+
+Completion still requires original forwarder loaded-manifest upgrade/rollback and
+persistent local smoke access, and accurate disposition of the private branch-protection limitation. Production snapshots, raw receipts,
 credentials and complete provider configuration remain private and gitignored.

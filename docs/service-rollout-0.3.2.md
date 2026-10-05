@@ -95,8 +95,10 @@ the earlier separate D1 overload diagnosis is not declared resolved.
 
 ## Remaining production gates
 
-The normal production account CLI/website round trip and original mountless
-forwarder upgrade still require the pending new CLI account grant. Verify loaded
+The normal production account CLI/website edit round trip passed on October 5
+and the exact baseline graph was restored. The original mountless forwarder
+upgrade remains open after a rejected in-place volume attachment; the original
+configuration was verified and restarted, with the apply journal retained. Verify loaded
 manifest, real delivery, website acknowledgement and rollback while preserving
 logical identity and routing; then revoke the canary grant. No production session
 or reporting token may be fabricated to replace that flow.

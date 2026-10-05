@@ -27,3 +27,6 @@ containers/forwarder/runtime/
 .logtura-apply.lock/
 .logtura-applied-*.json
 .logtura-abandoned-*.json
+
+# Long-lived local operator credentials; never release or CI artifacts
+.local/

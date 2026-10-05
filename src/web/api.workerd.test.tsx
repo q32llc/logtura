@@ -98,3 +98,12 @@ it("starts the Fly authorization fixture and refuses polling without its signed 
   expect(started).toEqual({ sessionId: "fixture-fly-session", authUrl: "https://fly.io/authorize/fixture-fly-session" });
   await expect(api.flyConnectPoll(started.sessionId)).rejects.toMatchObject({ status: 400, code: "session_mismatch" });
 });
+
+it("retains and revokes a real CLI client through the browser API and native D1",async()=>{
+  const started=await nativeFetch(`${service.url}/api/cli/device/start`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({label:"Local production smoke fixture"})});expect(started.status).toBe(200);
+  const device=await started.json() as {deviceCode:string;userCode:string};await api.decideCliDevice(device.userCode,true);
+  const issued=await nativeFetch(`${service.url}/api/cli/device/poll`,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({deviceCode:device.deviceCode})});expect(issued.status).toBe(200);
+  const row=(await api.cliTokens()).tokens.find(token=>token.label==="Local production smoke fixture");expect(row).toBeTruthy();
+  expect(await api.persistCliToken(row!.id)).toEqual({expiresAt:253402300799999,scope:"account:read account:write"});expect((await api.cliTokens()).tokens.find(token=>token.id===row!.id)?.expires_at).toBe(253402300799999);
+  await api.revokeCliToken(row!.id);await expect(api.persistCliToken(row!.id)).rejects.toMatchObject({status:404,code:"active_token_not_found"});
+});

@@ -73,6 +73,7 @@ export const api = {
   cliDevice: (code: string) => request<CliDevice>(`/cli/devices/${encodeURIComponent(code)}`),
   decideCliDevice: (code: string, approve: boolean) => request<{ok: boolean}>(`/cli/devices/${encodeURIComponent(code)}/decision`, {method: "POST",body: JSON.stringify({approve})}),
   cliTokens: () => request<{tokens: CliAccountToken[]}>("/cli/tokens"),
+  persistCliToken: (id: string) => request<{expiresAt:number;scope:string}>(`/cli/tokens/${encodeURIComponent(id)}/persist`, {method: "POST",body: JSON.stringify({persistent:true})}),
   revokeCliToken: (id: string) => request<{ok: boolean}>(`/cli/tokens/${encodeURIComponent(id)}`, {method: "DELETE"}),
   me: () => request<{ user: ApiUser | null }>("/me"),
   providers: () => request<{ providers: ApiProvider[] }>("/providers"),

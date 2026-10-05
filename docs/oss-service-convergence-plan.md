@@ -34,7 +34,7 @@ unchanged and running. See [0.3.2 rollout evidence](service-rollout-0.3.2.md).
 
 The selected native transport matrix is complete, with fixture/live distinctions
 retained. Completion still requires the normal production CLI/website round trip
-and original forwarder loaded-manifest upgrade/rollback. The pending CLI grant and private protection limitation remain explicit.
+and original forwarder loaded-manifest upgrade/rollback. The normal production account grant is now approved, and reversible CLI/website edits passed in both directions. The original loaded-manifest upgrade and private protection limitation remain explicit.
 Compatible Hono/Router patches are deployed; major/advisory decisions stay in the
 separate dependency plan.
 
@@ -5036,3 +5036,40 @@ remote cleanup/acceptance audit items, and accurate handling of external setup
 constraints. No production resource is deleted as a test, no forwarder image is
 changed in this service rollout, and the rejected Cloudflare-to-GitHub credential
 transfer remains untouched. The complete goal remains active.
+
+
+### October 5 production account journey and local smoke access
+
+The user explicitly authorized both temporary production CLI approval and a separate
+local production smoke credential retained for recurring use. The published 0.3.2
+CLI signed in normally as the existing website account. A reversible monitor name
+edit made through CLI push appeared on the production website. A website rollup
+window edit was pulled through the published CLI, then the exact original graph was
+restored and pushed. The restored baseline hash is
+`sha256:bc54fc48b9af8384e507478aa172f7943a3b06a30022b632e56431d1899ff319`,
+with desired sequence 2. Private evidence is retained under
+`.tmp/production-convergence-20261005/`; raw configuration and credentials remain
+outside version control.
+
+Read-only preflight verified the original Fly machine against the retained rollback,
+resolved the previously tested immutable 0.3.2 image, and captured a fresh complete
+rollback. An encrypted 1 GB checkpoint volume was created once with a durable intent
+ledger. The published CLI stopped the original machine but Fly rejected the in-place
+update with HTTP 400. Read-back proved the exact original configuration remained;
+the original was restarted and is running. The pending issued instance/apply journal
+is retained, not discarded or falsely counted as loaded-manifest acceptance.
+Fly's documented host-bound volume attachment requires the retained-machine
+replacement path for this mountless upgrade. The CLI path must support that recovery
+before claiming the production forwarder upgrade complete; no blind update/create
+retry is authorized by an observation timeout.
+
+A separate `local-production-smoke` client is approved normally and saved at
+`.local/logtura/production-smoke.json` with mode 0600 in a mode-0700 directory.
+The new read-only `pnpm smoke:production` operator command passed against production;
+it reports liveness separately from `configurationCurrent:false` for the original
+legacy runtime. It is not an ordinary CI step and needs no Cloudflare credentials.
+The [smoke access guide](production-smoke-testing.md) specifies explicit browser-owner
+retention until revocation, while preserving ordinary 90-day grants. Native auth,
+UI lifetime/revocation and redacted probe failure tests pass locally. Retention code
+is not production evidence until exact-commit CI, packaged service validation and
+verified service deployment complete and the browser acknowledges that decision.

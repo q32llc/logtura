@@ -1,6 +1,6 @@
 import { SELF, env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
-import { hashCliSecret } from "../../src/cli-auth";
+import { CLI_PERSISTENT_EXPIRY, hashCliSecret } from "../../src/cli-auth";
 import { signCookie } from "../../src/crypto";
 import { mockFetch, seedUser } from "./_setup";
 
@@ -118,4 +118,30 @@ it("rejects malformed JSON and unauthorized token management",async()=>{
  const issued=await issue(user.sessionCookie);const row=await env.DB.prepare("SELECT id FROM cli_account_tokens WHERE user_id=?").bind(user.userId).first<{id:string}>();
  expect((await SELF.fetch(`${url}/tokens/other`,{method:"DELETE",headers:{authorization:`Bearer ${issued.token}`}})).status).toBe(404);
  expect((await SELF.fetch(`${url}/tokens/${row!.id}`,{method:"DELETE",headers:{authorization:`Bearer ${issued.token}`}})).status).toBe(200);
+});
+
+
+describe("persistent local smoke-test access",()=>{
+  it("requires a browser owner and explicit lifetime decision, remains revocable and hashed",async()=>{
+    const user=await seedUser(),other=await seedUser(),credential=await issue(user.sessionCookie);
+    const row=await env.DB.prepare("SELECT id FROM cli_account_tokens WHERE user_id=?").bind(user.userId).first<{id:string}>();
+    const path=`/tokens/${row!.id}/persist`,headers={cookie:user.sessionCookie,origin:"http://localhost"};
+    expect((await json(path,{persistent:true})).status).toBe(401);
+    expect((await json(path,{persistent:true},{authorization:`Bearer ${credential.token}`,origin:"http://localhost"})).status).toBe(401);
+    expect((await json(path,{persistent:true},{cookie:user.sessionCookie,origin:"https://wrong.test"})).status).toBe(403);
+    expect((await json(path,{persistent:true},{cookie:other.sessionCookie,origin:"http://localhost"})).status).toBe(404);
+    for(const body of [null,[],{}, {persistent:false},{persistent:"true"},{persistent:true,extra:1}])expect((await json(path,body,headers)).status).toBe(400);
+    const malformed=await SELF.fetch(`${url}${path}`,{method:"POST",headers:{...headers,"content-type":"application/json"},body:"{"});expect(malformed.status).toBe(400);
+    for(let i=0;i<2;i++){const response=await json(path,{persistent:true},headers);expect(response.status).toBe(200);expect(response.headers.get("cache-control")).toBe("no-store");expect(await response.json()).toEqual({expiresAt:CLI_PERSISTENT_EXPIRY,scope:"account:read account:write"});}
+    const raw=await env.DB.prepare("SELECT expires_at,token_hash FROM cli_account_tokens WHERE id=?").bind(row!.id).first();expect(raw?.expires_at).toBe(CLI_PERSISTENT_EXPIRY);expect(raw?.token_hash).toBe(await hashCliSecret(credential.token));
+    expect((await SELF.fetch("http://localhost/api/me",{headers:{authorization:`Bearer ${credential.token}`}})).status).toBe(200);
+    await SELF.fetch(`${url}/tokens/${row!.id}`,{method:"DELETE",headers});
+    expect((await json(path,{persistent:true},headers)).status).toBe(404);
+    expect((await SELF.fetch("http://localhost/api/me",{headers:{authorization:`Bearer ${credential.token}`}})).status).toBe(401);
+  });
+  it("cannot revive expired or nonexistent credentials",async()=>{
+    const user=await seedUser();await issue(user.sessionCookie);const row=await env.DB.prepare("SELECT id FROM cli_account_tokens WHERE user_id=?").bind(user.userId).first<{id:string}>();
+    await env.DB.prepare("UPDATE cli_account_tokens SET expires_at=0 WHERE id=?").bind(row!.id).run();
+    for(const id of [row!.id,"missing"])expect((await json(`/tokens/${id}/persist`,{persistent:true},{cookie:user.sessionCookie,origin:"http://localhost"})).status).toBe(404);
+  });
 });

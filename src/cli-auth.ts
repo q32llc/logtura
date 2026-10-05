@@ -4,6 +4,9 @@ import { newId, newToken } from "./crypto";
 
 const DEVICE_TTL = 10 * 60_000;
 const TOKEN_TTL = 90 * 24 * 60 * 60_000;
+// Keep the original numeric credential contract compatible with published CLIs.
+// Year 9999 denotes access retained until revocation; ordinary grants stay 90 days.
+export const CLI_PERSISTENT_EXPIRY = 253402300799999;
 const POLL_INTERVAL = 5_000;
 const encoder = new TextEncoder();
 
@@ -111,6 +114,17 @@ export function cliAuthorizationRoutes() {
     if (!c.get("user") || c.get("authKind")!=="session") return c.json({error:"browser_session_required"},401);
     const rows=await c.env.DB.prepare("SELECT id,label,created_at,expires_at,revoked_at FROM cli_account_tokens WHERE user_id=? ORDER BY created_at DESC").bind(c.get("user")!.id).all();
     return c.json({tokens:rows.results});
+  });
+  routes.post("/tokens/:id/persist",async c=>{
+    if (!c.get("user") || c.get("authKind")!=="session") return c.json({error:"browser_session_required"},401);
+    if (c.req.header("origin")!==new URL(c.env.APP_URL).origin) return c.json({error:"invalid_origin"},403);
+    const body=await c.req.json().catch(()=>null) as Record<string,unknown>|null;
+    if (!body || typeof body!=="object" || Array.isArray(body) || Object.keys(body).length!==1 || body.persistent!==true) return c.json({error:"invalid_lifetime_request"},400);
+    const result=await c.env.DB.prepare(`UPDATE cli_account_tokens SET expires_at=?
+      WHERE id=? AND user_id=? AND revoked_at IS NULL AND expires_at>?`)
+      .bind(CLI_PERSISTENT_EXPIRY,c.req.param("id"),c.get("user")!.id,Date.now()).run();
+    if (!result.meta.changes) return c.json({error:"active_token_not_found"},404);
+    return c.json({expiresAt:CLI_PERSISTENT_EXPIRY,scope:"account:read account:write"});
   });
   routes.delete("/tokens/:id",async c=>{
     if (!c.get("user")) return c.json({error:"auth_required"},401);

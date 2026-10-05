@@ -26,6 +26,11 @@ export function CliAccess({user,loading}: {user: ApiUser | null;loading: boolean
     try{await api.revokeCliToken(id);setTokens((await api.cliTokens()).tokens);}
     catch(err){setError(err instanceof Error?err.message:"Could not revoke access");}finally{setBusy(false);}
   };
+  const persist=async(id:string)=>{
+    setBusy(true);setError(null);
+    try{await api.persistCliToken(id);setTokens((await api.cliTokens()).tokens);}
+    catch(err){setError(err instanceof Error?err.message:"Could not retain access");}finally{setBusy(false);}
+  };
   if(loading)return <Loader aria-label="Loading account" />;
   return <Stack maw={680} mx="auto">
     <Title order={2}>CLI access</Title>
@@ -46,9 +51,13 @@ export function CliAccess({user,loading}: {user: ApiUser | null;loading: boolean
       </Stack></Paper>}
       {!code && <Text>Run <Code>logt login</Code> in your terminal to connect the CLI to this account.</Text>}
       <Title order={3}>Authorized clients</Title>
+      <Text size="sm">Keeping a client until revoked preserves its account read/write access, including forwarder credentials.</Text>
       {tokens.filter(token=>token.revoked_at===null && token.expires_at>Date.now()).map(token=><Paper withBorder p="md" key={token.id}><Group justify="space-between">
-        <Stack gap={0}><Text>{token.label}</Text><Text size="sm" c="dimmed">Expires {new Date(token.expires_at).toLocaleDateString()}</Text></Stack>
-        <Button color="red" variant="outline" disabled={busy} onClick={()=>void revoke(token.id)}>Revoke</Button>
+        <Stack gap={0}><Text>{token.label}</Text><Text size="sm" c="dimmed">{token.expires_at===253402300799999?"Does not expire; revoke to remove access":`Expires ${new Date(token.expires_at).toLocaleDateString()}`}</Text></Stack>
+        <Group>
+          {token.expires_at!==253402300799999 && <Button variant="outline" disabled={busy} onClick={()=>void persist(token.id)}>Keep until revoked</Button>}
+          <Button color="red" variant="outline" disabled={busy} onClick={()=>void revoke(token.id)}>Revoke</Button>
+        </Group>
       </Group></Paper>)}
       {!tokens.some(token=>token.revoked_at===null && token.expires_at>Date.now()) && <Text c="dimmed">No active CLI clients.</Text>}
     </>}
