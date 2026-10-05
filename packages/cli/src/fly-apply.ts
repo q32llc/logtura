@@ -2,7 +2,7 @@ import {
   FlyMachinesClient, applyFlyMachine, compileForwarderRuntime, generateBundle, parseDeploymentManifest,
   planFlyRuntime, matchesFlyConfig, validateFlyRuntimeVolume, immutableFlyImage, resolveFlyImage, flyRollbackConfig, validateFlyMachine,
   validateForwarderRuntimeArtifact, canonicalConfigJson, VECTOR_VERSION, hashConfigDocument,
-  planFlyReplacement,executeFlyReplacement,FlyReplacementPending,validateFlyReplacementState,validateFlyBindingReceipt,
+  planFlyReplacement,executeFlyReplacement,FlyReplacementPending,validateFlyReplacementState,validateFlyBindingReceipt,isInstanceId,
   type FlyReplacementState,type FlyBindingReceipt,
   ServiceError, type LogturaServiceClient, type FlyMachine, type FlyMachinePlan, type FlyMachineConfig, type ForwarderRuntimeArtifact,
 } from "@logtura/core";
@@ -31,8 +31,16 @@ function save(path:string,value:PendingFlyApply,replace=false):void {
   try{const serialized=JSON.stringify(value)+"\n";if(Buffer.byteLength(serialized)>16_777_216)throw new Error("Private apply state exceeds its recovery reader limit");writeFileSync(stage,serialized,{flag:"wx",mode:0o600});flush(stage);if(replace)renameSync(stage,path);else linkSync(stage,path);}finally{rmSync(stage,{force:true});}
   flushParent(path);
 }
-export async function readPendingFlyApply(config:string):Promise<PendingFlyApply|null> {
-  const path=pendingFlyApplyPath(config);
+export async function readPendingFlyApply(config:string):Promise<PendingFlyApply|null> {return readApply(config,pendingFlyApplyPath(config));}
+export async function readPrivateFlyApplyArchive(config:string,id:string):Promise<PendingFlyApply|null>{
+  if(!isInstanceId(id))throw new Error("Invalid apply archive identity");
+  return readApply(config,resolve(dirname(resolve(config)),`.logtura-applied-${id}.json`));
+}
+export async function readPrivateFlyAbandonedApplyArchive(config:string,id:string):Promise<PendingFlyApply|null>{
+  if(!isInstanceId(id))throw new Error("Invalid abandoned apply archive identity");
+  return readApply(config,resolve(dirname(resolve(config)),`.logtura-abandoned-${id}.json`));
+}
+async function readApply(config:string,path:string):Promise<PendingFlyApply|null> {
   try{if(!lstatSync(path).isFile())throw new Error();}catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return null;throw new Error("Apply state must be a private regular file");}
   let fd:number;try{fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);}catch{throw new Error("Apply state must be a private regular file");}
   let value:PendingFlyApply;

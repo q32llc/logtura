@@ -41,7 +41,7 @@ try {
   const typesFile = join(consumer, "consumer.mts");
   writeFileSync(typesFile, packages.map((name, index) => `import * as package${index} from '@logtura/${name}';`).join("\n") + `
     import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient, FlyMachinesClient, buildFlyRuntimeConfig, flyBundleFiles, resolveFlyImage, selfDeployFiles, runtimeAssetFiles, renderDockerRunCommand, validateFilterSteps, type FilterStep, type FlyReplacementCleanupState, type FlyReplacementCleanupStore, planFlyReplacementCleanup, executeFlyReplacementCleanup} from '@logtura/core';
-    import {type PendingActivation, type PendingFlyApply, activateLinkedDeployment, PrivateFlyReplacementStore, readPrivateFlyReplacement} from '@logtura/cli';
+    import {type PendingActivation, type PendingFlyApply, activateLinkedDeployment, PrivateFlyReplacementStore, readPrivateFlyReplacement,rollbackLinkedFlyDeployment,readPendingFlyRollback,type PendingFlyRollback} from '@logtura/cli';
     import {type FlyReplacementStore,type FlyReplacementState} from '@logtura/core';
     import {type FlyRollbackRequest,type FlyRollbackReceipt,type FlyRollbackRebaseRequest,type FlyRollbackRebaseReceipt,validateFlyRollbackFence} from '@logtura/core';
     const rollbackClient = new LogturaServiceClient({url:'https://service.fixture',fetch});
@@ -51,6 +51,11 @@ try {
     // @ts-expect-error Rollback fences require the manifest revision.
     rollbackClient.rebaseFlyRollback('dep','rollback',{requestId:'request',configurationVersion:1,sequence:1});
     void typedRollbackPrepare;void typedRollbackComplete;void typedRollbackRebase;
+    const typedLinkedRollback:typeof rollbackLinkedFlyDeployment = rollbackLinkedFlyDeployment;
+    const typedPrivateRollback:Promise<PendingFlyRollback|null> = readPendingFlyRollback('config.yaml');
+    // @ts-expect-error Rollback handoff requires an explicitly authenticated provider client.
+    rollbackLinkedFlyDeployment(rollbackClient,'config.yaml',{});
+    void typedLinkedRollback;void typedPrivateRollback;
     const typedReplacementStore:FlyReplacementStore = new PrivateFlyReplacementStore('config.yaml');
     const typedReplacementState:FlyReplacementState|null = readPrivateFlyReplacement('config.yaml');
     void typedReplacementStore;void typedReplacementState;

@@ -5119,3 +5119,29 @@ consumers and the latest 12-test native rollback suite also passed. CI/public
 merge are separate requirements; the CLI provider lifecycle integration, native
 installed-CLI rollback acceptance, cross-generator production journal recovery and
 coordinated production release remain outstanding.
+
+
+### Installed CLI rollback — validation in progress
+
+The owner rollback protocol is merged through public PR #15 (`129b28da`) with
+required CI passing. The CLI now orchestrates private intent, retirement, leased
+candidate-stop/original-restore, completed receipt recovery and truthful target
+projection. Explicit resume/rebase handles website changes without rewriting the
+original provider settings. Local status includes redacted pending rollback state.
+
+The complete native workerd/Miniflare/browser/installed-package suite passed an
+actual legacy Vector HTTP delivery journey through replacement, candidate update,
+restart and rollback. Original delivery resumed with exact retained settings; the
+candidate was stopped and applied state remained unknown in both service and UI.
+Managed replacement/rollback/cleanup/restoration journeys also passed. All 15 packed
+consumers passed. Full enforced coverage passed 1,793 tests and every gate: 97.61% lines,
+96.92% statements, 94.36% branches and 98.92% functions. Changed executable
+coverage passed 134/135 lines (99.26%). Source and E2E typechecks passed.
+Private/public pushes and required CI remain separate evidence.
+
+Remaining: owner-fenced self-managed candidate cleanup and subsequent restoration,
+actual published 0.3.2 journal recovery with the next packaged CLI, coordinated
+package/image/service release, schema deployment with fresh backup/rollback proof,
+and original production loaded-manifest/delivery/rollback/final-restoration evidence.
+Production smoke uses the approved persistent local account token; CI stays local
+and uses owned coverage reports.

@@ -51,6 +51,8 @@ let website: Awaited<ReturnType<typeof startBrowser>> | undefined;
 let provider: ReturnType<typeof createServer> | undefined;
 let deploymentId: string | undefined, connectionId: string | undefined;
 let deployed = false, imageBuilt = false, installationAttempted = false, volumeCreated = false;
+const legacyContainer=`${container}-linked-legacy`;
+let legacyInstalled=false;
 let failure: unknown;
 let ownedRequest: ((path: string, body?: unknown, method?: string) => Promise<any>) | undefined;
 let monitorIds: string[] = [];
@@ -189,12 +191,13 @@ try {
   let registryReads = 0;
   const installed = join(temporary, "installed"); mkdirSync(installed);
   await run("docker", ["volume", "create", volume]); volumeCreated = true;
-  let updates = 0, creates = 0;
+  let updates = 0, creates = 0, legacyDeliveries=0;
   let retained: any = null;
-  let machine: any = { id: "abc123", instance_id: "original", state: "started", region: "ord", config: { image: "registry.fixture/old:latest", env: {} }, image_ref: { registry: "registry.fixture", repository: "old", digest: `sha256:${"b".repeat(64)}` } };
+  let machine: any = { id: "abc123", instance_id: "original", state: "started", region: "ord", config: { image: platformImage, env: {PRIVATE_OLD:"fixture-linked-legacy"} }, image_ref: { registry: "registry.fixture", repository: "forwarder", digest: platformDigest } };
   provider = createServer(async (request, response) => {
     try {
       const path = new URL(request.url!, "http://fixture").pathname;
+      if(path==="/legacy-output"){assert.equal(request.method,"POST");for await(const chunk of request){void chunk;}legacyDeliveries++;response.writeHead(204);response.end();return;}
       if (path.startsWith("/registry/")) {
         assert.equal(request.headers.authorization, undefined);
         const registryPath = path.slice("/registry".length);
@@ -207,12 +210,17 @@ try {
       const target = path.includes("/machines/abc123") && retained ? retained : machine;
       if (path.endsWith("/lease")) result = request.method === "DELETE" ? null : { data: { nonce: "fixture-lease" } };
       else if (request.method === "POST" && path.endsWith("/stop")) {
-        if (target === machine && deployed) await run("docker", ["stop", "--time", "35", container]);
+        if(target.id==="abc123" && legacyInstalled)await run("docker",["stop","--time","35",legacyContainer]);
+        else if (target === machine && deployed) await run("docker", ["stop", "--time", "35", container]);
         target.state = "stopped"; result = null;
       } else if (request.method === "POST" && path.endsWith("/start")) {
-        assert.equal(target, machine); assert.ok(deployed);
-        assert.ok(!retained || retained.state === "stopped", "standby must stop before the candidate starts");
-        await run("docker", ["start", container]); machine.state = "started"; result = null;
+        assert.ok(deployed);
+        if(target.id==="abc123"){
+          assert.equal(machine.state,"stopped");await run("docker",["start",legacyContainer]);target.state="started";
+        }else{
+          assert.equal(target,machine);assert.ok(!retained || retained.state === "stopped", "standby must stop before the candidate starts");
+          await run("docker", ["start", container]); machine.state = "started";
+        }result = null;
       } else if (request.method === "POST" && (path.endsWith("/machines") || /\/machines\/(abc123|def456)$/.test(path))) {
         let body = ""; for await (const chunk of request) body += chunk;
         const update = JSON.parse(body), creating = path.endsWith("/machines");
@@ -241,12 +249,13 @@ try {
         await run("docker", args); deployed = true;
         assert.equal(await run("docker", ["inspect", "--format", "{{.Image}}", container]), dockerImageId);
         updates++;
-        machine = { id: creating ? "def456" : machine.id, name: update.name, region: "ord", state: creating ? "created" : "stopped", instance_id: `updated-${updates}`, config: update.config, image_ref: { registry: "registry.fixture", repository: "forwarder", digest: platformDigest } };
+        machine = { id: creating ? "def456" : machine.id, name: creating ? update.name : machine.name, region: "ord", state: creating ? "created" : "stopped", instance_id: `updated-${updates}`, config: update.config, image_ref: { registry: "registry.fixture", repository: "forwarder", digest: platformDigest } };
         result = machine;
       } else if (path.endsWith("/machines")) result = retained ? [retained, machine] : [machine];
       else if (path.endsWith("/volumes")) result = [{ id: "vol_fixture", region: "ord", state: "created", encrypted: true, attached_machine_id: creates ? machine.id : null }];
       else if (/\/machines\/(abc123|def456)$/.test(path)) {
-        if (target === machine && deployed) machine.state = await run("docker", ["inspect", "--format", "{{.State.Running}}", container]) === "true" ? "started" : "stopped";
+        if(target.id==="abc123" && legacyInstalled)target.state=await run("docker",["inspect","--format","{{.State.Running}}",legacyContainer])==="true"?"started":"stopped";
+        else if (target === machine && deployed) machine.state = await run("docker", ["inspect", "--format", "{{.State.Running}}", container]) === "true" ? "started" : "stopped";
         result = target;
       } else { assert.equal(path, "/v1/apps/e2e-forwarder"); result = { name: "e2e-forwarder", organization: { slug: "personal" } }; }
       response.writeHead(result === null ? 204 : 200, { "content-type": "application/json" }); response.end(result === null ? undefined : JSON.stringify(result));
@@ -254,6 +263,30 @@ try {
   });
   await new Promise<void>(resolve => provider!.listen(0, "127.0.0.1", resolve));
   const providerUrl = `http://127.0.0.1:${(provider.address() as { port: number }).port}`;
+  const legacyDirectory=join(temporary,"linked-legacy");mkdirSync(legacyDirectory);
+  const legacyYaml=`api:
+  enabled: true
+  address: 0.0.0.0:8686
+sources:
+  legacy_pulse:
+    type: demo_logs
+    format: json
+    interval: 0.2
+sinks:
+  legacy_output:
+    type: http
+    inputs: [legacy_pulse]
+    uri: ${providerUrl}/legacy-output
+    encoding:
+      codec: json
+    batch:
+      timeout_secs: 0.2
+`;
+  writeFileSync(join(legacyDirectory,"vector.yaml"),legacyYaml,{mode:0o400});
+  machine.config={...machine.config,files:[{guest_path:"/etc/vector/vector.yaml",raw_value:Buffer.from(legacyYaml).toString("base64"),mode:0o400}],init:{cmd:["--config","/etc/vector/vector.yaml"]}};
+  const legacyBaseline=structuredClone(machine.config);
+  legacyInstalled=true;await run("docker",["run","--detach","--name",legacyContainer,"--network","host","--stop-timeout","35","--volume",`${legacyDirectory}:/etc/vector:ro`,"--env","PRIVATE_OLD=fixture-linked-legacy",imageTag,"--config","/etc/vector/vector.yaml"]);
+  await waitFor(()=>legacyDeliveries>0,"actual original legacy Vector delivery");
   const interceptor = join(consumer, "provider-fixture.mjs");
   writeFileSync(interceptor, `const native=fetch;globalThis.fetch=(input,init)=>{const url=String(input);return native(url.startsWith('https://api.machines.dev/')?${JSON.stringify(providerUrl)}+'/'+url.slice('https://api.machines.dev/'.length):url.startsWith('https://registry.fixture/')?${JSON.stringify(providerUrl)}+'/registry/'+url.slice('https://registry.fixture/'.length):input,init)};`);
   const applied = start(bin, ["--config", config, "deploy", "fly", "--image", image, "--volume", "vol_fixture", "--region", "ord", "--wait-seconds", "120"], consumer,
@@ -261,7 +294,7 @@ try {
   await applied.result;
   assert.equal(updates, 1); assert.equal(creates, 1);
   assert.equal(retained.id, "abc123"); assert.equal(retained.state, "stopped");
-  assert.deepEqual(retained.config, { image: "registry.fixture/old:latest", env: {} });
+  assert.deepEqual(retained.config,legacyBaseline);
   assert.equal(machine.id, "def456");
   const projected = JSON.parse(readFileSync(`${config}.logtura-link.json`, "utf8"));
   assert.equal(projected.target.fly.machineId, "def456");
@@ -290,8 +323,7 @@ try {
   assert.notEqual(state.activeInstanceId, firstInstance); assert.equal(state.stale, false);
   assert.equal(state.applied.revision, desired.desired.revision); assert.equal(state.applied.sequence, desired.desired.sequence);
   await website.applied(deploymentId, desired.desired.sequence, desired.desired.revision);
-  await website.revoke();
-  await assert.rejects(run(bin, ["whoami"]), /invalid_account_token \(HTTP 401\)/);
+
   website.assertNoErrors();
   const counterBeforeRestart = (await request(`/api/deployments/${deploymentId}/config/state`)).state.lastReportSequence;
   await run("docker", ["restart", "--time", "35", container]);
@@ -306,6 +338,18 @@ try {
   }, "durable runtime reporting across container restart");
   assert.deepEqual(service.unexpected, []);
   assert.ok(!JSON.stringify(state).includes("fixture-private-provider-token"));
+  const beforeRestoreDeliveries=legacyDeliveries;
+  await start(bin,["--config",config,"deploy","fly","--rollback","--wait-seconds","120","--json"],consumer,{...environment,NODE_OPTIONS:`--import=${pathToFileURL(interceptor)}`},180_000).result;
+  await waitFor(()=>legacyDeliveries>beforeRestoreDeliveries,"actual restored legacy Vector delivery");
+  assert.equal(retained.state,"started");assert.equal(machine.state,"stopped");assert.deepEqual(retained.config,legacyBaseline);
+  const rolledBack=(await request(`/api/deployments/${deploymentId}/config/state`)).state;
+  assert.equal(rolledBack.activeInstanceId,null);assert.equal(rolledBack.applied,null);assert.equal(rolledBack.stale,false);
+  assert.equal(JSON.parse(readFileSync(`${config}.logtura-link.json`,"utf8")).target.fly.machineId,"abc123");
+  await website.deployment(deploymentId,"Applied revision: not reported");
+  const rollbackStatus=JSON.parse(await run(bin,["--config",config,"config","status"]));assert.ok(!rollbackStatus.pendingRollback);assert.ok(!rollbackStatus.pendingReplacement);
+  await website.revoke();await assert.rejects(run(bin,["whoami"]),/invalid_account_token \(HTTP 401\)/);website.assertNoErrors();
+  await run("docker",["stop","--time","35",legacyContainer]);assert.equal(await run("docker",["inspect","--format","{{.State.ExitCode}}",legacyContainer]),"0");
+  console.log("Installed CLI: actual legacy delivery, leased replacement/update/restart, explicit rollback with original settings/delivery and truthful unknown applied state passed");
   injectFailure("after-runtime");
   await run("docker", ["stop", "--time", "35", container]);
   assert.equal(await run("docker", ["inspect", "--format", "{{.State.ExitCode}}", container]), "0");
@@ -349,6 +393,7 @@ try {
 finally {
   const cleanupFailures: string[] = [];
   for (const child of children) child.kill("SIGKILL");
+  if(legacyInstalled)await run("docker",["rm","--force",legacyContainer]).catch(()=>cleanupFailures.push("owned linked legacy container"));
   if (installationAttempted) await run("docker", ["rm", "--force", container]).catch(() => cleanupFailures.push("owned container"));
   if (volumeCreated) await run("docker", ["volume", "rm", volume]).catch(() => cleanupFailures.push("owned checkpoint volume"));
   if (imageBuilt) await run("docker", ["image", "rm", imageTag]).catch(() => cleanupFailures.push("owned image tag"));

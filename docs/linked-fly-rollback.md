@@ -40,18 +40,40 @@ atomic storage-failure rollback, explicit rebasing, owner isolation and corrupt
 stored data. Migration tests compare all existing rows and identities before and
 after schemas 34/35. Installed archive checks verify the SDK's emitted declarations.
 
-The protocol is implemented; the CLI command and installed-CLI provider lifecycle
-acceptance are the next integration work. Required CLI behavior includes a private
-fsynced rollback journal before service preparation; explicit resume/rebase;
-retaining unresolved apply/replacement journals; immutable archive validation;
-candidate-stop-before-original-start; truthful target projection; and crash/response-
-loss recovery through completion and local acknowledgement. Production upgrade,
-rollback and final restoration must use the published CLI and verify real delivery.
-No schema 33/34/35 or new replacement/rollback integration has yet been deployed to
-the original production deployment.
+The packaged CLI implements the owner handoff:
 
-Local validation passed the full 1,779-test suite with every enforced coverage gate,
-all 15 installed archive consumers, and the focused 12-test native rollback suite,
-including two additional prepare/rebase storage-failure cases added after the full
-run. Source typechecking passes. Required CI/public merge and the CLI lifecycle
-acceptance remain separate evidence; these checks do not establish production rollout.
+```sh
+logt deploy fly --rollback
+logt deploy fly --rollback --resume
+logt deploy fly --rollback --resume --rebase
+```
+
+It flushes a private rollback journal before service preparation, retains unresolved
+apply/replacement records, validates immutable installed or abandoned archives, and
+checks current service fences before each provider transition. Candidate stop
+precedes original start. Lost service responses and local projection acknowledgements
+resume from retained intent. Status exposes only recovery identities. Credentials and
+complete provider settings remain in private files.
+
+An explicit rebase acknowledges website changes while a handoff is pending. After
+completion, it reconciles local projection against a newer graph without changing
+the completed receipt or repeating provider lifecycle writes. Desired configuration
+changes remain pending; restoring the legacy machine leaves applied state unknown.
+The stopped candidate and checkpoint volume remain retained for explicit cleanup.
+
+The native installed-package suite exercised an actual running legacy Vector
+container delivering HTTP events, replacement, subsequent candidate update and
+restart, then CLI rollback to the original settings and resumed delivery. It checked
+that the candidate stopped before restoration, reports were retired, and the website
+showed no reported applied revision. Crash tests cover lost preparation/completion,
+local projection loss, repeated website rebases, and recovery after an obsolete apply
+was archived. All 15 installed archive consumers passed.
+
+Protected public main contains the owner protocol through PR #15 (`129b28da`), and
+its required CI passed. CLI integration passed 1,793 tests with every coverage gate, 97.61% overall
+line coverage and 134/135 changed executable lines. Publication and required
+CLI integration CI remain separate requirements. Explicit self-managed cleanup, cross-generator production journal
+recovery and the coordinated release remain outstanding. No schema 33/34/35 or
+replacement/rollback integration has yet been deployed to the original production
+deployment. Its upgrade, rollback and final restoration must use the published CLI
+and verify real loaded-manifest evidence and delivery.

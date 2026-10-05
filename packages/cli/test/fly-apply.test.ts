@@ -5,11 +5,12 @@ import {tmpdir} from "node:os";
 import {randomUUID} from "node:crypto";
 import {exportDeploymentManifest,createSecretVersioner,hashConfigDocument,LogturaServiceClient,FlyMachinesClient,type FlyMachine,type DeploymentConfigurationState,type DeploymentInstanceReceipt} from "@logtura/core";
 import {readPrivateFlyReplacement,readPrivateFlyReplacementArchive} from "../src/fly-replacement-store";
+import {rollbackLinkedFlyDeployment,readPendingFlyRollback} from "../src/fly-rollback";
 import {applyLinkedFlyDeployment,readPendingFlyApply,abandonObsoleteFlyApply} from "../src/fly-apply";
 import {readPendingActivation} from "../src/activation";
 import {createDeploymentLink,deploymentStatus,readDeploymentLink} from "../src/deployment-link";
 import {writePulledConfig} from "../src/pull";
-import {pendingFlyApplyPath,pendingActivationPath,pendingFlyReplacementPath,assertNoPendingPush,commitFileTransaction} from "../src/file-transaction";
+import {pendingFlyApplyPath,pendingActivationPath,pendingFlyReplacementPath,pendingFlyRollbackPath,assertNoPendingPush,commitFileTransaction} from "../src/file-transaction";
 import {writeConfigDoc} from "../src/config";
 import {main} from "../src/main";
 
@@ -24,36 +25,53 @@ async function fixture(){
  const link=await createDeploymentLink("https://service.test","usr_site",result);await writePulledConfig(result,config,false,link);
  let state:DeploymentConfigurationState={desired:{sequence:1,revision,document:exported.document,configurationVersion:3},applied:null,activeInstanceId:null,lastReportSequence:0,stale:false},receipt:DeploymentInstanceReceipt|null=null;
  let machine:FlyMachine={id:"abc123",instance_id:"version1",state:"started",region:"ord",config:{image:"registry.test/old:latest",env:{PREVIOUS_PRIVATE:"old-secret"},guest:{memory_mb:512},mounts:[{path:"/var/lib/logtura",volume:"vol_checkpoint"}]},image_ref:{registry:"registry.test",repository:"old",digest:`sha256:${"b".repeat(64)}`}};
- let candidate:FlyMachine|undefined,binding:any=null,snapshot={...result},creates=0;
+ let candidate:FlyMachine|undefined,binding:any=null,rollback:any=null,snapshot={...result},creates=0;const rebases=new Map<string,any>();
  let lost=false,activationLost=false,acknowledge=true,updates=0,issuances=0,leaseFailure=false,releaseFailure=false,org="personal",extraMachine=false,volumeRegion="ord",mutateOnWait=false,wrongAccount=false;
  const fetcher=vi.fn<typeof fetch>(async(url,init)=>{
   const path=new URL(String(url)).pathname;
   if(new URL(String(url)).origin==="https://registry.test"){expect(new Headers(init?.headers).has("authorization")).toBe(false);const body=registryBody(path);return body===null?new Response(null,{status:404}):new Response(body);}
   if(String(url).startsWith("https://service.test")){
    if(path.endsWith("/me"))return Response.json({user:{id:wrongAccount?"usr_other":"usr_site",githubLogin:"site"}});
-   if(path.endsWith("/state")){if(acknowledge && updates && receipt){state.lastReportSequence=1;state.applied={sequence:1,revision,at:Date.now()};state.stale=false;if(mutateOnWait)machine.config.env={changed:"outside"};}return Response.json({state});}
-   if(path.endsWith("/fly-capabilities"))return Response.json({schemaVersion:1,features:["replacement","image-update"]});
-   if(path.endsWith("/fly-binding"))return Response.json({binding:null});
+   if(path.endsWith("/state")){if(acknowledge && updates && receipt && state.activeInstanceId===receipt.instanceId){state.lastReportSequence=1;state.applied={sequence:1,revision,at:Date.now()};state.stale=false;if(mutateOnWait)machine.config.env={changed:"outside"};}return Response.json({state});}
+   if(path.endsWith("/fly-capabilities"))return Response.json({schemaVersion:1,features:["replacement","image-update","rollback"]});
+   if(path.endsWith("/fly-binding"))return Response.json({binding:binding && binding.request.machineId!==binding.request.previousMachineId && snapshot.target.fly.machineId===binding.request.machineId?binding:null});
    if(path.includes("/fly-bindings/"))return binding?Response.json(binding):Response.json({error:"receipt_not_found"},{status:404});
+   if(path.endsWith("/fly-rollbacks")){
+    const request=JSON.parse(init!.body as string);expect(fs.existsSync(pendingFlyRollbackPath(config))).toBe(true);
+    rollback={request,binding,status:"prepared",configurationVersion:request.expectedConfigurationVersion,fence:{configurationVersion:request.expectedConfigurationVersion,sequence:request.expectedSequence,revision:request.revision}};
+    state.activeInstanceId=null;state.applied=null;state.lastReportSequence=0;return Response.json(rollback);
+   }
+   if(path.includes("/fly-rollbacks/")){
+    if(path.endsWith("/rebases")){
+     const request=JSON.parse(init!.body as string),ack={rollbackId:rollback.request.requestId,request};rebases.set(request.requestId,ack);rollback={...rollback,configurationVersion:request.configurationVersion,fence:{configurationVersion:request.configurationVersion,sequence:request.sequence,revision:request.revision}};return Response.json(ack);
+    }
+    if(path.includes("/rebases/")){const ack=rebases.get(path.split("/").at(-1)!);return ack?Response.json(ack):Response.json({error:"receipt_not_found"},{status:404});}
+    if(path.endsWith("/complete")){
+     expect(candidate!.state).toBe("stopped");expect(machine.state).toBe("started");expect(machine.config.image).toBe(binding.request.previousImageDigest?`registry.test/old@${binding.request.previousImageDigest}`:null);
+     rollback={...rollback,status:"completed",configurationVersion:rollback.fence.configurationVersion+1};state.desired.configurationVersion=rollback.configurationVersion;
+     snapshot={...snapshot,configurationVersion:rollback.configurationVersion,desiredSequence:state.desired.sequence,revision:state.desired.revision,target:{kind:"fly",managed:false,imageDigest:binding.request.previousImageDigest,fly:{appName:"app",machineId:"abc123",region:"ord",orgSlug:"personal"}}};return Response.json(rollback);
+    }
+    return rollback?Response.json(rollback):Response.json({error:"receipt_not_found"},{status:404});
+   }
    if(path.endsWith("/fly-bindings")){const request=JSON.parse(init!.body as string);binding={request,configurationVersion:request.expectedConfigurationVersion+(request.machineId===request.previousMachineId?0:1)};state.desired.configurationVersion=binding.configurationVersion;snapshot={...result,configurationVersion:binding.configurationVersion,target:{kind:"fly",managed:false,imageDigest:request.imageDigest,fly:{appName:request.appName,machineId:request.machineId,region:request.region,orgSlug:request.orgSlug}}};return Response.json(binding);}
    if(path.endsWith("/config"))return Response.json(snapshot);
    if(init?.method==="POST"){const request=JSON.parse(init.body as string);issuances++;receipt={requestId:request.requestId,instanceId:randomUUID(),configurationVersion:3,sequence:1,revision};state.activeInstanceId=receipt.instanceId;expect(fs.existsSync(pendingActivationPath(config))).toBe(true);if(activationLost)throw new TypeError("activation acknowledgement lost");return Response.json(receipt);}
    return receipt?Response.json(receipt):Response.json({error:"receipt_not_found"},{status:404});
   }
   expect(new URL(String(url)).origin).toBe("https://api.machines.dev");
-  if(path.endsWith("/lease")){expect(fs.existsSync(pendingFlyApplyPath(config))).toBe(true);if(init!.method==="DELETE")return new Response(null,{status:releaseFailure?500:204});if(leaseFailure)return new Response(null,{status:409});return Response.json({data:{nonce:"lease-secret"}});}
+  if(path.endsWith("/lease")){expect(fs.existsSync(pendingFlyApplyPath(config)) || fs.existsSync(pendingFlyRollbackPath(config))).toBe(true);if(init!.method==="DELETE")return new Response(null,{status:releaseFailure?500:204});if(leaseFailure)return new Response(null,{status:409});return Response.json({data:{nonce:"lease-secret"}});}
   const physical=path.includes("/def456")?candidate:machine;
   if(path.endsWith("/start")){physical!.state="started";return new Response(null,{status:204});}
-  if(path.endsWith("/stop")){expect(fs.existsSync(pendingFlyApplyPath(config))).toBe(true);physical!.state="stopped";return new Response(null,{status:204});}
+  if(path.endsWith("/stop")){expect(fs.existsSync(pendingFlyApplyPath(config)) || fs.existsSync(pendingFlyRollbackPath(config))).toBe(true);physical!.state="stopped";return new Response(null,{status:204});}
   if(path.endsWith("/machines") && init?.method==="POST"){
    creates++;updates++;const saved=readPrivateFlyReplacement(config);expect(saved?.phase).toBe("creating");expect(machine.state).toBe("started");const body=JSON.parse(init.body as string);expect(body.skip_launch).toBe(true);expect(body.config).toEqual(saved!.plan.after);
    candidate={id:"def456",name:body.name,region:body.region,instance_id:"candidate-version",state:"created",config:body.config,image_ref:{registry:"registry.test",repository:"forwarder",digest:platformDigest}} as FlyMachine;
    if(lost)throw new TypeError("candidate create acknowledgement lost");return Response.json(candidate);
   }
   if(init?.method==="POST"){
-   updates++;const pending=await readPendingFlyApply(config);expect(pending).not.toBeNull();expect(fs.statSync(pendingFlyApplyPath(config)).mode&0o777).toBe(0o600);
-   const body=JSON.parse(init.body as string);expect(body.current_version).toBe("version1");expect(body.skip_launch).toBe(true);expect(machine.state).toBe("stopped");expect(body.config).toEqual(pending!.plan.after);expect(init.headers).toMatchObject({"fly-machine-lease-nonce":"lease-secret"});
-   machine={...machine,instance_id:"version2",config:body.config,image_ref:{registry:"registry.test",repository:"forwarder",digest:platformDigest}};
+   updates++;const pending=await readPendingFlyApply(config);if(!rollback){expect(pending).not.toBeNull();expect(fs.statSync(pendingFlyApplyPath(config)).mode&0o777).toBe(0o600);}
+   const body=JSON.parse(init.body as string);expect(body.current_version).toBe(machine.instance_id);expect(body.skip_launch).toBe(rollback?undefined:true);expect(machine.state).toBe("stopped");if(rollback){expect(candidate!.state).toBe("stopped");expect(body.config).toEqual(readPrivateFlyReplacement(config)!.plan.rollback);}else expect(body.config).toEqual(pending!.plan.after);expect(init.headers).toMatchObject({"fly-machine-lease-nonce":"lease-secret"});
+   machine={...machine,instance_id:"version2",config:body.config,image_ref:rollback?machine.image_ref:{registry:"registry.test",repository:"forwarder",digest:platformDigest}};
    if(lost)throw new TypeError("machine update acknowledgement lost");return Response.json(machine);
   }
   if(path.endsWith("/machines"))return Response.json(extraMachine?[machine,...(candidate?[candidate]:[]),{...machine,id:"other"}]:[machine,...(candidate?[candidate]:[])]);
@@ -63,7 +81,7 @@ async function fixture(){
   return Response.json({name:"app",organization:{slug:org}});
  });
  const client=new LogturaServiceClient({url:"https://service.test",token:`lt_cli_${"a".repeat(43)}`,fetch:fetcher}),fly=new FlyMachinesClient({token:"private-fly-token",fetch:fetcher}),options={fly,image,imageFetch:fetcher,volume:"vol_checkpoint",waitMs:20,pollMs:1};
- return {root,config,link,result,client,fly,options,fetcher,get creates(){return creates;},get candidate(){return candidate;},get binding(){return binding;},get state(){return state;},get machine(){return machine;},set machine(value){machine=value;},get updates(){return updates;},get issuances(){return issuances;},set lost(value:boolean){lost=value;},set activationLost(value:boolean){activationLost=value;},set acknowledge(value:boolean){acknowledge=value;},set leaseFailure(value:boolean){leaseFailure=value;},set releaseFailure(value:boolean){releaseFailure=value;},set org(value:string){org=value;},set extraMachine(value:boolean){extraMachine=value;},set volumeRegion(value:string){volumeRegion=value;},set mutateOnWait(value:boolean){mutateOnWait=value;},set wrongAccount(value:boolean){wrongAccount=value;}};
+ return {root,config,link,result,client,fly,options,fetcher,get creates(){return creates;},get candidate(){return candidate;},get binding(){return binding;},get rollback(){return rollback;},get state(){return state;},get machine(){return machine;},set machine(value){machine=value;},get updates(){return updates;},get issuances(){return issuances;},set lost(value:boolean){lost=value;},set activationLost(value:boolean){activationLost=value;},set acknowledge(value:boolean){acknowledge=value;},set leaseFailure(value:boolean){leaseFailure=value;},set releaseFailure(value:boolean){releaseFailure=value;},set org(value:string){org=value;},set extraMachine(value:boolean){extraMachine=value;},set volumeRegion(value:string){volumeRegion=value;},set mutateOnWait(value:boolean){mutateOnWait=value;},set wrongAccount(value:boolean){wrongAccount=value;}};
 }
 it("applies the issued runtime and archives exact private rollback material only after acknowledgement",async()=>{
  const f=await fixture(),original=structuredClone(f.machine);expect(await readPendingFlyApply(f.config)).toBeNull();
@@ -235,7 +253,7 @@ it("cancels read-only image preflight without issuing a replacement runtime",asy
 });
 
 it("rejects unsupported service capabilities before issuing an instance or touching the provider",async()=>{
- for(const value of [{schemaVersion:1,features:["replacement"]},{schemaVersion:2,features:["replacement","image-update"]},{schemaVersion:1,features:null}]){
+ for(const value of [{schemaVersion:1,features:["replacement"]},{schemaVersion:2,features:["replacement","image-update","rollback"]},{schemaVersion:1,features:null}]){
   const f=await fixture(),fetcher=f.fetcher.getMockImplementation()!;
   f.fetcher.mockImplementation(async(url,init)=>String(url).endsWith("/fly-capabilities")?Response.json(value):fetcher(url,init));
   await expect(applyLinkedFlyDeployment(f.client,f.config,f.options)).rejects.toThrow("Update the service");
@@ -333,4 +351,73 @@ it("refuses a missing private archive after the replacement journal was acknowle
  await expect(applyLinkedFlyDeployment(f.client,f.config,{...f.options,waitMs:200})).rejects.toThrow("archive interrupted");
  const pending=(await readPendingFlyApply(f.config))!;fs.rmSync(join(f.root,`.logtura-replaced-${pending.artifact.instance.instanceId}.json`));
  await expect(applyLinkedFlyDeployment(f.client,f.config,{...f.options,resume:true,waitMs:200})).rejects.toThrow("Replacement archive is missing");expect(await readPendingFlyApply(f.config)).not.toBeNull();expect(f.creates).toBe(1);
+});
+it("rolls back a completed replacement with retired reports and exact immutable old settings",async()=>{
+ const f=await fixture();delete f.machine.config.mounts;const old=structuredClone(f.machine);
+ await applyLinkedFlyDeployment(f.client,f.config,{...f.options,waitMs:200});const result=await rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,waitMs:200,pollMs:1});
+ expect(result).toMatchObject({machineId:"abc123",candidateMachineId:"def456",applied:null,needsPull:false});expect(f.machine.state).toBe("started");expect(f.candidate!.state).toBe("stopped");expect(f.machine.config).toEqual({...old.config,image:`registry.test/old@${old.image_ref.digest}`});
+ expect(f.rollback.status).toBe("completed");expect(f.state.activeInstanceId).toBeNull();expect(f.state.applied).toBeNull();expect(await readPendingFlyRollback(f.config)).toBeNull();expect(readPrivateFlyReplacement(f.config)).toBeNull();expect(fs.statSync(result.rollbackFile).mode&0o777).toBe(0o600);
+ expect(await readDeploymentLink(f.config)).toMatchObject({configurationVersion:5,target:{fly:{machineId:"abc123"},imageDigest:old.image_ref.digest}});assertNoPendingPush(f.config);expect(f.creates).toBe(1);
+});
+it("recovers a lost retirement acknowledgement before stopping either machine",async()=>{
+ const f=await fixture();delete f.machine.config.mounts;await applyLinkedFlyDeployment(f.client,f.config,{...f.options,waitMs:200});const fetcher=f.fetcher.getMockImplementation()!;let lose=true;
+ f.fetcher.mockImplementation(async(url,init)=>{const response=await fetcher(url,init);if(lose && String(url).endsWith("/fly-rollbacks") && init?.method==="POST"){lose=false;throw new Error("retirement acknowledgement lost");}return response;});
+ await expect(rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,waitMs:200,pollMs:1})).rejects.toThrow("retirement acknowledgement lost");expect(f.candidate!.state).toBe("started");expect(f.machine.state).toBe("stopped");expect(await readPendingFlyRollback(f.config)).not.toBeNull();expect((await deploymentStatus(f.config)).pendingRollback).toMatchObject({machineId:"abc123",candidateMachineId:"def456",completed:false});expect(()=>assertNoPendingPush(f.config)).toThrow("Pending Fly rollback");
+ const result=await rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,resume:true,waitMs:200,pollMs:1});expect(result.machineId).toBe("abc123");expect(f.creates).toBe(1);
+});
+it("recovers a lost completion response without starting the old machine twice",async()=>{
+ const f=await fixture();delete f.machine.config.mounts;await applyLinkedFlyDeployment(f.client,f.config,{...f.options,waitMs:200});const fetcher=f.fetcher.getMockImplementation()!;let lose=true;
+ f.fetcher.mockImplementation(async(url,init)=>{const response=await fetcher(url,init);if(lose && String(url).includes("/fly-rollbacks/") && String(url).endsWith("/complete")){lose=false;throw new Error("completion acknowledgement lost");}return response;});
+ await expect(rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,waitMs:200,pollMs:1})).rejects.toThrow("completion acknowledgement lost");const starts=f.fetcher.mock.calls.filter(([url,init])=>String(url).endsWith("/abc123/start") && init?.method==="POST").length;
+ expect(f.rollback.status).toBe("completed");await rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,resume:true,waitMs:200,pollMs:1});expect(f.fetcher.mock.calls.filter(([url,init])=>String(url).endsWith("/abc123/start") && init?.method==="POST")).toHaveLength(starts);
+});
+it("resumes local rollback projection after rename without repeating the provider handoff",async()=>{
+ const f=await fixture();delete f.machine.config.mounts;await applyLinkedFlyDeployment(f.client,f.config,{...f.options,waitMs:200});let lose=true;
+ vi.mocked(fs.renameSync).mockImplementation((from,to)=>{native.renameSync(from,to);if(lose && String(to).endsWith(".logtura-link.json")){lose=false;throw new Error("rollback projection lost");}});
+ await expect(rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,waitMs:200,pollMs:1})).rejects.toThrow("rollback projection lost");expect(readPrivateFlyReplacement(f.config)).toBeNull();expect((await readPendingFlyRollback(f.config))!.completion!.status).toBe("completed");expect((await deploymentStatus(f.config)).pendingRollback).toMatchObject({completed:true});
+ const starts=f.fetcher.mock.calls.filter(([url])=>String(url).endsWith("/abc123/start")).length;
+ await rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,resume:true,waitMs:200,pollMs:1});expect(f.fetcher.mock.calls.filter(([url])=>String(url).endsWith("/abc123/start"))).toHaveLength(starts);assertNoPendingPush(f.config);
+});
+it("supports repeated explicit website rebases while an asynchronous rollback remains pending",async()=>{
+ const f=await fixture();delete f.machine.config.mounts;await applyLinkedFlyDeployment(f.client,f.config,{...f.options,waitMs:200});const fetcher=f.fetcher.getMockImplementation()!;let hold=true;
+ f.fetcher.mockImplementation(async(url,init)=>{if(hold && String(url).endsWith("/abc123/start"))return new Response(null,{status:204});const response=await fetcher(url,init);if(String(url).endsWith("/config")){const snapshot=await response.json();return Response.json({...snapshot,configurationVersion:f.state.desired.configurationVersion,desiredSequence:f.state.desired.sequence,revision:f.state.desired.revision});}return response;});
+ await expect(rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,waitMs:100,pollMs:1})).rejects.toThrow("handoff pending");f.state.desired.configurationVersion++;
+ await expect(rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,resume:true,waitMs:100,pollMs:1})).rejects.toThrow("--rebase");
+ await expect(rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,resume:true,rebase:true,waitMs:100,pollMs:1})).rejects.toThrow("handoff pending");const previous=(await readPendingFlyRollback(f.config))!.rebase!.requestId;
+ f.state.desired.configurationVersion++;hold=false;
+ const result=await rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,resume:true,rebase:true,waitMs:200,pollMs:1});const archived=JSON.parse(fs.readFileSync(result.rollbackFile,"utf8"));expect(archived.rebase.requestId).not.toBe(previous);expect(f.fetcher.mock.calls.filter(([url,init])=>String(url).endsWith("/rebases") && init?.method==="POST")).toHaveLength(2);expect(f.creates).toBe(1);expect(result.applied).toBeNull();
+});
+it("explicitly reconciles a completed rollback after a newer website edit without repeating lifecycle writes",async()=>{
+ const f=await fixture();delete f.machine.config.mounts;await applyLinkedFlyDeployment(f.client,f.config,{...f.options,waitMs:200});const fetcher=f.fetcher.getMockImplementation()!;let lose=true;
+ f.fetcher.mockImplementation(async(url,init)=>{const response=await fetcher(url,init);if(lose && String(url).includes("/fly-rollbacks/") && String(url).endsWith("/complete")){lose=false;throw new Error("completion lost");}if(String(url).endsWith("/config")){const snapshot=await response.json();return Response.json({...snapshot,configurationVersion:f.state.desired.configurationVersion});}return response;});
+ await expect(rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,waitMs:200,pollMs:1})).rejects.toThrow("completion lost");f.state.desired.configurationVersion++;
+ await expect(rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,resume:true,waitMs:200,pollMs:1})).rejects.toThrow("--rebase");
+ const writes=f.fetcher.mock.calls.filter(([url,init])=>String(url).startsWith("https://api.machines.dev") && init?.method==="POST").length;
+ const result=await rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,resume:true,rebase:true,waitMs:200,pollMs:1});expect(result.applied).toBeNull();expect(f.fetcher.mock.calls.filter(([url,init])=>String(url).startsWith("https://api.machines.dev") && init?.method==="POST")).toHaveLength(writes);expect(await readDeploymentLink(f.config)).toMatchObject({configurationVersion:6,target:{fly:{machineId:"abc123"}}});
+});
+it("preserves and archives a bound apply interrupted before replacement acknowledgement",async()=>{
+ const f=await fixture();delete f.machine.config.mounts;let lose=true;
+ vi.mocked(fs.renameSync).mockImplementation((from,to)=>{native.renameSync(from,to);if(lose && String(to).endsWith(".logtura-link.json")){lose=false;throw new Error("apply projection lost");}});
+ await expect(applyLinkedFlyDeployment(f.client,f.config,{...f.options,waitMs:200})).rejects.toThrow("apply projection lost");expect(await readPendingFlyApply(f.config)).not.toBeNull();expect(readPrivateFlyReplacement(f.config)).not.toBeNull();
+ const result=await rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,waitMs:200,pollMs:1});expect(result.machineId).toBe("abc123");expect(await readPendingFlyApply(f.config)).toBeNull();expect(await readPendingFlyRollback(f.config)).toBeNull();expect(fs.readdirSync(f.root).some(name=>name.startsWith(".logtura-abandoned-"))).toBe(true);assertNoPendingPush(f.config);
+});
+it("rejects unsafe rollback/archived-apply identities and retains explicit private write fences",async()=>{
+ const f=await fixture();expect(await readPendingFlyRollback(f.config)).toBeNull();await expect(rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,resume:true})).rejects.toThrow("No pending");await expect(rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,rebase:true})).rejects.toThrow("Rebase requires");
+ for(const waitMs of [0,NaN,600001])await expect(rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,waitMs})).rejects.toThrow("budget");
+ const {readPrivateFlyApplyArchive,readPrivateFlyAbandonedApplyArchive}=await import("../src/fly-apply");for(const id of ["../private","bad"]){await expect(readPrivateFlyApplyArchive(f.config,id)).rejects.toThrow("identity");await expect(readPrivateFlyAbandonedApplyArchive(f.config,id)).rejects.toThrow("identity");}
+ fs.writeFileSync(pendingFlyRollbackPath(f.config),"{}",{mode:0o600});await expect(readPendingFlyRollback(f.config)).rejects.toThrow("Invalid private");expect(()=>assertNoPendingPush(f.config)).toThrow("Pending Fly rollback");
+ fs.chmodSync(pendingFlyRollbackPath(f.config),0o644);await expect(readPendingFlyRollback(f.config)).rejects.toThrow("Invalid private");fs.rmSync(pendingFlyRollbackPath(f.config));fs.symlinkSync(f.config,pendingFlyRollbackPath(f.config));await expect(readPendingFlyRollback(f.config)).rejects.toThrow("private regular");
+});
+it("dispatches explicit rollback CLI flags and rejects mixed deployment options",async()=>{
+ const f=await fixture();delete f.machine.config.mounts;await applyLinkedFlyDeployment(f.client,f.config,{...f.options,waitMs:200});
+ vi.stubEnv("FLY_API_TOKEN","private-fly-token");vi.stubEnv("LOGT_AUTH_FILE",join(f.root,"missing-profile"));vi.stubEnv("LOGT_SERVICE_TOKEN",`lt_cli_${"a".repeat(43)}`);vi.stubEnv("LOGT_SERVICE_URL","");vi.spyOn(globalThis,"fetch").mockImplementation(f.fetcher);const output=vi.spyOn(console,"log").mockImplementation(()=>{}),error=vi.spyOn(console,"error").mockImplementation(()=>{});
+ expect(await main(["-c",f.config,"deploy","fly","--rollback","--image",image])).toBe(1);expect(error.mock.calls.at(-1)![0]).toContain("combined");expect(await main(["-c",f.config,"deploy","fly","--rebase"])).toBe(1);expect(error.mock.calls.at(-1)![0]).toContain("requires");
+ expect(await main(["-c",f.config,"deploy","fly","--rollback","--json"])).toBe(0);expect(JSON.parse(output.mock.calls.at(-1)![0])).toMatchObject({machineId:"abc123",applied:null});expect(JSON.stringify(output.mock.calls)+JSON.stringify(error.mock.calls)).not.toMatch(/private-fly-token|private-report-token|old-secret/);
+});
+it("recovers after abandoning the obsolete apply and losing rollback target projection",async()=>{
+ const f=await fixture();delete f.machine.config.mounts;let failures=0;
+ vi.mocked(fs.renameSync).mockImplementation((from,to)=>{native.renameSync(from,to);if(String(to).endsWith(".logtura-link.json") && ++failures<=2)throw new Error("projection acknowledgement lost");});
+ await expect(applyLinkedFlyDeployment(f.client,f.config,{...f.options,waitMs:200})).rejects.toThrow("projection acknowledgement lost");
+ await expect(rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,waitMs:200,pollMs:1})).rejects.toThrow("projection acknowledgement lost");expect(await readPendingFlyApply(f.config)).toBeNull();expect(await readPendingFlyRollback(f.config)).not.toBeNull();
+ const result=await rollbackLinkedFlyDeployment(f.client,f.config,{fly:f.fly,resume:true,waitMs:200,pollMs:1});expect(result.machineId).toBe("abc123");expect(f.creates).toBe(1);assertNoPendingPush(f.config);
 });

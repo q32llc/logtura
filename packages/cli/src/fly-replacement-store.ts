@@ -36,6 +36,10 @@ export function readPrivateFlyReplacementArchive(config:string,id:string):FlyRep
  if(!isInstanceId(id))throw new Error("Invalid replacement archive identity");
  return readState(config,resolve(dirname(resolve(config)),`.logtura-replaced-${id}.json`));
 }
+export function readPrivateFlyRollbackArchive(config:string,id:string):FlyReplacementState|null{
+ if(!isInstanceId(id))throw new Error("Invalid rollback archive identity");
+ return readState(config,resolve(dirname(resolve(config)),`.logtura-rolled-back-${id}.json`));
+}
 function write(config:string,state:FlyReplacementState,initial:boolean):void{
  const path=pendingFlyReplacementPath(config),stage=`${path}.${randomUUID()}.tmp`;
  const envelope:Envelope={schemaVersion:1,config:resolve(config),state:validateFlyReplacementState(state)},serialized=JSON.stringify(envelope)+"\n";
@@ -55,6 +59,17 @@ export class PrivateFlyReplacementStore implements FlyReplacementStore {
   if(validated.phase!=="prepared")throw new Error("Prepare a replacement before any provider dispatch");
   return this.exclusive(async()=>{if(readPrivateFlyReplacement(this.config))throw new Error("Pending Fly replacement; resume its retained intent");write(this.config,validated,true);});
  }
+ /** Rehydrate only an acknowledged private replacement. The latest installed
+  * candidate payload may differ; the caller verifies it before acknowledgement. */
+ async prepareRollback(state:FlyReplacementState,assertCurrent:()=>Promise<void>):Promise<void>{
+  const validated=validateFlyReplacementState(state);if(validated.phase!=="installed")throw new Error("Rollback requires an installed private replacement");
+  return this.exclusive(async()=>{
+   if(readPrivateFlyReplacement(this.config))throw new Error("Pending Fly replacement; retain its recovery intent");
+   const archived=readPrivateFlyReplacementArchive(this.config,validated.plan.id);
+   if(!archived || archived.phase!=="installed" || archived.machineId!==validated.machineId || !equal({...archived.plan,after:validated.plan.after},validated.plan))throw new Error("Rollback does not match its acknowledged private replacement");
+   await assertCurrent();write(this.config,validated,true);
+  });
+ }
  async runExclusive<T>(operation:(transaction:FlyReplacementTransaction)=>Promise<T>):Promise<T>{
   return this.exclusive(async()=>operation({
    read:async()=>{const state=readPrivateFlyReplacement(this.config);if(!state)throw new Error("Replacement state is missing; retain provider resources for recovery");return state;},
@@ -72,7 +87,7 @@ export class PrivateFlyReplacementStore implements FlyReplacementStore {
    const state=readPrivateFlyReplacement(this.config);
    if(!state || !equal(state,expected) || !["installed","rolled_back"].includes(state.phase))throw new Error("Replacement is not ready to archive; retain it for recovery");
    await assertCurrent();
-   const path=pendingFlyReplacementPath(this.config),archive=resolve(dirname(path),`.logtura-replaced-${state.plan.id}.json`);
+   const path=pendingFlyReplacementPath(this.config),archive=resolve(dirname(path),`.logtura-${state.phase==="rolled_back"?"rolled-back":"replaced"}-${state.plan.id}.json`);
    try{linkSync(path,archive);}catch(error){
     if((error as NodeJS.ErrnoException).code!=="EEXIST" || !lstatSync(archive).isFile() || (process.platform!=="win32" && (lstatSync(archive).mode&0o077)!==0) || readFileSync(archive,"utf8")!==readFileSync(path,"utf8"))throw new Error("Replacement archive conflicts; retain it for recovery");
    }

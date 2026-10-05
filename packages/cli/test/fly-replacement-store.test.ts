@@ -108,3 +108,14 @@ it("keeps pending state when it changes during an archive acknowledgement",async
  const f=fixture();await f.store.prepare(f.prepared);const installed=await f.run();let checks=0;
  await expect(f.store.archive(installed,async()=>{if(++checks===2){const value=JSON.parse(fs.readFileSync(f.path,"utf8"));value.state.phase="rolling_back";fs.writeFileSync(f.path,JSON.stringify(value),{mode:0o600});}})).rejects.toThrow("changed before archive");expect(readPrivateFlyReplacement(f.config)?.phase).toBe("rolling_back");
 });
+it("rehydrates an acknowledged replacement for fenced rollback and retains both immutable archives",async()=>{
+ const f=fixture();await f.store.prepare(f.prepared);const installed=await f.run();await f.store.archive(installed,async()=>{});
+ const guard=vi.fn(async()=>{});await f.store.prepareRollback(installed,guard);expect(guard).toHaveBeenCalledOnce();expect(readPrivateFlyReplacement(f.config)).toEqual(installed);
+ const rolledBack=await f.run(true),archive=await f.store.archive(rolledBack,async()=>{});expect(archive).toContain(".logtura-rolled-back-");expect(fs.existsSync(join(f.root,`.logtura-replaced-${installed.plan.id}.json`))).toBe(true);expect(readPrivateFlyReplacement(f.config)).toBeNull();
+});
+it("rejects unacknowledged or changed rollback inputs and preserves failed preparation",async()=>{
+ const f=fixture();await f.store.prepare(f.prepared);const installed=await f.run();await expect(f.store.prepareRollback(f.prepared,async()=>{})).rejects.toThrow("installed");await expect(f.store.prepareRollback(installed,async()=>{})).rejects.toThrow("Pending");await f.store.archive(installed,async()=>{});
+ await expect(f.store.prepareRollback(installed,async()=>{throw new Error("owner fence changed");})).rejects.toThrow("owner fence changed");expect(readPrivateFlyReplacement(f.config)).toBeNull();
+ const changed=structuredClone(installed);changed.machineId="different";await expect(f.store.prepareRollback(changed,async()=>{})).rejects.toThrow("acknowledged");expect(readPrivateFlyReplacement(f.config)).toBeNull();
+ fs.rmSync(join(f.root,`.logtura-replaced-${installed.plan.id}.json`));await expect(f.store.prepareRollback(installed,async()=>{})).rejects.toThrow("acknowledged");
+});
