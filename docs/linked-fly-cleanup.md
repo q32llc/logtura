@@ -30,10 +30,10 @@ advancing the physical graph when the survivor target is unchanged.
 
 ## Durable CLI and shared backend
 
-The CLI should flush a bounded 0600 private journal before owner preparation or
+The CLI flushes a bounded 0600 private journal before owner preparation or
 provider writes, block conflicting local configuration/apply/rollback operations,
-and expose redacted pending status. Use `planFlyReplacementCleanup` and
-`executeFlyReplacementCleanup` rather than duplicating provider transitions.
+and exposes redacted pending status. It uses `planFlyReplacementCleanup` and
+`executeFlyReplacementCleanup` for the provider transitions.
 
 The existing engine validates exactly the saved survivor and retired inventory,
 original/candidate payloads, organization, checkpoint attachment and both provider
@@ -88,3 +88,34 @@ protocol has not yet shipped or authorized any production deletion. Rollback CLI
 integration is merged via protected public PR #16 (`2abe6a87`), whose required CI
 passed. Production remains on schema 32 until the coordinated release/backup/
 compatibility/rollback gates are satisfied.
+
+
+## Installed CLI cleanup integration
+
+`logt deploy fly --cleanup` keeps the current accepted candidate and deletes only
+its stopped retained original. After restoration, `--cleanup --rollback-id <id>`
+keeps the running original and deletes only the stopped candidate; rollback prints
+that receipt identity. Both commands preserve the encrypted checkpoint volume.
+
+The private intent is flushed before owner preparation. Resume observes uncertain
+DELETE rather than repeating it. Explicit `--cleanup --resume --rebase` preserves
+the immutable provider identities while acknowledging a newer website graph.
+Lost owner or archive acknowledgements retain recoverable proof. Finalizing an
+already completed cleanup against a newer graph uses a separate deterministic
+archive, preserving the earlier completion archive. Pending status and command
+results contain resource identities without credentials or provider payloads.
+
+The installed CLI native journey passed against actual Vector containers and
+workerd: mutable legacy image restored using its immutable digest, restored
+original HTTP delivery, candidate deletion with original delivery continuing,
+retained checkpoint reuse in a fresh replacement, a new accepted report and
+metrics timestamp, then original deletion while the accepted candidate continues.
+All 15 installed package checks include the cleanup orchestrator, private adapter
+and strict public declaration checks. Production cleanup remains pending release.
+
+
+Integration coverage passed 1,819 tests and every enforced gate: 97.65% lines,
+96.82% statements, 94.28% branches and 98.89% functions. The new private cleanup
+module has 100% line coverage. The current reader accepts the actual production
+0.3.2 pending apply and activation journals without mutation; this is read-only
+compatibility evidence, not proof of completed production recovery.

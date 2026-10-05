@@ -113,7 +113,7 @@ it("rejects malformed and oversized bodies, missing resources and invalid receip
 it("advertises binding capabilities only to the deployment owner",async()=>{
  const f=await fixture(),path=`http://localhost/api/deployments/${f.deployment.id}/config/fly-capabilities`;
  const owner=await SELF.fetch(path,{headers:{authorization:`Bearer ${f.token}`}});
- expect(owner.status).toBe(200);expect(await owner.json()).toEqual({schemaVersion:1,features:["replacement","image-update","rollback"]});
+ expect(owner.status).toBe(200);expect(await owner.json()).toEqual({schemaVersion:1,features:["replacement","image-update","rollback","cleanup"]});
  expect((await SELF.fetch(path)).status).toBe(401);
  const other=await fixture();expect((await SELF.fetch(path,{headers:{authorization:`Bearer ${other.token}`}})).status).toBe(404);
  expect((await SELF.fetch(path.replace(f.deployment.id,"dep_missing"),{headers:{authorization:`Bearer ${f.token}`}})).status).toBe(404);

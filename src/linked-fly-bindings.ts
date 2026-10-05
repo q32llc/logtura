@@ -47,7 +47,7 @@ export function linkedFlyBindingRoutes(){
  const routes=new Hono<AppContext>();
  routes.get("/deployments/:id/config/fly-capabilities",async c=>{
   try{if(!await getDeployment(c.env.DB,c.get("user")!.id,c.req.param("id")))return c.json({error:"not_found"},404);
-   return c.json({schemaVersion:1,features:["replacement","image-update","rollback"]});
+   return c.json({schemaVersion:1,features:["replacement","image-update","rollback","cleanup"]});
   }catch(error){return failure(c,error);}
  });
  routes.post("/deployments/:id/config/fly-bindings",async c=>{

@@ -367,7 +367,7 @@ async function cmdDeploy(global: GlobalArgs, args: string[]): Promise<number> {
   if (!ref.existed) throw new Error(`config not found; run logt init`);
   const link=await readDeploymentLink(ref.path);
   if(link){
-    for(const flag of Object.keys(flags))if(!["app","org","region","image","volume","machine","resume","waitSeconds","abandon","cancelRejected","rollback","rebase"].includes(flag))throw new Error(`Unsupported linked deploy option: ${flag}`);
+    for(const flag of Object.keys(flags))if(!["app","org","region","image","volume","machine","resume","waitSeconds","abandon","cancelRejected","rollback","rebase","cleanup","rollbackId"].includes(flag))throw new Error(`Unsupported linked deploy option: ${flag}`);
     if(process.env.LOGT_SERVICE_URL && normalizeServiceUrl(process.env.LOGT_SERVICE_URL)!==link.service)throw new Error("Configured service does not match the linked origin");
     if(flags.abandon || flags.cancelRejected){
       for(const flag of Object.keys(flags))if(!["abandon","cancelRejected"].includes(flag))throw new Error("Apply recovery cannot be combined with deployment options");
@@ -376,15 +376,24 @@ async function cmdDeploy(global: GlobalArgs, args: string[]): Promise<number> {
       if(flags.abandon){const {abandonObsoleteFlyApply}=await import("./fly-apply");const archive=await abandonObsoleteFlyApply(client,ref.path);console.log(global.json?JSON.stringify({abandoned:true,archive}):`Archived obsolete apply state: ${archive}`);}
       else{const {cancelRejectedLinkedActivation}=await import("./activation");await cancelRejectedLinkedActivation(client,ref.path);console.log(global.json?JSON.stringify({cancelled:true}):"Cancelled rejected activation");}return 0;
     }
+    if(flags.cleanup){
+      for(const flag of Object.keys(flags))if(!["cleanup","resume","rebase","waitSeconds","rollbackId"].includes(flag))throw new Error("Cleanup cannot be combined with deployment options");
+      const {cleanupLinkedFlyDeployment}=await import("./fly-cleanup"),{FlyMachinesClient}=await import("@logtura/core");
+      const seconds=stringFlag(flags,"waitSeconds"),stop=new AbortController(),interrupt=()=>stop.abort();process.on("SIGINT",interrupt);process.on("SIGTERM",interrupt);
+      try{const result=await cleanupLinkedFlyDeployment(accountClient(link.service),ref.path,{fly:new FlyMachinesClient({token:process.env.FLY_API_TOKEN??""}),rollbackId:stringFlag(flags,"rollbackId"),resume:booleanFlag(flags,"resume"),rebase:booleanFlag(flags,"rebase"),waitMs:seconds===undefined?undefined:Number(seconds)*1000,signal:stop.signal});
+        console.log(global.json?JSON.stringify(result):`Deleted retained machine ${result.deletedMachineId}; ${result.app}/${result.machineId} remains running and checkpoint ${result.volume} is retained.${result.needsPull?" Pull the deployment to reconcile its current configuration.":""}`);return 0;
+      }finally{process.off("SIGINT",interrupt);process.off("SIGTERM",interrupt);}
+    }
+    if(flags.rollbackId)throw new Error("Rollback identity requires --cleanup");
     if(flags.rollback){
       for(const flag of Object.keys(flags))if(!["rollback","resume","rebase","waitSeconds"].includes(flag))throw new Error("Rollback cannot be combined with deployment options");
       const {rollbackLinkedFlyDeployment}=await import("./fly-rollback"),{FlyMachinesClient}=await import("@logtura/core");
       const seconds=stringFlag(flags,"waitSeconds"),stop=new AbortController(),interrupt=()=>stop.abort();process.on("SIGINT",interrupt);process.on("SIGTERM",interrupt);
       try{const result=await rollbackLinkedFlyDeployment(accountClient(link.service),ref.path,{fly:new FlyMachinesClient({token:process.env.FLY_API_TOKEN??""}),resume:booleanFlag(flags,"resume"),rebase:booleanFlag(flags,"rebase"),waitMs:seconds===undefined?undefined:Number(seconds)*1000,signal:stop.signal});
-        console.log(global.json?JSON.stringify(result):`Restored ${result.app}/${result.machineId}; applied revision is unknown.${result.needsPull?" Pull the deployment to reconcile its current configuration.":""}`);return 0;
+        console.log(global.json?JSON.stringify(result):`Restored ${result.app}/${result.machineId}; applied revision is unknown. Retained candidate cleanup: logt deploy fly --cleanup --rollback-id ${result.rollbackId}.${result.needsPull?" Pull the deployment to reconcile its current configuration.":""}`);return 0;
       }finally{process.off("SIGINT",interrupt);process.off("SIGTERM",interrupt);}
     }
-    if(flags.rebase)throw new Error("Rebase requires --rollback --resume");
+    if(flags.rebase)throw new Error("Rebase requires --rollback --resume or --cleanup --resume");
     const {applyLinkedFlyDeployment}=await import("./fly-apply");
     const {FlyMachinesClient}=await import("@logtura/core");
     const seconds=stringFlag(flags,"waitSeconds"),stop=new AbortController(),interrupt=()=>stop.abort();
@@ -395,7 +404,7 @@ async function cmdDeploy(global: GlobalArgs, args: string[]): Promise<number> {
     }finally{process.off("SIGINT",interrupt);process.off("SIGTERM",interrupt);}
   }
   assertNoPendingPush(ref.path);
-  for(const flag of ["image","volume","machine","resume","waitSeconds","abandon","cancelRejected","rollback","rebase"])if(flags[flag]!==undefined)throw new Error(`${flag} requires a linked deployment`);
+  for(const flag of ["image","volume","machine","resume","waitSeconds","abandon","cancelRejected","rollback","rebase","cleanup","rollbackId"])if(flags[flag]!==undefined)throw new Error(`${flag} requires a linked deployment`);
   if (flags.writeEnv) {
     const code = cmdEnv(global, ["--write"]);
     if (code !== 0) return code;
@@ -544,6 +553,8 @@ function parseFlags(argv: string[]): Record<string, string | boolean> {
     else if (a === "--provider") flags.provider = needValue(argv, ++i, a);
     else if (a === "--account-id") flags.accountId = needValue(argv, ++i, a);
     else if (a === "--display-name") flags.displayName = needValue(argv, ++i, a);
+    else if (a === "--cleanup") flags.cleanup = true;
+    else if (a === "--rollback-id") flags.rollbackId = needValue(argv, ++i, a);
     else if (a === "--rollback") flags.rollback = true;
     else if (a === "--rebase") flags.rebase = true;
     else if (a === "--abandon") flags.abandon = true;
@@ -789,6 +800,8 @@ Commands:
   deploy fly --image <digest-ref> --volume <id>  Apply a linked revision
   deploy fly --resume              Recover a linked apply; wait for reporting
   deploy fly --abandon             Archive an obsolete owned apply
+  deploy fly --cleanup             Delete a retained standby; --rollback-id selects restored cleanup
+  deploy fly --cleanup --resume    Recover deletion; --rebase acknowledges website edits
   deploy fly --rollback            Restore a retained self-managed forwarder
   deploy fly --rollback --resume   Recover a rollback; --rebase acknowledges website edits
   deploy fly --cancel-rejected     Cancel an unissued rejected activation
@@ -824,3 +837,5 @@ export {PrivateFlyReplacementStore,readPrivateFlyReplacement} from "./fly-replac
 export { activateLinkedDeployment, readPendingActivation, finishLinkedActivation, cancelRejectedLinkedActivation, abandonObsoleteLinkedActivation, type PendingActivation } from "./activation";
 
 export {rollbackLinkedFlyDeployment,readPendingFlyRollback,type PendingFlyRollback} from "./fly-rollback";
+
+export {cleanupLinkedFlyDeployment,readPendingFlyCleanup,PrivateFlyCleanupStore,type PendingFlyCleanup} from "./fly-cleanup";

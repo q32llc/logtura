@@ -41,7 +41,7 @@ try {
   const typesFile = join(consumer, "consumer.mts");
   writeFileSync(typesFile, packages.map((name, index) => `import * as package${index} from '@logtura/${name}';`).join("\n") + `
     import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient, FlyMachinesClient, buildFlyRuntimeConfig, flyBundleFiles, resolveFlyImage, selfDeployFiles, runtimeAssetFiles, renderDockerRunCommand, validateFilterSteps, type FilterStep, type FlyReplacementCleanupState, type FlyReplacementCleanupStore, planFlyReplacementCleanup, executeFlyReplacementCleanup} from '@logtura/core';
-    import {type PendingActivation, type PendingFlyApply, activateLinkedDeployment, PrivateFlyReplacementStore, readPrivateFlyReplacement,rollbackLinkedFlyDeployment,readPendingFlyRollback,type PendingFlyRollback} from '@logtura/cli';
+    import {type PendingActivation, type PendingFlyApply, activateLinkedDeployment, PrivateFlyReplacementStore, readPrivateFlyReplacement,rollbackLinkedFlyDeployment,readPendingFlyRollback,type PendingFlyRollback,cleanupLinkedFlyDeployment,readPendingFlyCleanup,PrivateFlyCleanupStore,type PendingFlyCleanup} from '@logtura/cli';
     import {type FlyReplacementStore,type FlyReplacementState} from '@logtura/core';
     import {type FlyRollbackRequest,type FlyRollbackReceipt,type FlyRollbackRebaseRequest,type FlyRollbackRebaseReceipt,validateFlyRollbackFence} from '@logtura/core';
     const rollbackClient = new LogturaServiceClient({url:'https://service.fixture',fetch});
@@ -63,6 +63,14 @@ try {
     // @ts-expect-error Rollback handoff requires an explicitly authenticated provider client.
     rollbackLinkedFlyDeployment(rollbackClient,'config.yaml',{});
     void typedLinkedRollback;void typedPrivateRollback;
+    const typedLinkedCleanup:typeof cleanupLinkedFlyDeployment = cleanupLinkedFlyDeployment;
+    const typedPrivateCleanup:Promise<PendingFlyCleanup|null> = readPendingFlyCleanup('config.yaml');
+    const typedPrivateCleanupStore:FlyReplacementCleanupStore = new PrivateFlyCleanupStore('config.yaml');
+    // @ts-expect-error Cleanup requires an explicitly authenticated provider client.
+    cleanupLinkedFlyDeployment(rollbackClient,'config.yaml',{});
+    // @ts-expect-error Private cleanup retains the complete owner intent and provider proof.
+    const invalidPrivateCleanup:PendingFlyCleanup = {schemaVersion:1};
+    void typedLinkedCleanup;void typedPrivateCleanup;void typedPrivateCleanupStore;void invalidPrivateCleanup;
     const typedReplacementStore:FlyReplacementStore = new PrivateFlyReplacementStore('config.yaml');
     const typedReplacementState:FlyReplacementState|null = readPrivateFlyReplacement('config.yaml');
     void typedReplacementStore;void typedReplacementState;

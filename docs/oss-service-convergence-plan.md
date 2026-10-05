@@ -5177,9 +5177,13 @@ The previous private rollback CI jobs were cancelled before executing steps beca
 GitHub could not acquire a hosted runner. Local checks and required public CI passed;
 private hosted CI needs successful current-source execution when runners are available.
 
-Next: durable private CLI cleanup journal and owner-fenced shared cleanup backend,
-installed CLI rollback/cleanup/fresh replacement with actual delivery/report evidence,
-actual published 0.3.2 journal recovery using the next CLI, coordinated 0.3.3 package/
+The durable private CLI cleanup journal and owner-fenced shared cleanup backend
+are implemented. Installed CLI rollback, both cleanup modes and fresh replacement
+passed against actual local Vector containers and workerd, including restored
+legacy HTTP delivery, checkpoint retention and fresh accepted report/metrics evidence.
+All 15 packed consumers pass strict cleanup API declarations.
+
+Next: actual published 0.3.2 journal recovery using the next CLI, coordinated 0.3.3 package/
 image/service release, fresh backup and schema 33–36 compatibility/rollback proof,
 and original production upgrade/loaded-manifest/delivery/rollback/final restoration.
 The logged-in logtura.com browser session is authorized for production acceptance.

@@ -128,6 +128,6 @@ export async function rollbackLinkedFlyDeployment(client:LogturaServiceClient,co
   await restored();const journal=pendingFlyRollbackPath(config),archive=resolve(dirname(journal),`.logtura-rollback-${active.request.requestId}.json`);
   try{linkSync(journal,archive);}catch(error){if((error as NodeJS.ErrnoException).code!=="EEXIST" || !lstatSync(archive).isFile() || process.platform!=="win32" && (lstatSync(archive).mode&0o077)!==0 || readFileSync(archive,"utf8")!==readFileSync(journal,"utf8"))throw error;}
   parent(archive);await restored();rmSync(journal);parent(journal);
-  return {app:active.replacement.plan.app,machineId:active.replacement.plan.before.id,candidateMachineId:active.replacement.machineId,applied:null,needsPull:target.configurationVersion!==(active.finalization?.configurationVersion??receipt.configurationVersion),rollbackFile:archive};
+  return {rollbackId:active.request.requestId,app:active.replacement.plan.app,machineId:active.replacement.plan.before.id,candidateMachineId:active.replacement.machineId,applied:null,needsPull:target.configurationVersion!==(active.finalization?.configurationVersion??receipt.configurationVersion),rollbackFile:archive};
  },"Rollback");
 }
