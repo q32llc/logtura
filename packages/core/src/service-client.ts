@@ -1,3 +1,4 @@
+import {validateFlyRollbackRequest,validateFlyRollbackReceipt,validateFlyRollbackRebaseRequest,validateFlyRollbackRebaseReceipt,type FlyRollbackRequest,type FlyRollbackReceipt,type FlyRollbackRebaseRequest,type FlyRollbackRebaseReceipt} from "./fly-rollback";
 import { isInstanceId,validateDeploymentActivation,validateDeploymentInstanceReceipt,validateDeploymentConfigurationState,type DeploymentConfigurationState,type DeploymentInstanceActivation,type DeploymentInstanceReceipt } from "./deployment-state";
 import { validateDeploymentTarget,type DeploymentTarget } from "./deployment-target";
 import {validateFlyBindingRequest,validateFlyBindingReceipt,type FlyBindingRequest,type FlyBindingReceipt} from "./fly-binding";
@@ -37,6 +38,34 @@ export async function validateDeploymentConfigCommit(value:unknown):Promise<Depl
 }
 export class LogturaServiceClient {
   readonly url:string;
+  async rebaseFlyRollback(id:string,rollbackId:string,input:FlyRollbackRebaseRequest):Promise<FlyRollbackRebaseReceipt>{
+    if(!id || !isInstanceId(rollbackId))throw new Error("Invalid Fly rollback identity");const request=validateFlyRollbackRebaseRequest(input);
+    const result=await this.request(`/deployments/${encodeURIComponent(id)}/config/fly-rollbacks/${encodeURIComponent(rollbackId)}/rebases`,{method:"POST",body:JSON.stringify(request)});
+    try{const receipt=validateFlyRollbackRebaseReceipt(result);if(receipt.rollbackId!==rollbackId || canonicalConfigJson(receipt.request)!==canonicalConfigJson(request))throw new Error();return receipt;}catch{throw new ServiceError(200,"invalid_rollback_rebase_receipt");}
+  }
+  async getFlyRollbackRebase(id:string,rollbackId:string,requestId:string):Promise<FlyRollbackRebaseReceipt|null>{
+    if(!id || !isInstanceId(rollbackId) || !isInstanceId(requestId))throw new Error("Invalid Fly rollback rebase identity");
+    try{const result=await this.request(`/deployments/${encodeURIComponent(id)}/config/fly-rollbacks/${encodeURIComponent(rollbackId)}/rebases/${encodeURIComponent(requestId)}`,{method:"GET"});
+      try{const receipt=validateFlyRollbackRebaseReceipt(result);if(receipt.rollbackId!==rollbackId || receipt.request.requestId!==requestId)throw new Error();return receipt;}catch{throw new ServiceError(200,"invalid_rollback_rebase_receipt");}
+    }catch(error){if(error instanceof ServiceError && error.status===404 && error.code==="receipt_not_found")return null;throw error;}
+  }
+  async prepareFlyRollback(id:string,input:FlyRollbackRequest):Promise<FlyRollbackReceipt>{
+    if(!id)throw new Error("Deployment identity is required");const request=validateFlyRollbackRequest(input);
+    const result=await this.request(`/deployments/${encodeURIComponent(id)}/config/fly-rollbacks`,{method:"POST",body:JSON.stringify(request)});
+    try{const receipt=validateFlyRollbackReceipt(result);if(canonicalConfigJson(receipt.request)!==canonicalConfigJson(request))throw new Error();return receipt;}catch{throw new ServiceError(200,"invalid_rollback_receipt");}
+  }
+  async getFlyRollback(id:string,requestId:string):Promise<FlyRollbackReceipt|null>{
+    if(!id || !isInstanceId(requestId))throw new Error("Invalid Fly rollback identity");
+    try{const result=await this.request(`/deployments/${encodeURIComponent(id)}/config/fly-rollbacks/${encodeURIComponent(requestId)}`,{method:"GET"});
+      try{const receipt=validateFlyRollbackReceipt(result);if(receipt.request.requestId!==requestId)throw new Error();return receipt;}catch{throw new ServiceError(200,"invalid_rollback_receipt");}
+    }catch(error){if(error instanceof ServiceError && error.status===404 && error.code==="receipt_not_found")return null;throw error;}
+  }
+  async completeFlyRollback(id:string,requestId:string):Promise<FlyRollbackReceipt>{
+    if(!id || !isInstanceId(requestId))throw new Error("Invalid Fly rollback identity");
+    const result=await this.request(`/deployments/${encodeURIComponent(id)}/config/fly-rollbacks/${encodeURIComponent(requestId)}/complete`,{method:"POST"});
+    try{const receipt=validateFlyRollbackReceipt(result);if(receipt.request.requestId!==requestId || receipt.status!=="completed")throw new Error();return receipt;}catch{throw new ServiceError(200,"invalid_rollback_receipt");}
+  }
+
   async bindFlyReplacement(id:string,input:FlyBindingRequest):Promise<FlyBindingReceipt>{
     if(!id)throw new Error("Deployment identity is required");
     const request=validateFlyBindingRequest(input);

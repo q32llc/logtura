@@ -99,3 +99,6 @@ export {validateFlyBindingRequest,validateFlyBindingReceipt,flyBindingConfigurat
 export type {FlyBindingRequest,FlyBindingReceipt} from "./fly-binding";
 export {FlyReplacementCleanupPending,planFlyReplacementCleanup,validateFlyReplacementCleanupState,executeFlyReplacementCleanup} from "./fly-replacement-cleanup";
 export type {FlyReplacementCleanupPlan,FlyReplacementCleanupState,FlyReplacementCleanupStore,FlyReplacementCleanupTransaction} from "./fly-replacement-cleanup";
+
+export {validateFlyRollbackRequest,validateFlyRollbackReceipt,validateFlyRollbackFence,validateFlyRollbackRebaseRequest,validateFlyRollbackRebaseReceipt} from "./fly-rollback";
+export type {FlyRollbackRequest,FlyRollbackReceipt,FlyRollbackFence,FlyRollbackRebaseRequest,FlyRollbackRebaseReceipt} from "./fly-rollback";

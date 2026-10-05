@@ -43,6 +43,14 @@ try {
     import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient, FlyMachinesClient, buildFlyRuntimeConfig, flyBundleFiles, resolveFlyImage, selfDeployFiles, runtimeAssetFiles, renderDockerRunCommand, validateFilterSteps, type FilterStep, type FlyReplacementCleanupState, type FlyReplacementCleanupStore, planFlyReplacementCleanup, executeFlyReplacementCleanup} from '@logtura/core';
     import {type PendingActivation, type PendingFlyApply, activateLinkedDeployment, PrivateFlyReplacementStore, readPrivateFlyReplacement} from '@logtura/cli';
     import {type FlyReplacementStore,type FlyReplacementState} from '@logtura/core';
+    import {type FlyRollbackRequest,type FlyRollbackReceipt,type FlyRollbackRebaseRequest,type FlyRollbackRebaseReceipt,validateFlyRollbackFence} from '@logtura/core';
+    const rollbackClient = new LogturaServiceClient({url:'https://service.fixture',fetch});
+    const typedRollbackPrepare:(id:string,input:FlyRollbackRequest)=>Promise<FlyRollbackReceipt> = rollbackClient.prepareFlyRollback.bind(rollbackClient);
+    const typedRollbackComplete:(id:string,requestId:string)=>Promise<FlyRollbackReceipt> = rollbackClient.completeFlyRollback.bind(rollbackClient);
+    const typedRollbackRebase:(id:string,rollbackId:string,input:FlyRollbackRebaseRequest)=>Promise<FlyRollbackRebaseReceipt> = rollbackClient.rebaseFlyRollback.bind(rollbackClient);
+    // @ts-expect-error Rollback fences require the manifest revision.
+    rollbackClient.rebaseFlyRollback('dep','rollback',{requestId:'request',configurationVersion:1,sequence:1});
+    void typedRollbackPrepare;void typedRollbackComplete;void typedRollbackRebase;
     const typedReplacementStore:FlyReplacementStore = new PrivateFlyReplacementStore('config.yaml');
     const typedReplacementState:FlyReplacementState|null = readPrivateFlyReplacement('config.yaml');
     void typedReplacementStore;void typedReplacementState;

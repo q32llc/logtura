@@ -22,7 +22,7 @@ export async function activateDeploymentWithReceipt(db:D1Database,userId:string,
   ]);
   if(result.results[0]!.meta.changes!==1 || result.results[1]!.meta.changes!==1)throw new DeploymentInstanceError(409,"revision_changed");
   return {requestId:intent.requestId,instanceId,configurationVersion:intent.expectedConfigurationVersion,sequence:intent.expectedSequence,revision:intent.revision};
- }catch(error){const recovered=await readDeploymentInstanceReceipt(db,userId,deploymentId,intent.requestId,intent);if(recovered)return recovered;throw error;}
+ }catch(error){const recovered=await readDeploymentInstanceReceipt(db,userId,deploymentId,intent.requestId,intent);if(recovered)return recovered;if(error instanceof Error && error.message.includes("LOGT_FLY_ROLLBACK_PENDING"))throw new DeploymentInstanceError(409,"rollback_pending");throw error;}
 }
 
 /** Internal statement compiler for atomic service runtime intent + activation.

@@ -95,3 +95,9 @@ workerd/D1, browser and Vector journey. The permanent local production smoke tok
 also passed GET-only identity/state checks; the running original deployment remains
 truthfully unapplied. CI and protected public merge evidence are tracked separately
 from these local checks.
+
+The next rollback slice implements the owner protocol described in
+[Explicit linked Fly rollback](linked-fly-rollback.md): retirement precedes provider
+handoff, completion restores the retained target with unknown applied state, and
+explicit graph rebases retain immutable rollback identity. CLI lifecycle integration
+and its installed-CLI/native acceptance remain pending.

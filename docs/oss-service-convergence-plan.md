@@ -5103,3 +5103,19 @@ release, and the original production loaded-manifest/delivery/rollback acceptanc
 The original deployment is running, and its existing intent, checkpoint volume and
 immutable old settings remain retained. Owned CI coverage reports remain the coverage
 system; no Codecov service or production credentials are needed for CI.
+
+### Linked rollback protocol — implementation in progress
+
+Automatic linked replacement is merged to protected public main via PR #14
+(`692f0c1e`), with required private/public CI passing. Its final combined owned
+coverage gate passed 116/117 changed executable lines (99.15%).
+
+The subsequent owner rollback/rebase protocol is implemented and its focused native
+D1/SDK tests pass. It retires reports before lifecycle writes, atomically restores
+the original target with unknown applied state, and supports explicit graph rebases
+without rewriting retained rollback identity. See
+[the rollback contract](linked-fly-rollback.md). Full local coverage passed 1,779 tests and all enforced gates; all 15 packed
+consumers and the latest 12-test native rollback suite also passed. CI/public
+merge are separate requirements; the CLI provider lifecycle integration, native
+installed-CLI rollback acceptance, cross-generator production journal recovery and
+coordinated production release remain outstanding.

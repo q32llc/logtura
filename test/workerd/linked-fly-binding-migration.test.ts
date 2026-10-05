@@ -24,7 +24,7 @@ it("adds retained-machine binding receipts to schema 32 without changing any exi
  expect((await env.DB.prepare("PRAGMA foreign_key_check").all()).results).toEqual([]);
 });
 
-it("upgrades schema 33 with a real immutable binding receipt without changing retained state or identities",async()=>{
+it("upgrades schema 33 through schemas 34 and 35 with immutable binding state and identities",async()=>{
  const migrations=inject("migrations"),index=migrations.findIndex(m=>m.name==="0034_linked_fly_image_bindings.sql");expect(index).toBeGreaterThan(-1);
  await applyD1Migrations(env.DB,migrations.slice(0,index));
  const owner=await seedUser(),connection=await createConnection(env.DB,env,{userId:owner.userId,provider:"cloudflare-worker-tail",displayName:"Site",externalAccountId:"account",credentials:{apiToken:"private-source"}});
@@ -42,5 +42,12 @@ it("upgrades schema 33 with a real immutable binding receipt without changing re
  for(const [i,table] of tables.entries())expect((await env.DB.prepare(`SELECT * FROM ${table}`).all()).results).toEqual(before[i]!.results);
  expect(await readDeploymentConfiguration(env.DB,owner.userId,deployment.id)).toEqual(state);
  expect(await readFlyBindingReceipt(env.DB,owner.userId,deployment.id,request.requestId)).toEqual(receipt);
+ const rollbackMigration=migrations.find(m=>m.name==="0035_linked_fly_rollbacks.sql");expect(rollbackMigration).toBeDefined();
+ await applyD1Migrations(env.DB,[rollbackMigration!]);
+ for(const [i,table] of tables.entries())expect((await env.DB.prepare(`SELECT * FROM ${table}`).all()).results).toEqual(before[i]!.results);
+ expect(await readDeploymentConfiguration(env.DB,owner.userId,deployment.id)).toEqual(state);
+ expect(await readFlyBindingReceipt(env.DB,owner.userId,deployment.id,request.requestId)).toEqual(receipt);
+ expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM linked_fly_rollbacks").first("n")).toBe(0);
+ expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM linked_fly_rollback_rebases").first("n")).toBe(0);
  expect((await env.DB.prepare("PRAGMA foreign_key_check").all()).results).toEqual([]);
 });
