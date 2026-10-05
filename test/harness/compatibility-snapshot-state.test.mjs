@@ -1,7 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {backupSqlFile,restoredMigrationCount,validateRegistryCandidate,capturedMainModule} from '../../scripts/compatibility-snapshot-state.mjs';
+import {DatabaseSync} from 'node:sqlite';
+import {backupSqlFile,restoredMigrationCount,validateRegistryCandidate,capturedMainModule,readApplicationSnapshot,assertApplicationSnapshot} from '../../scripts/compatibility-snapshot-state.mjs';
 const migrations=Array.from({length:32},(_,i)=>({name:String(i+1).padStart(4,'0')+'_fixture.sql'}));
+function nativeAdapter(db){return {prepare(sql){return {all:async()=>({results:db.prepare(sql).all()})};},batch:async statements=>Promise.all(statements.map(s=>s.all()))};}
+test('real application snapshot preserves all original values while allowing additive tables and columns',async()=>{
+ const db=new DatabaseSync(':memory:');try{
+  db.exec("CREATE TABLE accounts(id TEXT PRIMARY KEY,opaque BLOB);INSERT INTO accounts VALUES('owner',x'0001ff');CREATE TABLE empty(id TEXT);CREATE TABLE _cf_metadata(internal TEXT);INSERT INTO _cf_metadata VALUES('ignored');CREATE TABLE d1_migrations(name TEXT);INSERT INTO d1_migrations VALUES('old');");
+  const adapter=nativeAdapter(db),snapshot=await readApplicationSnapshot(adapter);assert.deepEqual(snapshot.map(t=>t.name),['accounts','empty']);
+  db.exec('ALTER TABLE accounts ADD COLUMN extra TEXT;CREATE TABLE added(id TEXT);');
+  assert.deepEqual(await assertApplicationSnapshot(adapter,snapshot),{tables:2,rows:1});
+  db.exec("UPDATE accounts SET opaque=x'0102'");await assert.rejects(assertApplicationSnapshot(adapter,snapshot),/Original application rows changed: accounts/);
+  db.exec("UPDATE accounts SET opaque=x'0001ff';INSERT INTO empty VALUES('unexpected')");await assert.rejects(assertApplicationSnapshot(adapter,snapshot),/Original application rows changed: empty/);
+  db.exec('DELETE FROM empty;DELETE FROM accounts;');await assert.rejects(assertApplicationSnapshot(adapter,snapshot),/Original application rows changed: accounts/);
+ }finally{db.close();}
+});
+test('snapshot identifiers are bounded to actual supported application names before SQL construction',async()=>{
+ const db=new DatabaseSync(':memory:');try{db.exec('CREATE TABLE "unsafe-name"(id TEXT);');await assert.rejects(readApplicationSnapshot(nativeAdapter(db)));await assert.rejects(assertApplicationSnapshot(nativeAdapter(db),[{name:'accounts; DROP TABLE accounts',columns:['id'],rows:[]}]))}finally{db.close();}
+});
 test('captures the actual supported main module while rejecting extra executable modules',()=>{
   assert.equal(capturedMainModule(['index.js']),'index.js');assert.equal(capturedMainModule(['dist/index.html','worker.js']),'worker.js');
   for(const names of [[],['index.js','worker.js'],['worker.js','worker.js'],['worker.js','other.js'],['dist/index.html'],['worker.js','../other.html']])assert.throws(()=>capturedMainModule(names));

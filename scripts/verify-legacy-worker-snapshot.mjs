@@ -2,7 +2,7 @@ import {readFileSync,writeFileSync,mkdtempSync,lstatSync,realpathSync} from 'nod
 import {createHash} from 'node:crypto';import {resolve} from 'node:path';
 import assert from 'node:assert/strict';import {Miniflare} from 'miniflare';
 import {readD1Migrations} from '@cloudflare/vitest-pool-workers';
-import {backupSqlFile,restoredMigrationCount,validateRegistryCandidate,capturedMainModule} from './compatibility-snapshot-state.mjs';
+import {backupSqlFile,restoredMigrationCount,validateRegistryCandidate,capturedMainModule,readApplicationSnapshot,assertApplicationSnapshot} from './compatibility-snapshot-state.mjs';
 assert.ok(process.argv.length===4||process.argv.length===5,'Usage: verify-legacy-worker-snapshot.mjs <private-worker-snapshot> <private-database-backup> [private-registry-candidate]');
 const root=process.cwd(),rollback=resolve(process.argv[2]),backup=resolve(process.argv[3]),candidate=process.argv[4]?resolve(process.argv[4]):null;
 for(const directory of [rollback,backup,...(candidate?[candidate]:[])]){const stat=lstatSync(directory);assert.ok(stat.isDirectory()&&!stat.isSymbolicLink()&&stat.uid===process.getuid()&&(stat.mode&0o077)===0,'Snapshot inputs require owned private directories');assert.equal(realpathSync(directory),directory);}
@@ -23,14 +23,17 @@ try{
  await service.ready;const database=await service.getD1Database('DB');
  step='restore';const sql=readFileSync(backup+'/'+sqlFile,'utf8');assert.equal(createHash('sha256').update(sql).digest('hex'),backupReceipt.sha256);
  const dumps=await readD1Migrations(resolve(backup));assert.equal(dumps.length,1);await database.batch(dumps[0].queries.map(query=>database.prepare(query)));
- const oldMigrations=await database.prepare('SELECT name FROM d1_migrations ORDER BY id').all(),migrations=await readD1Migrations(resolve(root,'migrations'));
+ const oldMigrations=await database.prepare('SELECT * FROM d1_migrations ORDER BY id').all(),migrations=await readD1Migrations(resolve(root,'migrations'));
  const priorMigrations=restoredMigrationCount(oldMigrations.results.map(m=>m.name),migrations,sqlFile);
+ const originalApplication=await readApplicationSnapshot(database);
  const before=await database.prepare('SELECT * FROM deployments').all();assert.equal(before.results.length,1);const legacy=before.results[0];assert.equal(legacy.managed,0);assert.equal(legacy.status,'running');assert.ok(legacy.heartbeat_token);
  writeFileSync(privateDirectory+'/legacy-before.json',JSON.stringify(legacy),{mode:0o600});
  step='migrate';
  for(const migration of migrations.slice(priorMigrations)){await database.batch(migration.queries.map(query=>database.prepare(query)));await database.prepare('INSERT INTO d1_migrations(name) VALUES(?)').bind(migration.name).run();}
  const after=await database.prepare('SELECT * FROM deployments').all();for(const [key,value]of Object.entries(legacy))assert.deepEqual(after.results[0][key],value,'Legacy field changed: '+key);
  assert.equal((await database.prepare('SELECT name FROM d1_migrations').all()).results.length,migrations.length);
+ assert.deepEqual((await database.prepare('SELECT * FROM d1_migrations WHERE id<=? ORDER BY id').bind(priorMigrations).all()).results,oldMigrations.results);
+ const preservedApplication=await assertApplicationSnapshot(database,originalApplication);
  step='old-worker-requests';
  const call=(path,token,body)=>service.dispatchFetch(`http://127.0.0.1/api/${path}/${legacy.id}`,{method:'POST',headers:{authorization:`Bearer ${token}`,'content-type':'application/json'},body:JSON.stringify(body)});
  const unauthorized=await call('heartbeat','invalid-fixture',{});assert.equal(unauthorized.status,401);await unauthorized.body?.cancel();
@@ -39,6 +42,6 @@ try{
  const reported=await database.prepare('SELECT status,last_seen_at,metrics_snapshot_json FROM deployments WHERE id=?').bind(legacy.id).first();assert.equal(reported.status,'running');assert.ok(reported.last_seen_at>Date.now()-30000);const reportedSnapshot=JSON.parse(reported.metrics_snapshot_json);assert.equal(reportedSnapshot.byComponent.compatibility_fixture.sent,expectedSent);
  const foreign=await database.prepare('PRAGMA foreign_key_check').all();assert.deepEqual(foreign.results,[]);
  assert.equal(outboundRequests,0,'Unexpected outbound provider request in compatibility replay');
- const evidence={schemaVersion:1,status:'passed',workerSourceDigest:candidateManifest?.workerDigest??receipt.sourceDigest,restoredProductionData:true,priorMigrations,currentMigrations:migrations.length,runtime:candidate?'registry-candidate':'captured-production-worker',originalDeploymentFieldsPreserved:Object.keys(legacy).length,heartbeatStatus:heartbeat.status,metricsStatus:metrics.status,invalidTokenStatus:unauthorized.status,persistedComponentSent:expectedSent,aggregateBefore:JSON.parse(legacy.metrics_snapshot_json).totals.sent,aggregateAfter:reportedSnapshot.totals.sent,foreignKeys:'passed',outboundRequests,productionMutated:false};
+ const evidence={schemaVersion:1,status:'passed',workerSourceDigest:candidateManifest?.workerDigest??receipt.sourceDigest,restoredProductionData:true,priorMigrations,currentMigrations:migrations.length,runtime:candidate?'registry-candidate':'captured-production-worker',originalApplicationTablesPreserved:preservedApplication.tables,originalApplicationRowsPreserved:preservedApplication.rows,originalMigrationHistoryPreserved:true,originalDeploymentFieldsPreserved:Object.keys(legacy).length,heartbeatStatus:heartbeat.status,metricsStatus:metrics.status,invalidTokenStatus:unauthorized.status,persistedComponentSent:expectedSent,aggregateBefore:JSON.parse(legacy.metrics_snapshot_json).totals.sent,aggregateAfter:reportedSnapshot.totals.sent,foreignKeys:'passed',outboundRequests,productionMutated:false};
  writeFileSync(privateDirectory+'/receipt.json',JSON.stringify(evidence,null,2),{mode:0o600});console.log(JSON.stringify(evidence));
 }catch(error){writeFileSync(privateDirectory+'/failure.txt',String(error?.stack??error),{mode:0o600});console.error('Native old-Worker compatibility failed during '+step+'; private diagnostic retained');process.exitCode=1;}finally{await service.dispose();}

@@ -5219,3 +5219,35 @@ through schema 36. All 24 original deployment fields are preserved; heartbeat an
 metrics return 204, an invalid token returns 401, foreign keys pass, and outbound
 provider requests are zero. Production has not been migrated or redeployed.
 A fresh backup and published-registry service candidate replay remain rollout gates.
+
+### Remote migration transport and release gate
+
+Protected public PR #18 merged cleanup (`7eec8b2f`) after required CI passed and
+its fresh review audit found no reviews, comments or threads. PR #19 merged the
+coordinated version candidate (`cfaf36e6`) after required CI and the same audit.
+Immutable tag `v0.3.3` points at that public commit; publication run `37376821507`
+is live and is not yet a verified registry release.
+
+The exact private 0.3.3 candidate passed real Cloudflare staging in owned run
+`run-qiL0Jv`: schema 17→36 preserved the synthetic legacy graph, real HTTPS routing
+lifecycle and legacy heartbeat/metrics authorization passed, and Worker/D1/queue
+absence was verified after cleanup. The runner made 128 direct management calls,
+plus bounded Wrangler child operations.
+
+This rehearsal exposed a real management transport gap: `/query` rejected the
+schema-33 trigger with `incomplete input`, even with the complete terminated SQL
+that succeeds in native SQLite. Trigger migrations now use Wrangler's SQL-file
+import path, retaining original source and migration history in the same payload.
+Three failed owned rehearsals were fully cleaned; none touched production.
+The import path must also be used for production schemas 33–36, with a fresh
+backup, durable dispatch journal, exact-current-worker fence and no uncertain replay.
+
+Native replay of the actual schema-32 backup now verifies every original
+application row/column, excluding inaccessible Cloudflare metadata, and separately
+checks the complete original migration-history rows. The active captured Worker
+passes schema 36 with all 833 rows across 25 application tables and all 24 deployment
+fields preserved. Heartbeat/metrics authorization, foreign keys and zero outbound
+requests still pass. Receipt output exposes counts, never private row values.
+Private cleanup implementation CI `37373864643` passed. Exact version-candidate
+CI and image publication remain independent gates; a terminal image job that
+executed no steps was retried at the same commit without changing its source.

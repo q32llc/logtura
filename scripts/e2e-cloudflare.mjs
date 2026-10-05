@@ -1,4 +1,5 @@
 import {validateCloudflareRehearsal,assertCloudflareRehearsalOwnership} from "./cloudflare-rehearsal-state.mjs";
+import {cloudflareMigration} from './cloudflare-migration.mjs';
 import assert from 'node:assert/strict';
 import {mkdirSync,mkdtempSync,readFileSync,writeFileSync,renameSync,openSync,fsyncSync,closeSync,existsSync,lstatSync} from 'node:fs';
 import {join,resolve,dirname} from 'node:path';
@@ -75,7 +76,11 @@ await withPrivateDirectoryLock(ledgerPath+'.lock',async()=>{
   state.queuePhase='creating';save();const queue=await api(`${base}/queues`,{method:'POST',body:JSON.stringify({queue_name:state.queueName})});state.queueId=queue.queue_id;state.queuePhase='created';save();
   const migrations=await readD1Migrations(join(artifact,'migrations'));assert.equal(migrations[16].name,'0017_connection_provider_installation.sql');
   await query('CREATE TABLE d1_migrations(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT UNIQUE,applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL)');
-  async function migrate(list){for(const m of list){for(let i=0;i<m.queries.length;i++){state.migrationAttempt={name:m.name,query:i};save();await query(m.queries[i]);}await query('INSERT INTO d1_migrations(name) VALUES(?)',[m.name]);state.lastMigration=m.name;save();}}
+  const migrationConfig=join(directory,'migrations.toml');writeFileSync(migrationConfig,`name = ${JSON.stringify(state.name)}\ncompatibility_date = "2025-05-01"\n[[d1_databases]]\nbinding = "DB"\ndatabase_name = ${JSON.stringify(state.name)}\ndatabase_id = ${JSON.stringify(state.databaseId)}\n`,{mode:0o600});
+  async function migrate(list){for(const m of list){const migration=cloudflareMigration(m.name,readFileSync(join(artifact,'migrations',m.name),'utf8'));state.migrationAttempt={name:m.name,query:migration.requiresImport?'file-import':'complete-source'};save();
+   if(migration.requiresImport){validate();assertCloudflareRehearsalOwnership('database',state,await api(`${base}/d1/database/${state.databaseId}`));const file=join(directory,m.name);writeFileSync(file,migration.sql,{mode:0o600});await command('migration-'+m.name,['d1','execute',state.name,'--remote','--config',migrationConfig,'--file',file]);}
+   else await query(migration.sql);
+   assert.deepEqual(await query('SELECT name FROM d1_migrations WHERE name=?',[m.name]),[{name:m.name}]);state.lastMigration=m.name;save();}}
   await migrate(migrations.slice(0,17));const priorMigrations=await query('SELECT * FROM d1_migrations ORDER BY id');assert.equal(priorMigrations.length,17);
   const legacyUser=`usr_legacy_${runId}`,routingUser=`usr_routing_${runId}`,dep=`dep_${runId}`,con=`con_${runId}`,heartbeat=randomUUID(),now=Date.now();
   for(const user of [legacyUser,routingUser])await query('INSERT INTO users(id,github_id,github_login,created_at,updated_at) VALUES(?,?,?,?,?)',[user,user,'rehearsal',now,now]);
