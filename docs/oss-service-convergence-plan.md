@@ -5203,3 +5203,19 @@ and public test jobs. The public job's setup log verifies Ubuntu 24.04.5 and run
 image `ubuntu-24.04` version `20260927.320.1`; this fixes runner allocation rather
 than lowering Node, Vector, native service, browser, coverage or artifact gates.
 A successful private current-source execution remains required evidence.
+
+### Coordinated 0.3.3 release candidate
+
+All 15 public packages are prepared at 0.3.3. Their versioned builds and installed
+archive/declaration checks pass. A read-only recovery preflight uses the actual
+published 0.3.2 production pending apply/activation journals: the 0.3.3 generator
+accepts both receipts and re-renders the exact saved installation plan using its
+retained 0.3.2 artifact, without changing issuance or dispatching service/provider
+writes. This is compatibility evidence; completed production recovery is pending.
+
+The freshly captured active production Worker and the retained rollback Worker
+both pass native workerd/D1 replay of the actual schema-32 backup after migrations
+through schema 36. All 24 original deployment fields are preserved; heartbeat and
+metrics return 204, an invalid token returns 401, foreign keys pass, and outbound
+provider requests are zero. Production has not been migrated or redeployed.
+A fresh backup and published-registry service candidate replay remain rollout gates.
