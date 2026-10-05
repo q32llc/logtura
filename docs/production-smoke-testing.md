@@ -47,3 +47,6 @@ account, configuration or running forwarder.
 
 Revoke the dedicated client through the website or `logt logout` with its
 `LOGT_AUTH_FILE`. Ordinary temporary validation clients are revoked separately.
+
+The October 5 [verified rollout](service-rollout-smoke-access.md) records the
+created persistent local client, real CLI/probe checks and temporary-client revocation.

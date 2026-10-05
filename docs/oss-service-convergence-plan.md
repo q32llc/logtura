@@ -5070,6 +5070,11 @@ it reports liveness separately from `configurationCurrent:false` for the origina
 legacy runtime. It is not an ordinary CI step and needs no Cloudflare credentials.
 The [smoke access guide](production-smoke-testing.md) specifies explicit browser-owner
 retention until revocation, while preserving ordinary 90-day grants. Native auth,
-UI lifetime/revocation and redacted probe failure tests pass locally. Retention code
-is not production evidence until exact-commit CI, packaged service validation and
-verified service deployment complete and the browser acknowledges that decision.
+UI lifetime/revocation and redacted probe failure tests pass locally. The persistent-access slice subsequently passed exact-commit CI `37344600868`,
+actual-registry packaging and fresh production-data Miniflare replay against both
+candidate and retained rollback. Its actual Worker/website bytes and bindings are
+verified in production, with natural post-upload progress at 17:26 UTC. The normal
+browser-owner retention action and exact server lifetime are acknowledged; the
+private local credential was updated only afterward. Published CLI and smoke probes
+pass with it. The temporary validation grant is revoked and its old bearer returns
+401. See [persistent smoke rollout](service-rollout-smoke-access.md).

@@ -37,8 +37,10 @@ The ordinary production browser session approved the user-authorized temporary
 published CLI grant. Reversible CLI and website edits passed in both directions,
 and the original graph was restored. A separate local smoke client is also approved;
 its read-only probe passes liveness while truthfully reporting no applied manifest.
-Persistent lifetime support is locally tested and still needs verified deployment
-and its explicit browser decision.
+Persistent lifetime support is deployed with exact-commit CI, native compatibility
+and uploaded-byte verification. The browser-owner decision and server lifetime are
+verified; the temporary grant is revoked and rejected with HTTP 401. See
+[smoke-access rollout](service-rollout-smoke-access.md).
 
 The original mountless Fly upgrade exposed a real provider constraint: its separately
 created checkpoint volume cannot be attached through the existing in-place update.
@@ -47,5 +49,5 @@ The issued runtime and private apply/volume journals remain for recovery through
 retained-machine replacement path. No loaded-manifest upgrade is claimed.
 
 Completion still requires original forwarder loaded-manifest upgrade/rollback and
-persistent local smoke access, and accurate disposition of the private branch-protection limitation. Production snapshots, raw receipts,
+accurate disposition of the private branch-protection limitation. Production snapshots, raw receipts,
 credentials and complete provider configuration remain private and gitignored.
