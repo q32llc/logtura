@@ -5145,3 +5145,42 @@ package/image/service release, schema deployment with fresh backup/rollback proo
 and original production loaded-manifest/delivery/rollback/final-restoration evidence.
 Production smoke uses the approved persistent local account token; CI stays local
 and uses owned coverage reports.
+
+
+### Linked cleanup owner protocol — validated, shipping
+
+Installed CLI rollback is merged to protected public main via PR #16 (`2abe6a87`)
+with required CI passing. No CodeRabbit reviews, inline findings or threads exist
+on PRs #1–#16 as of October 5, 2026; the complete paginated review audit checked
+merged PRs too. The intentional failing-check PR #1 is closed and unmerged.
+Future public merges must include a fresh review-thread audit and resolve any
+findings against the actual code and tests before merging.
+
+Schema 36 adds owner cleanup reservation and explicit rebase receipts, plus public
+SDK prepare/get/complete/rebase/rebase-lookup methods. It excludes activation,
+rollback and physical rebinding during pending deletion, preserves survivor target
+and runtime report evidence, and releases exclusion without advancing the graph
+clock or inventing an acknowledgement. Private provider payloads remain local.
+Historical recovery precedes current fences; repeated completion does not dispatch
+provider work. See [the cleanup contract](linked-fly-cleanup.md).
+
+Full local coverage passed 1,809 tests and all gates: 97.63% lines, 96.97% statements,
+94.47% branches and 98.94% functions; changed executable lines passed 96/96. The
+cleanup validator has a new enforced 100% coverage floor. All 15 packed consumers
+and exact public build/typecheck/coverage passed. Migration tests now start at the
+specified historical schema, avoiding the shared fixture's all-migrations hook;
+real schema-35 pending/completed rollback receipts and every application table are
+preserved through schema 36. Other migration tests were audited for this hook and
+do not import it.
+
+The previous private rollback CI jobs were cancelled before executing steps because
+GitHub could not acquire a hosted runner. Local checks and required public CI passed;
+private hosted CI needs successful current-source execution when runners are available.
+
+Next: durable private CLI cleanup journal and owner-fenced shared cleanup backend,
+installed CLI rollback/cleanup/fresh replacement with actual delivery/report evidence,
+actual published 0.3.2 journal recovery using the next CLI, coordinated 0.3.3 package/
+image/service release, fresh backup and schema 33–36 compatibility/rollback proof,
+and original production upgrade/loaded-manifest/delivery/rollback/final restoration.
+The logged-in logtura.com browser session is authorized for production acceptance.
+No cleanup/replacement/rollback protocol or schema 33–36 is deployed to production.

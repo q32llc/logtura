@@ -45,6 +45,13 @@ try {
     import {type FlyReplacementStore,type FlyReplacementState} from '@logtura/core';
     import {type FlyRollbackRequest,type FlyRollbackReceipt,type FlyRollbackRebaseRequest,type FlyRollbackRebaseReceipt,validateFlyRollbackFence} from '@logtura/core';
     const rollbackClient = new LogturaServiceClient({url:'https://service.fixture',fetch});
+    import {type FlyCleanupRequest,type FlyCleanupReceipt,type FlyCleanupRebaseReceipt} from '@logtura/core';
+    const typedCleanupPrepare:(id:string,input:FlyCleanupRequest)=>Promise<FlyCleanupReceipt> = rollbackClient.prepareFlyCleanup.bind(rollbackClient);
+    const typedCleanupComplete:(id:string,requestId:string)=>Promise<FlyCleanupReceipt> = rollbackClient.completeFlyCleanup.bind(rollbackClient);
+    const typedCleanupRebase:(id:string,cleanupId:string,input:FlyRollbackRebaseRequest)=>Promise<FlyCleanupRebaseReceipt> = rollbackClient.rebaseFlyCleanup.bind(rollbackClient);
+    // @ts-expect-error Cleanup requires retained identity, hashes and current owner graph fences.
+    rollbackClient.prepareFlyCleanup('dep',{requestId:'request'});
+    void typedCleanupPrepare;void typedCleanupComplete;void typedCleanupRebase;
     const typedRollbackPrepare:(id:string,input:FlyRollbackRequest)=>Promise<FlyRollbackReceipt> = rollbackClient.prepareFlyRollback.bind(rollbackClient);
     const typedRollbackComplete:(id:string,requestId:string)=>Promise<FlyRollbackReceipt> = rollbackClient.completeFlyRollback.bind(rollbackClient);
     const typedRollbackRebase:(id:string,rollbackId:string,input:FlyRollbackRebaseRequest)=>Promise<FlyRollbackRebaseReceipt> = rollbackClient.rebaseFlyRollback.bind(rollbackClient);

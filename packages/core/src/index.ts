@@ -102,3 +102,6 @@ export type {FlyReplacementCleanupPlan,FlyReplacementCleanupState,FlyReplacement
 
 export {validateFlyRollbackRequest,validateFlyRollbackReceipt,validateFlyRollbackFence,validateFlyRollbackRebaseRequest,validateFlyRollbackRebaseReceipt} from "./fly-rollback";
 export type {FlyRollbackRequest,FlyRollbackReceipt,FlyRollbackFence,FlyRollbackRebaseRequest,FlyRollbackRebaseReceipt} from "./fly-rollback";
+
+export {validateFlyCleanupRequest,validateFlyCleanupReceipt,validateFlyCleanupRebaseReceipt} from "./fly-cleanup";
+export type {FlyCleanupRequest,FlyCleanupReceipt,FlyCleanupRebaseReceipt} from "./fly-cleanup";

@@ -1,3 +1,4 @@
+import {validateFlyCleanupRequest,validateFlyCleanupReceipt,validateFlyCleanupRebaseReceipt,type FlyCleanupRequest,type FlyCleanupReceipt,type FlyCleanupRebaseReceipt} from "./fly-cleanup";
 import {validateFlyRollbackRequest,validateFlyRollbackReceipt,validateFlyRollbackRebaseRequest,validateFlyRollbackRebaseReceipt,type FlyRollbackRequest,type FlyRollbackReceipt,type FlyRollbackRebaseRequest,type FlyRollbackRebaseReceipt} from "./fly-rollback";
 import { isInstanceId,validateDeploymentActivation,validateDeploymentInstanceReceipt,validateDeploymentConfigurationState,type DeploymentConfigurationState,type DeploymentInstanceActivation,type DeploymentInstanceReceipt } from "./deployment-state";
 import { validateDeploymentTarget,type DeploymentTarget } from "./deployment-target";
@@ -49,6 +50,34 @@ export class LogturaServiceClient {
       try{const receipt=validateFlyRollbackRebaseReceipt(result);if(receipt.rollbackId!==rollbackId || receipt.request.requestId!==requestId)throw new Error();return receipt;}catch{throw new ServiceError(200,"invalid_rollback_rebase_receipt");}
     }catch(error){if(error instanceof ServiceError && error.status===404 && error.code==="receipt_not_found")return null;throw error;}
   }
+  async prepareFlyCleanup(id:string,input:FlyCleanupRequest):Promise<FlyCleanupReceipt>{
+    if(!id)throw new Error("Deployment identity is required");const request=validateFlyCleanupRequest(input);
+    const result=await this.request(`/deployments/${encodeURIComponent(id)}/config/fly-cleanups`,{method:"POST",body:JSON.stringify(request)});
+    try{const receipt=validateFlyCleanupReceipt(result);if(canonicalConfigJson(receipt.request)!==canonicalConfigJson(request))throw new Error();return receipt;}catch{throw new ServiceError(200,"invalid_cleanup_receipt");}
+  }
+  async getFlyCleanup(id:string,requestId:string):Promise<FlyCleanupReceipt|null>{
+    if(!id || !isInstanceId(requestId))throw new Error("Invalid Fly cleanup identity");
+    try{const result=await this.request(`/deployments/${encodeURIComponent(id)}/config/fly-cleanups/${encodeURIComponent(requestId)}`,{method:"GET"});
+      try{const receipt=validateFlyCleanupReceipt(result);if(receipt.request.requestId!==requestId)throw new Error();return receipt;}catch{throw new ServiceError(200,"invalid_cleanup_receipt");}
+    }catch(error){if(error instanceof ServiceError && error.status===404 && error.code==="receipt_not_found")return null;throw error;}
+  }
+  async completeFlyCleanup(id:string,requestId:string):Promise<FlyCleanupReceipt>{
+    if(!id || !isInstanceId(requestId))throw new Error("Invalid Fly cleanup identity");
+    const result=await this.request(`/deployments/${encodeURIComponent(id)}/config/fly-cleanups/${encodeURIComponent(requestId)}/complete`,{method:"POST"});
+    try{const receipt=validateFlyCleanupReceipt(result);if(receipt.request.requestId!==requestId || receipt.status!=="completed")throw new Error();return receipt;}catch{throw new ServiceError(200,"invalid_cleanup_receipt");}
+  }
+  async rebaseFlyCleanup(id:string,cleanupId:string,input:FlyRollbackRebaseRequest):Promise<FlyCleanupRebaseReceipt>{
+    if(!id || !isInstanceId(cleanupId))throw new Error("Invalid Fly cleanup identity");const request=validateFlyRollbackRebaseRequest(input);
+    const result=await this.request(`/deployments/${encodeURIComponent(id)}/config/fly-cleanups/${encodeURIComponent(cleanupId)}/rebases`,{method:"POST",body:JSON.stringify(request)});
+    try{const receipt=validateFlyCleanupRebaseReceipt(result);if(receipt.cleanupId!==cleanupId || canonicalConfigJson(receipt.request)!==canonicalConfigJson(request))throw new Error();return receipt;}catch{throw new ServiceError(200,"invalid_cleanup_rebase_receipt");}
+  }
+  async getFlyCleanupRebase(id:string,cleanupId:string,requestId:string):Promise<FlyCleanupRebaseReceipt|null>{
+    if(!id || !isInstanceId(cleanupId) || !isInstanceId(requestId))throw new Error("Invalid Fly cleanup identity");
+    try{const result=await this.request(`/deployments/${encodeURIComponent(id)}/config/fly-cleanups/${encodeURIComponent(cleanupId)}/rebases/${encodeURIComponent(requestId)}`,{method:"GET"});
+      try{const receipt=validateFlyCleanupRebaseReceipt(result);if(receipt.cleanupId!==cleanupId || receipt.request.requestId!==requestId)throw new Error();return receipt;}catch{throw new ServiceError(200,"invalid_cleanup_rebase_receipt");}
+    }catch(error){if(error instanceof ServiceError && error.status===404 && error.code==="receipt_not_found")return null;throw error;}
+  }
+
   async prepareFlyRollback(id:string,input:FlyRollbackRequest):Promise<FlyRollbackReceipt>{
     if(!id)throw new Error("Deployment identity is required");const request=validateFlyRollbackRequest(input);
     const result=await this.request(`/deployments/${encodeURIComponent(id)}/config/fly-rollbacks`,{method:"POST",body:JSON.stringify(request)});

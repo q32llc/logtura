@@ -17,6 +17,7 @@ import { ConfigurationConflict, readStableConfiguration } from "./config-version
 import { exportHostedManifest } from "./credential-intent";
 import { createSecretVersioner, hashConfigDocument } from "@logtura/core";
 import { cliAuthorizationRoutes } from "./cli-auth";
+import {linkedFlyCleanupRoutes} from "./linked-fly-cleanups";
 import {linkedFlyRollbackRoutes} from "./linked-fly-rollbacks";
 import {linkedFlyBindingRoutes} from "./linked-fly-bindings";
 import { Hono } from "hono";
@@ -284,6 +285,7 @@ apiAuth.route("/",creationRequestRoutes());
 apiAuth.route("/",deploymentStateRoutes());
 apiAuth.route("/",linkedFlyBindingRoutes());
 apiAuth.route("/",linkedFlyRollbackRoutes());
+apiAuth.route("/",linkedFlyCleanupRoutes());
 apiAuth.route("/",managedRollbackRoutes(async(driver,job)=>toApiJob((await aggregateJobWithKids(driver,job)).job)));
 apiAuth.route("/",managedCleanupRoutes(async(driver,job)=>toApiJob((await aggregateJobWithKids(driver,job)).job)));
 
