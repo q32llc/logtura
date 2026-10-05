@@ -4,6 +4,8 @@ import {join} from "node:path";
 import {tmpdir} from "node:os";
 import {randomUUID} from "node:crypto";
 import {spawnSync} from "node:child_process";
+import {fileURLToPath,pathToFileURL} from "node:url";
+import {buildSync} from "esbuild";
 import {FlyMachinesClient,planFlyReplacement,executeFlyReplacement,type FlyMachine,type FlyReplacementState} from "@logtura/core";
 import {PrivateFlyReplacementStore,readPrivateFlyReplacement} from "../src/fly-replacement-store";
 import {pendingFlyReplacementPath,assertNoPendingPush,transactionPath,commitFileTransaction} from "../src/file-transaction";
@@ -87,9 +89,11 @@ it("reserves replacement state and its lock as configuration destinations and re
 });
 it("recovers a journal renamed by a killed process without dispatching an uncertain create",async()=>{
  const f=fixture();await f.store.prepare(f.prepared);
- const module=new URL("../src/fly-replacement-store.ts",import.meta.url).href;
+ const compiled=join(f.root,"replacement-store.mjs");
+ buildSync({entryPoints:[fileURLToPath(new URL("../src/fly-replacement-store.ts",import.meta.url))],outfile:compiled,bundle:true,platform:"node",format:"esm",target:"node22",banner:{js:"import {createRequire as replacementRequire} from 'node:module';const require=replacementRequire(import.meta.url);"}});
+ const module=pathToFileURL(compiled).href;
  const script=`import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';const rename=fs.renameSync;fs.renameSync=(from,to)=>{rename(from,to);if(to===${JSON.stringify(f.path)})process.kill(process.pid,'SIGKILL')};syncBuiltinESMExports();const {PrivateFlyReplacementStore}=await import(${JSON.stringify(module)});const store=new PrivateFlyReplacementStore(${JSON.stringify(f.config)});await store.runExclusive(async tx=>{const before=await tx.read();await tx.compareAndSwap(before,{...before,phase:'creating'});});`;
- const child=spawnSync(process.execPath,["--import","tsx","--input-type=module","-e",script],{encoding:"utf8"});expect(child.error).toBeUndefined();expect(child.signal,child.stderr).toBe("SIGKILL");
+ const child=spawnSync(process.execPath,["--input-type=module","-e",script],{encoding:"utf8"});expect(child.error).toBeUndefined();expect(child.signal,child.stderr).toBe("SIGKILL");
  expect(readPrivateFlyReplacement(f.config)?.phase).toBe("creating");await expect(f.run()).rejects.toThrow("outcome is unknown");expect(f.creates).toBe(0);expect(f.machines[0]!.state).toBe("started");
 });
 it("rejects an oversized write before publishing intent and leaves the directory unlocked",async()=>{
