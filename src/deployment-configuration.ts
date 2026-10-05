@@ -84,10 +84,20 @@ export async function activateDeploymentInstance(db:D1Database,userId:string,dep
  * a no-op; runtime reports never advance the account configuration version. */
 export async function acknowledgeDeploymentConfiguration(db:D1Database,deploymentId:string,instanceId:string,sequence:number,revision:string,reportSequence:number):Promise<boolean>{
   if(!Number.isSafeInteger(sequence) || sequence<=0 || !Number.isSafeInteger(reportSequence) || reportSequence<=0)return false;
-  const result=await db.prepare(`UPDATE deployment_configuration_state SET applied_sequence=?,last_report_sequence=?,applied_at=?
+  const results=await db.batch([db.prepare(`UPDATE deployment_configuration_state SET applied_sequence=?,last_report_sequence=?,applied_at=?
     WHERE deployment_id=? AND active_instance_id=? AND last_report_sequence<? AND desired_sequence>=?
       AND (applied_sequence IS NULL OR applied_sequence<=?)
       AND EXISTS (SELECT 1 FROM deployment_configuration_revisions r WHERE r.deployment_id=? AND r.sequence=? AND r.revision=?)`)
-    .bind(sequence,reportSequence,Date.now(),deploymentId,instanceId,reportSequence,sequence,sequence,deploymentId,sequence,revision).run();
-  return result.meta.changes===1;
+    .bind(sequence,reportSequence,Date.now(),deploymentId,instanceId,reportSequence,sequence,sequence,deploymentId,sequence,revision),
+    // Clear the legacy warning only for an accepted current report, in the same
+    // transaction. Managed jobs retain their readiness/acceptance gate.
+    // Historical, stale and replayed reports cannot hide edits.
+    db.prepare(`UPDATE deployments SET bundle_outdated=0 WHERE id=? AND managed=0 AND bundle_outdated=1 AND changes()=1
+      AND EXISTS (SELECT 1 FROM deployment_configuration_state s
+        JOIN deployment_configuration_revisions r ON r.deployment_id=s.deployment_id AND r.sequence=s.desired_sequence
+        JOIN configuration_versions v ON v.user_id=deployments.user_id
+        WHERE s.deployment_id=deployments.id AND s.active_instance_id=? AND s.last_report_sequence=?
+          AND s.applied_sequence=s.desired_sequence AND r.configuration_version=v.version)`)
+      .bind(deploymentId,instanceId,reportSequence)]);
+  return results[0]!.meta.changes===1;
 }

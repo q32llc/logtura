@@ -95,3 +95,28 @@ it("rejects acknowledgements of history that has not become desired state",async
   await env.DB.prepare("INSERT INTO deployment_configuration_revisions(deployment_id,sequence,revision,document_json,configuration_version,created_at) VALUES (?,2,'pending',?,0,0)").bind(f.deployment.id,JSON.stringify(f.document)).run();
   expect(await acknowledgeDeploymentConfiguration(env.DB,f.deployment.id,instance,2,"pending",1)).toBe(false);
 });
+
+it("clears the legacy outdated warning only with an accepted current loaded manifest",async()=>{
+  const f=await fixture(),first=await issueDeploymentConfiguration(env.DB,f.userId,f.deployment.id,f.version,0,f.document);
+  const instance=await activateDeploymentInstance(env.DB,f.userId,f.deployment.id,first.configurationVersion,null);
+  const mark=()=>env.DB.prepare("UPDATE deployments SET bundle_outdated=1 WHERE id=?").bind(f.deployment.id).run();
+  const outdated=()=>env.DB.prepare("SELECT bundle_outdated FROM deployments WHERE id=?").bind(f.deployment.id).first("bundle_outdated");
+  await mark();
+  expect(await acknowledgeDeploymentConfiguration(env.DB,f.deployment.id,"wrong-instance",1,first.revision,1)).toBe(false);expect(await outdated()).toBe(1);
+  expect(await acknowledgeDeploymentConfiguration(env.DB,f.deployment.id,instance,1,first.revision,1)).toBe(true);expect(await outdated()).toBe(0);
+  expect(await readConfigurationVersion(env.DB,f.userId)).toBe(first.configurationVersion);
+  await mark();
+  expect(await acknowledgeDeploymentConfiguration(env.DB,f.deployment.id,instance,1,first.revision,1)).toBe(false);expect(await outdated()).toBe(1);
+  await env.DB.prepare("UPDATE connections SET display_name='Website edit' WHERE id=?").bind(f.connection.id).run();
+  expect(await acknowledgeDeploymentConfiguration(env.DB,f.deployment.id,instance,1,first.revision,2)).toBe(true);expect(await outdated()).toBe(1);
+  const second=await issueDeploymentConfiguration(env.DB,f.userId,f.deployment.id,await readConfigurationVersion(env.DB,f.userId),1,f.document);
+  expect(await acknowledgeDeploymentConfiguration(env.DB,f.deployment.id,instance,1,first.revision,3)).toBe(true);expect(await outdated()).toBe(1);
+  expect(await acknowledgeDeploymentConfiguration(env.DB,f.deployment.id,instance,2,second.revision,4)).toBe(true);expect(await outdated()).toBe(0);
+});
+it("leaves managed deployment acceptance to the job even after a current report",async()=>{
+  const f=await fixture(),issued=await issueDeploymentConfiguration(env.DB,f.userId,f.deployment.id,f.version,0,f.document);
+  const instance=await activateDeploymentInstance(env.DB,f.userId,f.deployment.id,issued.configurationVersion,null);
+  await env.DB.prepare("UPDATE deployments SET managed=1,bundle_outdated=1 WHERE id=?").bind(f.deployment.id).run();
+  expect(await acknowledgeDeploymentConfiguration(env.DB,f.deployment.id,instance,1,issued.revision,1)).toBe(true);
+  expect(await env.DB.prepare("SELECT bundle_outdated FROM deployments WHERE id=?").bind(f.deployment.id).first("bundle_outdated")).toBe(1);
+});

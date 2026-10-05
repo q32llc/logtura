@@ -38,7 +38,7 @@ export function planFlyReplacement(input:{id:string;app:string;org:string;machin
   const volume=validateFlyRuntimeVolume(before,input.volumes,input.volume),selected=input.volumes.find(candidate=>candidate.id===volume)!;
   if(selected.attached_machine_id!==null)throw new Error("Fly replacement checkpoint must be unattached");
   const after=structuredClone(input.config);
-  if(!Array.isArray(after.mounts) || after.mounts.length!==1 || canonicalConfigJson(after.mounts[0])!==canonicalConfigJson({path:FLY_RUNTIME_DIRECTORY,volume}) || !empty(after.services) || !empty(after.containers) || !empty(after.processes) || !empty(after.volumes) || !empty(after.standbys) || after.schedule || after.auto_destroy)throw new Error("Fly replacement configuration conflicts with the checkpoint or private lifecycle");
+  if(!matchesFlyConfig({image:after.image,mounts:after.mounts},{image:after.image,mounts:[{path:FLY_RUNTIME_DIRECTORY,volume}]}) || !empty(after.services) || !empty(after.containers) || !empty(after.processes) || !empty(after.volumes) || !empty(after.standbys) || after.schedule || after.auto_destroy)throw new Error("Fly replacement configuration conflicts with the checkpoint or private lifecycle");
   if(after.metadata!==undefined && (!after.metadata || typeof after.metadata!=="object" || Array.isArray(after.metadata)))throw new Error("Invalid Fly replacement metadata");
   after.metadata={...(after.metadata as Record<string,unknown>??{}),"logtura.replacement":input.id};
   return {schemaVersion:1,id:input.id,app:input.app,org:input.org,name:`forwarder-${input.id}`,before,after,rollback:flyRollbackConfig(before),volume};

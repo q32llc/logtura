@@ -147,3 +147,16 @@ it.each(["new-stopping","old-starting"])("waits for rollback %s without repeatin
  const previous=f.calls.filter(call=>call.method==="POST" && !call.path.endsWith("/lease")).length;await expect(f.run(true)).rejects.toThrow("pending");expect(f.calls.filter(call=>call.method==="POST" && !call.path.endsWith("/lease"))).toHaveLength(previous);
  f.machines[scenario==="new-stopping"?1:0]!.state=scenario==="new-stopping"?"stopped":"started";expect((await f.run(true)).phase).toBe("rolled_back");
 });
+it("retains provider mount metadata when validating an updated candidate and rolling it back",async()=>{
+ const f=fixture();await f.run();
+ const mounts=[{path:"/var/lib/logtura",volume:"vol_new",name:"checkpoint",encrypted:true,size_gb:1}];
+ f.machines[1]!.config.mounts=structuredClone(mounts);
+ f.state={...f.state,plan:{...f.state.plan,after:{...f.state.plan.after,mounts}}};
+ expect(validateFlyReplacementState(f.state)).toEqual(f.state);
+ expect((await f.run(true)).phase).toBe("rolled_back");
+ expect(f.machines[0]!.state).toBe("started");expect(f.machines[1]!.state).toBe("stopped");
+});
+it.each([{name:3},{encrypted:false},{size_gb:0},{unknown:"unsafe"},{volume:"vol_other"},{path:"/other"}])("rejects unsafe candidate mount metadata %j",async fields=>{
+ const f=fixture(),state={...f.state,plan:{...f.state.plan,after:{...f.state.plan.after,mounts:[{path:"/var/lib/logtura",volume:"vol_new",...fields}]}}};
+ expect(()=>validateFlyReplacementState(state)).toThrow("Invalid private Fly replacement state");
+});

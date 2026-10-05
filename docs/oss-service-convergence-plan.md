@@ -1,5 +1,16 @@
 # Logtura shared backend and deployment synchronization plan
 
+Current release update, October 5, 2026: all 15 actual npm 0.3.3 archives are
+verified against immutable `v0.3.3` (`cfaf36e6`). Private `fc40b797` CI is green,
+and production now uses that exact registry-backed Worker and website. Schemas
+33–36 were imported after fresh all-row compatibility replay; uploaded bytes,
+bindings and natural original-forwarder checkpoint progress passed. The disposable
+registry Fly canary passed delivery/restart/update/rollback and owned cleanup.
+See [0.3.3 rollout evidence](service-rollout-0.3.3.md). The original retained apply is recovered, the 0.3.3 image is applied, and the
+website reports its baseline manifest in sync; natural sink delivery is observed.
+Explicit rollback/cleanup and final restoration remain open;
+earlier entries saying 0.3.3 is unpublished or schema 36 is undeployed are superseded.
+
 This plan makes the published CLI and libraries fully usable without the hosted service, makes the service consume the same public backend operations, and lets users move between the website and CLI while updating the same forwarder. A thorough compatibility baseline and enforced CI coverage come first. Dependency major upgrades have a separate decision process.
 
 Status: implementation in progress. The starting inventory records repository and production inspection on October 1, 2026; implemented milestones and remaining work are tracked below. Completion still requires all outcome/validation gates. This plan does not authorize destructive tests against existing production resources.

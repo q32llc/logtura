@@ -264,6 +264,9 @@ try {
         assert.equal(await run("docker", ["inspect", "--format", "{{.Image}}", container]), dockerImageId);
         updates++;
         machine = { id: creating ? creates===1?"def456":"fed987" : machine.id, name: creating ? update.name : machine.name, region: "ord", state: creating ? "created" : "stopped", instance_id: `updated-${updates}`, config: update.config, image_ref: { registry: "registry.fixture", repository: "forwarder", digest: platformDigest } };
+        // Fly decorates readback mounts; later installed-CLI updates retain those
+        // fields in their private plan, so rollback must validate that real shape.
+        machine.config.mounts=machine.config.mounts.map((mount:any)=>({...mount,name:"fixture_checkpoint",encrypted:true,size_gb:1}));
         result = machine;
       } else if (path.endsWith("/machines")) result = retained ? [...(legacyDeleted?[]:[retained]),...(candidateDeleted?[]:[machine])] : [machine];
       else if (path.endsWith("/volumes")) result = [{ id: "vol_fixture", region: "ord", state: "created", encrypted: true, attached_machine_id: deployed ? machine.id : null }];
