@@ -49,3 +49,14 @@ Remaining rollout gates:
 
 Raw rollback settings, provider state, accounts, backups and receipts remain
 private and ignored. This document does not replace live acceptance evidence.
+
+Fresh retained-Worker compatibility evidence, October 5 at 23:27 UTC:
+`.tmp/production-backups/run-gKgwPG` contains schema 36's full export, SHA-256
+`22e0c51fa6353ea0681680f23751a1b1a8e55b79b4767d33d2d0a2ee4db724a2`.
+Native replay `.tmp/production-rollbacks/run-lDfygm/legacy-native-05533u`
+restored all 836 rows across 30 application tables, preserved all 36 migration
+history entries and 24 original deployment fields, and applied schema 37. The
+captured actual production Worker returned heartbeat/metrics 204 and invalid-token
+401; foreign keys passed and outbound requests were zero. Production was not
+mutated. Registry candidate replay and fresh-state revalidation before import
+remain required.
