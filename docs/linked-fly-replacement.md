@@ -23,7 +23,15 @@ recovery does not make an old revision current. The current-binding GET returns 
 receipt only when its new machine is still bound. Existing configuration export
 shapes are unchanged, preserving published older clients' strict validators.
 
-The remaining CLI slice must:
+The CLI library's `PrivateFlyReplacementStore` now implements the core durable
+transaction contract with private bounded reads, an exclusive directory lock,
+immutable-plan and candidate checks, atomic rename plus fsync, and private archive
+acknowledgements. A pending replacement fences ordinary configuration writes and
+appears in redacted `config status`. Tests exercise the actual shared handoff and
+rollback backend, response loss, concurrent ownership, fsync failure, and a killed
+child process. The linked command integration and production rollout are pending.
+
+The remaining CLI integration must:
 
 1. Select the bound machine explicitly, distinguish in-place updates from legacy
    replacement, and verify every retained standby's identity, stopped state and

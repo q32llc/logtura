@@ -606,6 +606,25 @@ Unlinked `deploy fly` still builds and deploys through `flyctl` without Logtura 
 The CLI library also exports `applyLinkedFlyDeployment`, `readPendingFlyApply` and
 `abandonObsoleteFlyApply` for adapters.
 
+For retained-machine replacement adapters, `PrivateFlyReplacementStore(config)`
+implements the public core `FlyReplacementStore` contract using a directory lock
+and a mode-0600 `.logtura-replacement.json` journal. Call `prepare()` with a
+`prepared` state before dispatching any provider operation, then pass the store to
+the core `executeFlyReplacement()` backend. State transitions compare the exact
+previous state and retain immutable plans and candidate identity. File and directory
+flushes precede each successful transition acknowledgement. Resume reads the same
+intent; a create outcome that cannot be observed remains pending and is never
+dispatched again.
+
+`readPrivateFlyReplacement(config)` returns that private state for recovery. It
+contains generated files, environment and rollback payloads: keep it private.
+`config status` prints only bounded replacement phase and machine identifiers;
+configuration edits are fenced while the journal exists. `store.archive(state,
+assertCurrent)` keeps a private archive and clears pending state only after the
+adapter's acknowledgement check passes twice. The caller must check the accepted
+current runtime/target or completed rollback; running-machine health is insufficient.
+The linked deployment command's automatic replacement integration is still pending.
+
 `stats --metrics <file>` and `stats <file>` accept JSON arrays, pretty single events,
 and NDJSON, including paths with spaces. They use the same public metrics interpreter
 as the service, select the latest samples and sum error labels. Empty exports produce

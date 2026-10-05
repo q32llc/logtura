@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { afterEach, expect, it, vi } from "vitest";
-import { commitFileTransaction, recoverFileTransaction, transactionPath } from "../src/file-transaction";
+import { commitFileTransaction, recoverFileTransaction, transactionPath, pendingFlyReplacementPath,assertNoPendingPush } from "../src/file-transaction";
 import { writePulledConfig } from "../src/pull";
 import { main } from "../src/main";
 import { exportDeploymentManifest, createSecretVersioner, hashConfigDocument } from "@logtura/core";
@@ -22,6 +22,10 @@ function fixture(original=true){
 function journal(f:ReturnType<typeof fixture>,overrides:Record<string,unknown>={}){
  writeFileSync(transactionPath(f.config),JSON.stringify({schemaVersion:1,pid:2147483647,committed:false,files:f.files,...overrides}),{mode:0o600});
 }
+it("fences configuration writes whenever replacement recovery state exists",()=>{
+ const f=fixture(),path=pendingFlyReplacementPath(f.config);writeFileSync(path,"pending private replacement",{mode:0o600});
+ expect(()=>assertNoPendingPush(f.config)).toThrow("Pending Fly replacement");expect(readFileSync(f.config,"utf8")).toBe("old-1");rmSync(path);expect(()=>assertNoPendingPush(f.config)).not.toThrow();
+});
 it.each([1,2,3,4,5])("recovers a real process killed after rename %i without mixing file revisions",(stop)=>{
  const f=fixture();const module=new URL("../src/file-transaction.ts",import.meta.url).href;
  const script=`import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';let count=0;const rename=fs.renameSync;fs.renameSync=(...args)=>{rename(...args);if(++count===${stop})process.kill(process.pid,'SIGKILL')};syncBuiltinESMExports();const {commitFileTransaction}=await import(${JSON.stringify(module)});commitFileTransaction(${JSON.stringify(f.config)},${JSON.stringify(f.files)});`;

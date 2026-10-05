@@ -41,7 +41,11 @@ try {
   const typesFile = join(consumer, "consumer.mts");
   writeFileSync(typesFile, packages.map((name, index) => `import * as package${index} from '@logtura/${name}';`).join("\n") + `
     import {type GenerateInput, type DeploymentInstanceReceipt, LogturaServiceClient, FlyMachinesClient, buildFlyRuntimeConfig, flyBundleFiles, resolveFlyImage, selfDeployFiles, runtimeAssetFiles, renderDockerRunCommand, validateFilterSteps, type FilterStep, type FlyReplacementCleanupState, type FlyReplacementCleanupStore, planFlyReplacementCleanup, executeFlyReplacementCleanup} from '@logtura/core';
-    import {type PendingActivation, type PendingFlyApply, activateLinkedDeployment} from '@logtura/cli';
+    import {type PendingActivation, type PendingFlyApply, activateLinkedDeployment, PrivateFlyReplacementStore, readPrivateFlyReplacement} from '@logtura/cli';
+    import {type FlyReplacementStore,type FlyReplacementState} from '@logtura/core';
+    const typedReplacementStore:FlyReplacementStore = new PrivateFlyReplacementStore('config.yaml');
+    const typedReplacementState:FlyReplacementState|null = readPrivateFlyReplacement('config.yaml');
+    void typedReplacementStore;void typedReplacementState;
     const typedCleanup:(store:FlyReplacementCleanupStore,client:FlyMachinesClient,options:{assertCurrent:()=>Promise<void>})=>Promise<FlyReplacementCleanupState> = executeFlyReplacementCleanup;
     // @ts-expect-error Cleanup requires both complete provider snapshots and a terminal journal.
     planFlyReplacementCleanup({machines:[]});
@@ -127,8 +131,8 @@ monitors: []
   assert.match(stats,/packed_sink\tsink\thttp\t-\t7\t-/);
   const script = `import assert from 'node:assert/strict';
     import {selfDeployFiles,flySelfDeployFiles,runtimeAssetFiles,renderDockerRunCommand,parseMetricsBody,applyMetricsToSnapshot,rateFor,buildFlyRuntimeConfig,flyBundleFiles,resolveFlyImage,GENERATOR_VERSION,compileForwarderRuntime,verifyLoadedForwarder,reportLoadedForwarder,generateBundle,installBundleFiles,buildTar,exportDeploymentManifest,createSecretVersioner,parseDeploymentManifest,hashConfigDocument,editDeploymentManifest,diffDeploymentManifests,planDeploymentChanges,resolveDeploymentDiscovery,validateDeploymentInput,validateFilterSteps,FlyMachinesClient,LogturaServiceClient, DeploymentReportingClient,manifestSecretName,isDeploymentPushRequestId,validateDeploymentConfigCommit,planFlyReplacement,planFlyReplacementCleanup,validateFlyReplacementCleanupState,executeFlyReplacementCleanup} from '@logtura/core';
-    import {writeFileSync,readFileSync,statSync} from 'node:fs';
-    import {main,applyLinkedFlyDeployment,readPendingFlyApply,activateLinkedDeployment,readPendingActivation,finishLinkedActivation,reportLoadedForwarderFile,runForwarderReporting} from '@logtura/cli';
+    import {writeFileSync,readFileSync,statSync,mkdirSync} from 'node:fs';
+    import {main,applyLinkedFlyDeployment,readPendingFlyApply,activateLinkedDeployment,readPendingActivation,finishLinkedActivation,reportLoadedForwarderFile,runForwarderReporting,PrivateFlyReplacementStore,readPrivateFlyReplacement} from '@logtura/cli';
     import {cloudflareWorkerTailDriver} from '@logtura/driver-cloudflare-worker-tail';
     const metrics=applyMetricsToSnapshot(null,parseMetricsBody(readFileSync('metrics file.ndjson','utf8')));assert.equal(metrics.byComponent.packed_sink.sent,7);assert.equal(rateFor(metrics.byComponent.packed_sink,'sent'),null);
     const largeMetric={kind:'source',type:'exec',sent:1e308,lastSeen:60000,prev:{sent:0,sampleAt:0}};
@@ -138,6 +142,13 @@ monitors: []
     const cleanupImage='registry.test/new@sha256:'+'a'.repeat(64);
     const cleanupBefore={id:'cleanup-old',name:'forwarder',instance_id:'old-version',state:'started',region:'ord',config:{image:'registry.test/old:latest',env:{PRIVATE:'retained'}},image_ref:{registry:'registry.test',repository:'old',digest:'sha256:'+'b'.repeat(64)}};
     const cleanupPlan=planFlyReplacement({id:'00000000-0000-4000-8000-000000000001',app:'cleanup-app',org:'personal',machine:cleanupBefore,volume:'vol_cleanup',volumes:[{id:'vol_cleanup',region:'ord',state:'created',encrypted:true,attached_machine_id:null}],config:{image:cleanupImage,mounts:[{path:'/var/lib/logtura',volume:'vol_cleanup'}]}});
+    mkdirSync('private-replacement',{mode:0o700});
+    const replacementConfig='private-replacement/logt.yaml',privateStore=new PrivateFlyReplacementStore(replacementConfig);
+    assert.equal(readPrivateFlyReplacement(replacementConfig),null);await privateStore.prepare({plan:cleanupPlan,phase:'prepared',machineId:null});
+    assert.equal(statSync('private-replacement/.logtura-replacement.json').mode&0o777,0o600);
+    await privateStore.runExclusive(async tx=>{for(const [phase,machineId] of [['creating',null],['created','cleanup-new'],['switching','cleanup-new'],['installed','cleanup-new']]){const before=await tx.read();assert.equal(await tx.compareAndSwap(before,{...before,phase,machineId}),true);}});
+    const privateState=readPrivateFlyReplacement(replacementConfig);assert.equal(privateState.phase,'installed');let archiveChecks=0;
+    const replacementArchive=await privateStore.archive(privateState,async()=>{archiveChecks++;});assert.equal(archiveChecks,2);assert.equal(readPrivateFlyReplacement(replacementConfig),null);assert.equal(statSync(replacementArchive).mode&0o777,0o600);assert.deepEqual(JSON.parse(readFileSync(replacementArchive,'utf8')).state,privateState);
     let cleanupMachines=[{...cleanupBefore,state:'stopped'},{id:'cleanup-new',name:cleanupPlan.name,instance_id:'new-version',state:'started',region:'ord',config:cleanupPlan.after,image_ref:{registry:'registry.test',repository:'new',digest:'sha256:'+'a'.repeat(64)}}];
     let cleanupJournal={plan:planFlyReplacementCleanup({replacement:{plan:cleanupPlan,phase:'installed',machineId:'cleanup-new'},machines:cleanupMachines}),phase:'prepared'},cleanupDeletes=0;
     const cleanupClient=new FlyMachinesClient({token:'private',fetch:async(url,request)=>{

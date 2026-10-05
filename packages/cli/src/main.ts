@@ -807,4 +807,5 @@ export { runForwarderProcess } from "./runtime-process";
 export { forwarderRuntimeMain } from "./runtime-main";
 
 export { applyLinkedFlyDeployment, readPendingFlyApply, abandonObsoleteFlyApply, type PendingFlyApply } from "./fly-apply";
+export {PrivateFlyReplacementStore,readPrivateFlyReplacement} from "./fly-replacement-store";
 export { activateLinkedDeployment, readPendingActivation, finishLinkedActivation, cancelRejectedLinkedActivation, abandonObsoleteLinkedActivation, type PendingActivation } from "./activation";
