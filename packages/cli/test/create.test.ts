@@ -16,7 +16,7 @@ async function fixture(){
  const exported=await exportDeploymentManifest({providers:[],destinations:[],connections:[],monitors:[]},await createSecretVersioner('private-service'));
  let receipt:DeploymentCreationReceipt|null=null,mode='normal',owner='usr_owned',writes=0;
  const snapshot={...exported,revision:await hashConfigDocument(exported.document),deployment:{id:'dep_created',displayName:'CLI created'},configurationVersion:3,desiredSequence:0};
- const fetch=vi.fn(async(url,init)=>{
+ const fetch=vi.fn<typeof globalThis.fetch>(async(url,init)=>{
   if(String(url).endsWith('/me'))return Response.json({user:{id:owner,githubLogin:'fixture'}});
   if(init?.method==='POST'){
    writes++;const pending=readPendingDeploymentCreation(path);expect(pending?.phase).toBe('dispatched');expect(statSync(pendingCreationPath(path)).mode&0o777).toBe(0o600);
@@ -28,9 +28,9 @@ async function fixture(){
   }
   if(String(url).includes('/creations/'))return receipt?Response.json(receipt):Response.json({error:'receipt_not_found'},{status:404});
   if(mode==='pull-failure')throw new Error('export unavailable');return Response.json(snapshot);
- }) as unknown as typeof globalThis.fetch;
+ });
  const client=new LogturaServiceClient({url:'https://service.test',token:`lt_cli_${'T'.repeat(43)}`,fetch});
- return {root,path,input,client,fetch,snapshot,get receipt(){return receipt;},set receipt(v){receipt=v;},get mode(){return mode;},set mode(v){mode=v;},set owner(v){owner=v;},get writes(){return writes;}};
+ return {root,path,input,client,fetch,snapshot,get receipt(){return receipt;},set receipt(v){receipt=v;},get mode(){return mode;},set mode(v){mode=v;},set owner(v:string){owner=v;},get writes(){return writes;}};
 }
 it('creates, links and archives with private files, no provider calls or credential uploads',async()=>{
  const f=await fixture(),result=await createLinkedDeployment(f.client,f.path,{request:f.input});expect(result.deploymentId).toBe('dep_created');expect(result.revision).toBe(f.snapshot.revision);expect(f.writes).toBe(1);expect(existsSync(pendingCreationPath(f.path))).toBe(false);

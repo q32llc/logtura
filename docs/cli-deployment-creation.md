@@ -67,3 +67,12 @@ floors. The atomic transaction module retains its full four-metric gate.
 Types and E2E declarations pass. Fifteen isolated tarballs and the packaged
 service/website/native D1 lifecycle pass. Public source is under
 [PR 21](https://github.com/logtura/logtura/pull/21); merge and release are pending.
+
+The complete local E2E subsequently passed both mounted and legacy managed
+queue journeys, including website rollback, checkpoint preservation, retained
+candidate cleanup, fresh accepted replacement and graceful Docker shutdown.
+The new CLI-created identity passed the full self-managed runtime path, and
+owned teardown passed. Independent package typechecks initially found a test
+mock's erased Vitest type and an untyped owner setter; both are corrected and
+all 15 package typechecks pass. PR 21 retains that correction and must pass a
+fresh required CI run before merge.
