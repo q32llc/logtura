@@ -532,6 +532,28 @@ known or inherited values remain data. The generator uses this renderer for
 
 ## Replacing a legacy Fly forwarder
 
+Hosted adapters can record a completed provider handoff with
+`LogturaServiceClient.bindFlyReplacement(deploymentId, request)`. The public
+`FlyBindingRequest` records the expected account configuration version, desired
+revision/sequence, issued instance, old target/image, new target/image, and the
+retained old machine's immutable image and configuration digest. It contains no
+generated files or credentials. This requires a service implementing the
+`config/fly-bindings` API; older services do not implement this endpoint.
+
+The server atomically compares ownership and all fences, binds the new physical
+target, and rebases the unchanged desired revision to the resulting graph version.
+Only one binding is allowed per issued instance. The immutable receipt is recovered
+with `getFlyBindingReceipt(deploymentId, requestId)` after a lost response; replay
+with a changed request is rejected. `getFlyBinding(deploymentId)` returns the
+receipt for the currently bound machine, or `null`. A historical receipt does not
+prove that its revision is still current, that its retained machine is unchanged,
+or that the runtime loaded successfully. Adapters must verify those separately.
+
+Perform the provider handoff through `executeFlyReplacement` before recording its
+binding. Keep the private replacement journal until a current accepted runtime
+report confirms the new machine; the binding operation does not fabricate a report
+or change the reporting token, selected sources, monitors, or logical deployment ID.
+
 `planFlyReplacement({id, app, org, machine, config, volume, volumes})` prepares
 replacement of a mountless private forwarder with a new machine that has an
 unattached encrypted checkpoint volume. Pass an actual complete provider snapshot

@@ -47,6 +47,8 @@ created checkpoint volume cannot be attached through the existing in-place updat
 Fly returned HTTP 400; the exact old configuration was verified and restarted.
 The issued runtime and private apply/volume journals remain for recovery through the
 retained-machine replacement path. No loaded-manifest upgrade is claimed.
+The [linked replacement implementation](linked-fly-replacement.md) records the
+binding/recovery contract and the remaining installed-CLI and rollout acceptance.
 
 Completion still requires original forwarder loaded-manifest upgrade/rollback and
 accurate disposition of the private branch-protection limitation. Production snapshots, raw receipts,

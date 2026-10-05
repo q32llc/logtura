@@ -1,8 +1,10 @@
 import { isInstanceId,validateDeploymentActivation,validateDeploymentInstanceReceipt,validateDeploymentConfigurationState,type DeploymentConfigurationState,type DeploymentInstanceActivation,type DeploymentInstanceReceipt } from "./deployment-state";
 import { validateDeploymentTarget,type DeploymentTarget } from "./deployment-target";
+import {validateFlyBindingRequest,validateFlyBindingReceipt,type FlyBindingRequest,type FlyBindingReceipt} from "./fly-binding";
 import type { DeploymentManifest } from "./manifest";
 import { normalizeDeploymentManifest,parseDeploymentManifest } from "./manifest";
 import { hashConfigDocument } from "./config";
+import {canonicalConfigJson} from "./config";
 /** Optional hosted-account transport. Callers supply fetch; standalone rendering
  * never constructs this client or contacts a service. */
 export interface ServiceClientOptions {url:string;token?:string;fetch:typeof fetch;}
@@ -35,6 +37,26 @@ export async function validateDeploymentConfigCommit(value:unknown):Promise<Depl
 }
 export class LogturaServiceClient {
   readonly url:string;
+  async bindFlyReplacement(id:string,input:FlyBindingRequest):Promise<FlyBindingReceipt>{
+    if(!id)throw new Error("Deployment identity is required");
+    const request=validateFlyBindingRequest(input);
+    const result=await this.request(`/deployments/${encodeURIComponent(id)}/config/fly-bindings`,{method:"POST",body:JSON.stringify(request)});
+    try{const receipt=validateFlyBindingReceipt(result);if(canonicalConfigJson(receipt.request)!==canonicalConfigJson(request))throw new Error();return receipt;}
+    catch{throw new ServiceError(200,"invalid_binding_receipt");}
+  }
+  async getFlyBindingReceipt(id:string,requestId:string):Promise<FlyBindingReceipt|null>{
+    if(!id || !isInstanceId(requestId))throw new Error("Invalid Fly binding identity");
+    try{
+      const result=await this.request(`/deployments/${encodeURIComponent(id)}/config/fly-bindings/${encodeURIComponent(requestId)}`,{method:"GET"});
+      try{const receipt=validateFlyBindingReceipt(result);if(receipt.request.requestId!==requestId)throw new Error();return receipt;}catch{throw new ServiceError(200,"invalid_binding_receipt");}
+    }catch(error){if(error instanceof ServiceError && error.status===404 && error.code==="receipt_not_found")return null;throw error;}
+  }
+  async getFlyBinding(id:string):Promise<FlyBindingReceipt|null>{
+    if(!id)throw new Error("Deployment identity is required");
+    const result=await this.request(`/deployments/${encodeURIComponent(id)}/config/fly-binding`,{method:"GET"}) as {binding:unknown};
+    if(!result || typeof result!=="object" || Array.isArray(result) || Object.keys(result).length!==1 || !Object.hasOwn(result,"binding"))throw new ServiceError(200,"invalid_binding_receipt");
+    try{return result.binding===null?null:validateFlyBindingReceipt(result.binding);}catch{throw new ServiceError(200,"invalid_binding_receipt");}
+  }
   constructor(private readonly options:ServiceClientOptions){
     this.url=normalizeServiceUrl(options.url);
     if(options.token!==undefined && !/^lt_cli_[A-Za-z0-9_-]{43}$/.test(options.token))throw new ServiceError(401,"invalid_account_token");
