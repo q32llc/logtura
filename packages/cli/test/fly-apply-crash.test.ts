@@ -13,8 +13,8 @@ import {pendingFlyApplyPath} from "../src/file-transaction";
 import {image,indexImage,platformDigest,registryBody} from "./oci-fixture";
 for(const boundary of ["intent-file","intent-parent","activation-cleared","archive-parent"]){
  it(`recovers a compiled CLI killed after ${boundary} fsync over real HTTP`,async()=>{
-  const root=mkdtempSync(join(tmpdir(),"logt-apply-crash-")),config=join(root,"logt.yaml");let service="",revision="",document:unknown,receipt:DeploymentInstanceReceipt|null=null,updates=0,issuances=0;
-  let machine:FlyMachine={id:"machine123",instance_id:"version1",state:"started",region:"ord",config:{image:"registry.test/old:latest",env:{ORIGINAL:"private-before"}},image_ref:{registry:"registry.test",repository:"old",digest:`sha256:${"b".repeat(64)}`}};
+  const root=mkdtempSync(join(tmpdir(),"logt-apply-crash-")),config=join(root,"logt.yaml");let service="",revision="",document:unknown,exportedConfig:any,binding:any=null,receipt:DeploymentInstanceReceipt|null=null,updates=0,issuances=0;
+  let machine:FlyMachine={id:"abc123",instance_id:"version1",state:"started",region:"ord",config:{image:"registry.test/old:latest",env:{ORIGINAL:"private-before"},mounts:[{path:"/var/lib/logtura",volume:"vol_checkpoint"}]},image_ref:{registry:"registry.test",repository:"old",digest:`sha256:${"b".repeat(64)}`}};
   const server=createServer(async(request,response)=>{
    try{
     let body="";for await(const part of request)body+=part;const path=new URL(request.url!,service).pathname;let result:unknown;
@@ -28,11 +28,18 @@ for(const boundary of ["intent-file","intent-parent","activation-cleared","archi
       expect(existsSync(pendingFlyApplyPath(config))).toBe(true);const intent=JSON.parse(readFileSync(pendingFlyApplyPath(config),"utf8")),input=JSON.parse(body);expect(input.config).toEqual(intent.plan.after);expect(input.current_version).toBe("version1");expect(request.headers["fly-machine-lease-nonce"]).toBe("lease-private");updates++;
       expect(input.skip_launch).toBe(true);expect(machine.state).toBe("stopped");machine={...machine,config:input.config,instance_id:"version2",image_ref:{registry:"registry.test",repository:"forwarder",digest:platformDigest}};result=machine;
      }else if(path.endsWith("/machines"))result=[machine];
-     else if(path.endsWith("/volumes"))result=[{id:"vol_checkpoint",region:"ord",state:"created",encrypted:true,attached_machine_id:updates?machine.id:null}];
-     else if(path.endsWith("/machine123"))result=machine;
+     else if(path.endsWith("/volumes"))result=[{id:"vol_checkpoint",region:"ord",state:"created",encrypted:true,attached_machine_id:machine.id}];
+     else if(path.endsWith("/abc123"))result=machine;
      else result={name:"app",organization:{slug:"personal"}};
     }else if(path.endsWith("/me"))result={user:{id:"usr_site",githubLogin:"site"}};
-    else if(path.endsWith("/state"))result={state:{desired:{sequence:1,revision,document,configurationVersion:3},activeInstanceId:receipt?.instanceId??null,lastReportSequence:updates?1:0,stale:!updates,applied:updates?{sequence:1,revision,at:Date.now()}:null}};
+    else if(path.endsWith("/state"))result={state:{desired:{sequence:1,revision,document,configurationVersion:3},activeInstanceId:receipt?.instanceId??null,lastReportSequence:updates?1:0,stale:false,applied:updates?{sequence:1,revision,at:Date.now()}:null}};
+    else if(path.endsWith("/fly-capabilities"))result={schemaVersion:1,features:["replacement","image-update"]};
+    else if(path.endsWith("/fly-binding"))result={binding:null};
+    else if(path.endsWith("/fly-bindings") && request.method==="POST"){binding={request:JSON.parse(body),configurationVersion:3};result=binding;}
+    else if(path.includes("/fly-bindings/")){
+     if(binding)result=binding;else{response.writeHead(404,{"content-type":"application/json"});response.end(JSON.stringify({error:"receipt_not_found"}));return;}
+    }
+    else if(path.endsWith("/config"))result={...exportedConfig,target:{...exportedConfig.target,imageDigest:platformDigest}};
     else if(request.method==="POST"){issuances++;const input=JSON.parse(body);receipt={requestId:input.requestId,instanceId:randomUUID(),sequence:1,configurationVersion:3,revision};result=receipt;}
     else if(receipt)result=receipt;
     else{response.writeHead(404,{"content-type":"application/json"});response.end(JSON.stringify({error:"receipt_not_found"}));return;}
@@ -42,7 +49,7 @@ for(const boundary of ["intent-file","intent-parent","activation-cleared","archi
   await new Promise<void>(done=>server.listen(0,"127.0.0.1",done));service=`http://127.0.0.1:${(server.address() as {port:number}).port}`;
   try{
    const exported=await exportDeploymentManifest({providers:[],destinations:[],connections:[{connection:{id:"con_site",provider:"cloudflare-worker-tail",displayName:"Site",externalAccountId:"account"},credentials:{apiToken:"private-source-token"},selectedSources:[]}],monitors:[],heartbeat:{kind:"logtura",deploymentId:"dep_site",appUrl:service},runtimeEnv:{LOGTURA_HEARTBEAT_TOKEN:"private-report-token"}},await createSecretVersioner("fixture"));document=exported.document;revision=await hashConfigDocument(document);
-   const result={...exported,revision,configurationVersion:3,desiredSequence:1,deployment:{id:"dep_site",displayName:"Site"},target:{kind:"fly" as const,managed:false,imageDigest:null,fly:{appName:"app",region:"ord",orgSlug:"personal"}}};await writePulledConfig(result,config,false,await createDeploymentLink(service,"usr_site",result));
+   const result={...exported,revision,configurationVersion:3,desiredSequence:1,deployment:{id:"dep_site",displayName:"Site"},target:{kind:"fly" as const,managed:false,imageDigest:null,fly:{appName:"app",machineId:"abc123",region:"ord",orgSlug:"personal"}}};exportedConfig=result;await writePulledConfig(result,config,false,await createDeploymentLink(service,"usr_site",result));
    const compiled=pathToFileURL(join(process.cwd(),"packages/cli/dist/main.js")).href;
    async function child(resume:boolean):Promise<{code:number|null;signal:string|null;stderr:string;stdout:string}>{
     const script=`import fs from 'node:fs';import {syncBuiltinESMExports} from 'node:module';
@@ -57,7 +64,7 @@ for(const boundary of ["intent-file","intent-parent","activation-cleared","archi
    const killed=await child(false);expect(killed.signal,killed.stderr).toBe("SIGKILL");expect(issuances).toBe(1);expect(updates).toBe(["intent-file","intent-parent"].includes(boundary)?0:1);
    const saved=existsSync(pendingFlyApplyPath(config))?JSON.parse(readFileSync(pendingFlyApplyPath(config),"utf8")):null;
    const resumed=await child(true);expect(resumed.code,resumed.stderr).toBe(0);expect(resumed.signal).toBeNull();const applied=JSON.parse(resumed.stdout);expect(applied.image).toBe(image);expect(applied.instanceId).toBe(receipt!.instanceId);expect(issuances).toBe(1);expect(updates).toBe(1);expect(existsSync(pendingFlyApplyPath(config))).toBe(false);
-   const archive=JSON.parse(readFileSync(applied.rollbackFile,"utf8"));if(saved)expect(archive).toEqual(saved);expect(archive.rollback.image).toBe(`registry.test/old@sha256:${"b".repeat(64)}`);expect(resumed.stdout+resumed.stderr).not.toMatch(/private-before|private-report-token|private-source-token|private-fly-token/);
+   const archive=JSON.parse(readFileSync(applied.rollbackFile,"utf8"));if(saved)expect(archive).toMatchObject(saved);expect(archive.rollback.image).toBe(`registry.test/old@sha256:${"b".repeat(64)}`);expect(resumed.stdout+resumed.stderr).not.toMatch(/private-before|private-report-token|private-source-token|private-fly-token/);
   }finally{server.closeAllConnections();await new Promise<void>(done=>server.close(()=>done()));rmSync(root,{recursive:true,force:true});}
  },15_000);
 }

@@ -8,8 +8,9 @@ function transport(responses:Response[]){const fetch=vi.fn<typeof globalThis.fet
 it("validates and clones public retained-machine identities with bounded fences",()=>{
  const r=request();expect(validateFlyBindingRequest(r)).toEqual(r);expect(validateFlyBindingRequest(r)).not.toBe(r);
  expect(validateFlyBindingRequest({...r,expectedImageDigest:digest})).toEqual({...r,expectedImageDigest:digest});
+ expect(validateFlyBindingReceipt({request:{...r,machineId:r.previousMachineId},configurationVersion:7})).toEqual({request:{...r,machineId:r.previousMachineId},configurationVersion:7});
  expect(validateFlyBindingReceipt({request:r,configurationVersion:8})).toEqual({request:r,configurationVersion:8});
- for(const bad of [null,[],{}, {...r,extra:"secret"},...Object.keys(r).map(k=>({...r,[k]:undefined})),{...r,expectedConfigurationVersion:-1},{...r,expectedConfigurationVersion:0.5},{...r,expectedConfigurationVersion:Number.MAX_SAFE_INTEGER},{...r,expectedSequence:0},{...r,expectedSequence:0.5},{...r,expectedImageDigest:"secret"},{...r,machineId:r.previousMachineId},{...r,appName:"../../other"},{...r,orgSlug:""},{...r,region:"wrong"},{...r,requestId:"wrong"},{...r,previousMachineId:"machine-with-dashes"}])expect(()=>validateFlyBindingRequest(bad)).toThrow("Invalid Fly binding request");
+ for(const bad of [null,[],{}, {...r,extra:"secret"},...Object.keys(r).map(k=>({...r,[k]:undefined})),{...r,expectedConfigurationVersion:-1},{...r,expectedConfigurationVersion:0.5},{...r,expectedConfigurationVersion:Number.MAX_SAFE_INTEGER},{...r,expectedSequence:0},{...r,expectedSequence:0.5},{...r,expectedImageDigest:"secret"},{...r,appName:"../../other"},{...r,orgSlug:""},{...r,region:"wrong"},{...r,requestId:"wrong"},{...r,previousMachineId:"machine-with-dashes"}])expect(()=>validateFlyBindingRequest(bad)).toThrow("Invalid Fly binding request");
  for(const bad of [null,[],{}, {request:r,configurationVersion:7},{request:r,configurationVersion:9},{request:r,configurationVersion:8,extra:"secret"}])expect(()=>validateFlyBindingReceipt(bad)).toThrow();
 });
 it("uses the supplied account transport, encodes identities, and checks exact binding receipts",async()=>{

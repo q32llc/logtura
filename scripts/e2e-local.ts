@@ -189,7 +189,8 @@ try {
   let registryReads = 0;
   const installed = join(temporary, "installed"); mkdirSync(installed);
   await run("docker", ["volume", "create", volume]); volumeCreated = true;
-  let updates = 0;
+  let updates = 0, creates = 0;
+  let retained: any = null;
   let machine: any = { id: "abc123", instance_id: "original", state: "started", region: "ord", config: { image: "registry.fixture/old:latest", env: {} }, image_ref: { registry: "registry.fixture", repository: "old", digest: `sha256:${"b".repeat(64)}` } };
   provider = createServer(async (request, response) => {
     try {
@@ -203,22 +204,35 @@ try {
       }
       assert.equal(request.headers.authorization, "Bearer fixture-fly-token");
       let result: any;
+      const target = path.includes("/machines/abc123") && retained ? retained : machine;
       if (path.endsWith("/lease")) result = request.method === "DELETE" ? null : { data: { nonce: "fixture-lease" } };
       else if (request.method === "POST" && path.endsWith("/stop")) {
-        if (deployed) await run("docker", ["stop", "--time", "35", container]);
-        machine.state = "stopped"; result = null;
+        if (target === machine && deployed) await run("docker", ["stop", "--time", "35", container]);
+        target.state = "stopped"; result = null;
       } else if (request.method === "POST" && path.endsWith("/start")) {
-        assert.ok(deployed); await run("docker", ["start", container]); machine.state = "started"; result = null;
-      }
-      else if (request.method === "POST" && path.endsWith("/machines/abc123")) {
+        assert.equal(target, machine); assert.ok(deployed);
+        assert.ok(!retained || retained.state === "stopped", "standby must stop before the candidate starts");
+        await run("docker", ["start", container]); machine.state = "started"; result = null;
+      } else if (request.method === "POST" && (path.endsWith("/machines") || /\/machines\/(abc123|def456)$/.test(path))) {
         let body = ""; for await (const chunk of request) body += chunk;
-        const update = JSON.parse(body); assert.equal(update.current_version, machine.instance_id);
-        assert.equal(update.skip_launch, true); assert.equal(machine.state, "stopped");
-        assert.equal(request.headers["fly-machine-lease-nonce"], "fixture-lease");
+        const update = JSON.parse(body), creating = path.endsWith("/machines");
+        if (!creating && !target.config.mounts?.length && update.config.mounts?.length) {
+          response.writeHead(400); response.end("A new volume requires a new machine"); return;
+        }
+        assert.equal(update.skip_launch, true);
+        if (creating) {
+          assert.equal(creates, 0); assert.equal(machine.id, "abc123"); assert.equal(machine.state, "started");
+          retained = structuredClone(machine); creates++;
+        } else {
+          assert.equal(target, machine); assert.equal(update.current_version, machine.instance_id);
+          assert.equal(machine.state, "stopped"); assert.equal(request.headers["fly-machine-lease-nonce"], "fixture-lease");
+          assert.deepEqual(update.config.mounts, machine.config.mounts);
+          await run("docker", ["rm", container]);
+        }
         assert.equal(update.config.image, platformImage);
         for (const file of update.config.files) {
           assert.ok(file.guest_path.startsWith("/etc/vector/") || file.guest_path.startsWith("/opt/logtura/assets/"));
-          const path = join(installed, file.guest_path.slice(1)); mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, Buffer.from(file.raw_value, "base64")); chmodSync(path, file.mode);
+          const path = join(installed, file.guest_path.slice(1)); mkdirSync(dirname(path), { recursive: true }); rmSync(path, {force:true}); writeFileSync(path, Buffer.from(file.raw_value, "base64")); chmodSync(path, file.mode);
         }
         const args = ["create", "--name", container, "--network", "host", "--stop-timeout", "35", "--volume", `${join(installed, "etc/vector")}:/etc/vector:ro`, "--volume", `${volume}:/var/lib/logtura`];
         for (const [key, value] of Object.entries(update.config.env)) args.push("--env", `${key}=${value}`);
@@ -227,16 +241,16 @@ try {
         await run("docker", args); deployed = true;
         assert.equal(await run("docker", ["inspect", "--format", "{{.Image}}", container]), dockerImageId);
         updates++;
-        machine = { ...machine, instance_id: `updated-${updates}`, config: update.config, image_ref: { registry: "registry.fixture", repository: "forwarder", digest: platformDigest } };
+        machine = { id: creating ? "def456" : machine.id, name: update.name, region: "ord", state: creating ? "created" : "stopped", instance_id: `updated-${updates}`, config: update.config, image_ref: { registry: "registry.fixture", repository: "forwarder", digest: platformDigest } };
         result = machine;
-      } else if (path.endsWith("/machines")) result = [machine];
-      else if (path.endsWith("/volumes")) result = [{ id: "vol_fixture", region: "ord", state: "created", encrypted: true, attached_machine_id: updates ? machine.id : null }];
-      else if (path.endsWith("/machines/abc123")) {
-        if (deployed) machine.state = await run("docker", ["inspect", "--format", "{{.State.Running}}", container]) === "true" ? "started" : "stopped";
-        result = machine;
+      } else if (path.endsWith("/machines")) result = retained ? [retained, machine] : [machine];
+      else if (path.endsWith("/volumes")) result = [{ id: "vol_fixture", region: "ord", state: "created", encrypted: true, attached_machine_id: creates ? machine.id : null }];
+      else if (/\/machines\/(abc123|def456)$/.test(path)) {
+        if (target === machine && deployed) machine.state = await run("docker", ["inspect", "--format", "{{.State.Running}}", container]) === "true" ? "started" : "stopped";
+        result = target;
       } else { assert.equal(path, "/v1/apps/e2e-forwarder"); result = { name: "e2e-forwarder", organization: { slug: "personal" } }; }
       response.writeHead(result === null ? 204 : 200, { "content-type": "application/json" }); response.end(result === null ? undefined : JSON.stringify(result));
-    } catch { response.writeHead(503); response.end("fixture operation failed"); }
+    } catch (error) { console.error("Local provider fixture failed", request.method, new URL(request.url!, "http://fixture").pathname, error instanceof Error ? error.stack?.split("\n").slice(1,4).join("\n") : "unknown"); response.writeHead(503); response.end("fixture operation failed"); }
   });
   await new Promise<void>(resolve => provider!.listen(0, "127.0.0.1", resolve));
   const providerUrl = `http://127.0.0.1:${(provider.address() as { port: number }).port}`;
@@ -245,10 +259,15 @@ try {
   const applied = start(bin, ["--config", config, "deploy", "fly", "--image", image, "--volume", "vol_fixture", "--region", "ord", "--wait-seconds", "120"], consumer,
     { ...environment, NODE_OPTIONS: `--import=${pathToFileURL(interceptor)}` }, 180_000);
   await applied.result;
-  assert.equal(updates, 1);
+  assert.equal(updates, 1); assert.equal(creates, 1);
+  assert.equal(retained.id, "abc123"); assert.equal(retained.state, "stopped");
+  assert.deepEqual(retained.config, { image: "registry.fixture/old:latest", env: {} });
+  assert.equal(machine.id, "def456");
+  const projected = JSON.parse(readFileSync(`${config}.logtura-link.json`, "utf8"));
+  assert.equal(projected.target.fly.machineId, "def456");
   assert.equal(registryReads, 2, "installed CLI verifies both OCI index and platform manifest");
   assert.equal(machine.config.image, platformImage);
-  const state = (await request(`/api/deployments/${deploymentId}/config/state`)).state;
+  let state = (await request(`/api/deployments/${deploymentId}/config/state`)).state;
   assert.equal(state.stale, false); assert.ok(state.lastReportSequence >= 1);
   assert.equal(state.applied.revision, desired.desired.revision); assert.equal(state.applied.sequence, desired.desired.sequence);
   assert.ok(!("pendingApply" in JSON.parse(await run(bin, ["--config", config, "config", "status"]))));
@@ -259,6 +278,18 @@ try {
   }, "actual Vector heartbeat and metrics HTTP delivery");
   await website.applied(deploymentId, desired.desired.sequence, desired.desired.revision);
   await website.metrics(deploymentId);
+  // The next installed CLI apply must recognize the retained standby, update
+  // the mounted candidate, and keep the graph clock and physical target stable.
+  const firstInstance = state.activeInstanceId, firstVersion = projected.configurationVersion;
+  await start(bin, ["--config", config, "deploy", "fly", "--image", image, "--volume", "vol_fixture", "--region", "ord", "--wait-seconds", "120"], consumer,
+    { ...environment, NODE_OPTIONS: `--import=${pathToFileURL(interceptor)}` }, 180_000).result;
+  assert.equal(creates, 1); assert.equal(updates, 2); assert.equal(registryReads, 4);
+  assert.equal(retained.state, "stopped"); assert.equal(machine.id, "def456");
+  assert.equal(JSON.parse(readFileSync(`${config}.logtura-link.json`, "utf8")).configurationVersion, firstVersion);
+  state = (await request(`/api/deployments/${deploymentId}/config/state`)).state;
+  assert.notEqual(state.activeInstanceId, firstInstance); assert.equal(state.stale, false);
+  assert.equal(state.applied.revision, desired.desired.revision); assert.equal(state.applied.sequence, desired.desired.sequence);
+  await website.applied(deploymentId, desired.desired.sequence, desired.desired.revision);
   await website.revoke();
   await assert.rejects(run(bin, ["whoami"]), /invalid_account_token \(HTTP 401\)/);
   website.assertNoErrors();

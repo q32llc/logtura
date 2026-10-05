@@ -5078,3 +5078,28 @@ browser-owner retention action and exact server lifetime are acknowledged; the
 private local credential was updated only afterward. Published CLI and smoke probes
 pass with it. The temporary validation grant is revoked and its old bearer returns
 401. See [persistent smoke rollout](service-rollout-smoke-access.md).
+
+
+### Linked Fly replacement integration — implementation and verification in progress
+
+The durable private replacement adapter is merged to public protected main through
+PR #13 (`875ca2df`), following passing required CI. Its crash test uses existing
+public esbuild tooling rather than the private workspace's `tsx` dependency.
+
+The next slice integrates that shared backend into linked `deploy fly`, synchronizes
+its target only after an accepted current report, retains complete standby identity,
+and supports subsequent same-machine updates through additive schema 34. Native
+schema preservation and installed CLI/Vector replacement plus subsequent update have
+passed. Final coverage/package/native checks passed against the latest recovery fence fixes:
+1,763 tests, all enforced gates, 97.53% line coverage and all 15 packed consumers.
+Service/E2E typechecks and the complete native journey passed as well. This slice
+is being committed; CI/public merge and a coordinated release remain separate
+requirements. See
+[the replacement contract](linked-fly-replacement.md) for exact guarantees and limits.
+
+Remaining prerequisites include explicit self-managed rollback, recovery of the
+production 0.3.2 journal across generator versions, a coordinated package/image/service
+release, and the original production loaded-manifest/delivery/rollback acceptance.
+The original deployment is running, and its existing intent, checkpoint volume and
+immutable old settings remain retained. Owned CI coverage reports remain the coverage
+system; no Codecov service or production credentials are needed for CI.

@@ -1,5 +1,5 @@
 import {Hono,type Context} from "hono";
-import {canonicalConfigJson,isInstanceId,validateFlyBindingRequest,validateFlyBindingReceipt,type FlyBindingRequest,type FlyBindingReceipt} from "@logtura/core";
+import {canonicalConfigJson,isInstanceId,validateFlyBindingRequest,validateFlyBindingReceipt,flyBindingConfigurationVersion,type FlyBindingRequest,type FlyBindingReceipt} from "@logtura/core";
 import type {AppContext} from "./env";
 import {getDeployment} from "./db";
 
@@ -24,13 +24,13 @@ export async function bindLinkedFlyReplacement(db:D1Database,userId:string,deplo
  const prior=await readFlyBindingReceipt(db,userId,deploymentId,intent.requestId,intent);if(prior)return prior;
  try{
   await db.prepare(`INSERT INTO linked_fly_binding_receipts(deployment_id,user_id,request_id,request_json,configuration_version,created_at) VALUES(?,?,?,?,?,?)`)
-   .bind(deploymentId,userId,intent.requestId,canonicalConfigJson(intent),intent.expectedConfigurationVersion+1,Date.now()).run();
+   .bind(deploymentId,userId,intent.requestId,canonicalConfigJson(intent),flyBindingConfigurationVersion(intent),Date.now()).run();
  }catch(error){
   const recovered=await readFlyBindingReceipt(db,userId,deploymentId,intent.requestId,intent);if(recovered)return recovered;
   if(error instanceof Error && error.message.includes("LOGT_FLY_BINDING_CONFLICT"))throw new FlyBindingError(409,"binding_changed");
   throw error;
  }
- return {request:intent,configurationVersion:intent.expectedConfigurationVersion+1};
+ return {request:intent,configurationVersion:flyBindingConfigurationVersion(intent)};
 }
 async function body(c:Context<AppContext>):Promise<unknown>{
  const reader=c.req.raw.body?.getReader();if(!reader)throw new FlyBindingError(400,"invalid_body");
@@ -45,6 +45,11 @@ function failure(c:Context<AppContext>,error:unknown){return error instanceof Fl
  * Provider handoff and file/config checks belong to the packaged CLI backend. */
 export function linkedFlyBindingRoutes(){
  const routes=new Hono<AppContext>();
+ routes.get("/deployments/:id/config/fly-capabilities",async c=>{
+  try{if(!await getDeployment(c.env.DB,c.get("user")!.id,c.req.param("id")))return c.json({error:"not_found"},404);
+   return c.json({schemaVersion:1,features:["replacement","image-update"]});
+  }catch(error){return failure(c,error);}
+ });
  routes.post("/deployments/:id/config/fly-bindings",async c=>{
   if(c.get("authKind")==="session" && c.req.header("origin")!==c.env.APP_URL)return c.json({error:"invalid_origin"},403);
   try{return c.json(await bindLinkedFlyReplacement(c.env.DB,c.get("user")!.id,c.req.param("id"),await body(c)));}catch(error){return failure(c,error);}
@@ -63,6 +68,7 @@ export function linkedFlyBindingRoutes(){
    if(!deployment)return c.json({error:"not_found"},404);
    const row=await c.env.DB.prepare(`SELECT request_id FROM linked_fly_binding_receipts WHERE deployment_id=? AND user_id=?
     AND 'fly:'||json_extract(request_json,'$.appName')||':'||json_extract(request_json,'$.machineId')=?
+    AND json_extract(request_json,'$.previousMachineId')<>json_extract(request_json,'$.machineId')
     ORDER BY configuration_version DESC LIMIT 1`).bind(id,userId,deployment.external_id).first<{request_id:string}>();
    return c.json({binding:row?await readFlyBindingReceipt(c.env.DB,userId,id,row.request_id):null});
   }catch(error){return failure(c,error);}

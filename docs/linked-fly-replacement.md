@@ -29,7 +29,8 @@ immutable-plan and candidate checks, atomic rename plus fsync, and private archi
 acknowledgements. A pending replacement fences ordinary configuration writes and
 appears in redacted `config status`. Tests exercise the actual shared handoff and
 rollback backend, response loss, concurrent ownership, fsync failure, and a killed
-child process. The linked command integration and production rollout are pending.
+child process. The linked command integration is implemented in the next slice; its owned coverage/native
+checks have passed, and production rollout remains pending.
 
 The remaining CLI integration must:
 
@@ -59,3 +60,38 @@ evidence. Then upgrade the original through the published CLI, verify loaded
 manifest and real delivery, exercise rollback and final restoration, and audit the
 full convergence plan. The original machine remains running on its retained legacy
 configuration while these implementation slices are completed.
+
+The linked CLI integration now selects the bound machine explicitly. A mountless
+legacy target uses `PrivateFlyReplacementStore` and the shared replacement engine;
+a mounted target uses the leased update backend. Subsequent applies accept exactly
+the bound candidate and its verified stopped standby. A provider/configuration
+fence runs before each lifecycle write, and unresolved replacement journals prevent
+abandoning their owning activation/apply intent.
+
+Schema 34 extends the atomic receipt protocol to same-machine image updates without
+advancing the graph clock. The current standby receipt remains the original physical
+replacement receipt. An owner-authenticated capability endpoint lets the CLI reject
+older services before issuing a reporting instance. Both additive migrations preserve
+existing identities and state; schema 34 is tested with an existing schema 33 receipt.
+
+An accepted loaded-manifest report precedes local target projection. Completion is
+journaled before projecting the private link, then the replacement and apply intents
+are archived with acknowledgement checks. Response loss at create, binding, link
+rename and archive boundaries is recoverable; changed receipts, missing private
+archives and a stopped candidate retain recovery state. The native installed-CLI
+journey rejects impossible in-place volume attachment, runs actual Vector on the
+candidate, and exercises a second update with the retained standby. The fixture's
+original self-managed legacy machine is represented by provider state; the separate
+managed legacy journey exercises an actual legacy container's stop/restart ordering.
+
+Explicit self-managed rollback and cross-generator recovery of the production 0.3.2
+intent remain release prerequisites. None of these new integration changes or schema
+33/34 have been deployed to the original production deployment yet.
+
+Final local validation of the integration passed 1,763 tests with all enforced gates
+(97.53% lines, 97.12% statements, 94.63% branches, 98.94% functions), all 15 packed
+package consumers, service/E2E typechecks, and the complete native installed CLI,
+workerd/D1, browser and Vector journey. The permanent local production smoke token
+also passed GET-only identity/state checks; the running original deployment remains
+truthfully unapplied. CI and protected public merge evidence are tracked separately
+from these local checks.

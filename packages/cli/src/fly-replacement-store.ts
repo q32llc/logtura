@@ -1,4 +1,4 @@
-import {canonicalConfigJson,validateFlyReplacementState,type FlyReplacementState,type FlyReplacementStore,type FlyReplacementTransaction} from "@logtura/core";
+import {canonicalConfigJson,isInstanceId,validateFlyReplacementState,type FlyReplacementState,type FlyReplacementStore,type FlyReplacementTransaction} from "@logtura/core";
 import {constants,openSync,closeSync,fstatSync,lstatSync,readFileSync,writeFileSync,fsyncSync,linkSync,renameSync,rmSync} from "node:fs";
 import {dirname,resolve} from "node:path";
 import {randomUUID} from "node:crypto";
@@ -17,9 +17,8 @@ function validTransition(before:FlyReplacementState,after:FlyReplacementState):b
 }
 /** Reads never follow symlinks or block on devices/pipes. This file contains
  * resolved provider payloads and must not be printed or uploaded as evidence. */
-export function readPrivateFlyReplacement(config:string):FlyReplacementState|null{
+function readState(config:string,path:string):FlyReplacementState|null{
  assertTransactionClear(config);
- const path=pendingFlyReplacementPath(config);
  try{if(!lstatSync(path).isFile())throw new Error();}catch(error){if((error as NodeJS.ErrnoException).code==="ENOENT")return null;throw new Error("Replacement state must be a private regular file");}
  let fd:number;try{fd=openSync(path,constants.O_RDONLY|constants.O_NOFOLLOW|constants.O_NONBLOCK);}catch{throw new Error("Replacement state must be a private regular file");}
  let value:Envelope;
@@ -31,6 +30,11 @@ export function readPrivateFlyReplacement(config:string):FlyReplacementState|nul
   if(!value || typeof value!=="object" || Array.isArray(value) || Object.keys(value).length!==3 || Object.keys(value).some(k=>!["schemaVersion","config","state"].includes(k)) || value.schemaVersion!==1 || value.config!==resolve(config))throw new Error();
   return validateFlyReplacementState(value.state);
  }catch{throw new Error("Invalid private replacement state; retain it for recovery");}
+}
+export function readPrivateFlyReplacement(config:string):FlyReplacementState|null{return readState(config,pendingFlyReplacementPath(config));}
+export function readPrivateFlyReplacementArchive(config:string,id:string):FlyReplacementState|null{
+ if(!isInstanceId(id))throw new Error("Invalid replacement archive identity");
+ return readState(config,resolve(dirname(resolve(config)),`.logtura-replaced-${id}.json`));
 }
 function write(config:string,state:FlyReplacementState,initial:boolean):void{
  const path=pendingFlyReplacementPath(config),stage=`${path}.${randomUUID()}.tmp`;

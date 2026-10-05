@@ -238,15 +238,19 @@ monitors: []
 
     // Installed-shape linked apply exercises the same public backend operations.
     const applyExport=await exportDeploymentManifest({...input,heartbeat:{kind:'logtura',deploymentId:'dep_apply',appUrl:'https://apply.test'},runtimeEnv:{LOGTURA_HEARTBEAT_TOKEN:'private-report-fixture'}},await createSecretVersioner('apply-private'));
-    const applyRevision=await hashConfigDocument(applyExport.document),applyResult={...applyExport,revision:applyRevision,configurationVersion:3,desiredSequence:1,deployment:{id:'dep_apply',displayName:'Apply'},target:{kind:'fly',managed:false,imageDigest:null,fly:{appName:'packed-app',region:'ord'}}};
-    let applyReceipt=null,applyUpdates=0,applyIssues=0,loseUpdate=true;
-    const applyState={desired:{sequence:1,revision:applyRevision,document:applyExport.document,configurationVersion:3},activeInstanceId:null,lastReportSequence:0,stale:true,applied:null};
+    const applyRevision=await hashConfigDocument(applyExport.document),applyResult={...applyExport,revision:applyRevision,configurationVersion:3,desiredSequence:1,deployment:{id:'dep_apply',displayName:'Apply'},target:{kind:'fly',managed:false,imageDigest:null,fly:{appName:'packed-app',machineId:'abc123',region:'ord',orgSlug:'personal'}}};
+    let applyReceipt=null,applyBinding=null,applySnapshot=applyResult,applyUpdates=0,applyIssues=0,loseUpdate=true;
+    const applyState={desired:{sequence:1,revision:applyRevision,document:applyExport.document,configurationVersion:3},activeInstanceId:null,lastReportSequence:0,stale:false,applied:null};
     const accountFetch=async(url,init)=>{
       if(url.endsWith('/me'))return Response.json({user:{id:'usr_apply',githubLogin:'apply'}});
       if(url.endsWith('/state'))return Response.json({state:applyState});
+      if(url.endsWith('/fly-capabilities'))return Response.json({schemaVersion:1,features:['replacement','image-update']});
+      if(url.endsWith('/fly-binding'))return Response.json({binding:null});
+      if(url.includes('/fly-bindings/'))return applyBinding?Response.json(applyBinding):Response.json({error:'receipt_not_found'},{status:404});
+      if(url.endsWith('/fly-bindings')){const request=JSON.parse(init.body);applyBinding={request,configurationVersion:3};applySnapshot={...applyResult,target:{kind:'fly',managed:false,imageDigest:request.imageDigest,fly:{appName:request.appName,machineId:request.machineId,region:request.region,orgSlug:request.orgSlug}}};return Response.json(applyBinding);}
       if(init.method==='POST'){applyIssues++;const request=JSON.parse(init.body);applyReceipt={requestId:request.requestId,instanceId:'00000000-0000-4000-8000-000000000004',sequence:1,configurationVersion:3,revision:applyRevision};applyState.activeInstanceId=applyReceipt.instanceId;return Response.json(applyReceipt);}
       if(url.includes('/instances/'))return applyReceipt?Response.json(applyReceipt):Response.json({error:'receipt_not_found'},{status:404});
-      return Response.json(applyResult);
+      return Response.json(applySnapshot);
     };
     globalThis.fetch=accountFetch;process.env.LOGT_SERVICE_TOKEN='lt_cli_'+'T'.repeat(43);
     try{assert.equal(await main(['pull','dep_apply','--service','https://apply.test','-o','packed-apply/logt.yaml']),0);}finally{globalThis.fetch=savedFetch;process.env.LOGT_SERVICE_TOKEN=savedToken;}
@@ -257,7 +261,7 @@ monitors: []
     const applyRoot='sha256:'+Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(applyIndex))).toString('hex');
     let registryReads=0;
     const imageFetch=async(url,init)=>{assert.equal(init.redirect,'manual');assert.equal(init.credentials,'omit');assert.equal(new Headers(init.headers).has('authorization'),false);registryReads++;if(url==='https://registry.test/v2/forwarder/manifests/'+applyRoot)return new Response(applyIndex);assert.equal(url,'https://registry.test/v2/forwarder/manifests/'+applyDigest);return new Response(applyManifest);};
-    let applyMachine={id:'machine123',instance_id:'version1',state:'started',region:'ord',config:{image:'registry.test/old:latest',env:{OLD:'private-old-fixture'}},image_ref:{registry:'registry.test',repository:'old',digest:'sha256:'+'b'.repeat(64)}};
+    let applyMachine={id:'abc123',instance_id:'version1',state:'started',region:'ord',config:{image:'registry.test/old:latest',env:{OLD:'private-old-fixture'},mounts:[{path:'/var/lib/logtura',volume:'vol_checkpoint'}]},image_ref:{registry:'registry.test',repository:'old',digest:'sha256:'+'b'.repeat(64)}};
     const fly=new FlyMachinesClient({token:'fly-fixture',fetch:async(url,init)=>{
       if(url.endsWith('/lease'))return init.method==='DELETE'?new Response(null,{status:204}):Response.json({data:{nonce:'lease-fixture'}});
       if(url.endsWith('/stop')){assert.ok(await readPendingFlyApply('packed-apply/logt.yaml'));applyMachine.state='stopped';return new Response(null,{status:204});}
@@ -265,20 +269,20 @@ monitors: []
       if(init.method==='POST'){assert.equal(applyMachine.state,'stopped');assert.equal(JSON.parse(init.body).skip_launch,true);}
       if(init.method==='POST'){applyUpdates++;const intent=await readPendingFlyApply('packed-apply/logt.yaml'),request=JSON.parse(init.body);assert.deepEqual(request.config,intent.plan.after);assert.equal(request.current_version,'version1');applyMachine={...applyMachine,instance_id:'version2',config:request.config,image_ref:{registry:'registry.test',repository:'forwarder',digest:applyDigest}};applyState.lastReportSequence=1;applyState.stale=false;applyState.applied={sequence:1,revision:applyRevision,at:Date.now()};if(loseUpdate)throw new TypeError('packed provider acknowledgement lost');return Response.json(applyMachine);}
       if(url.endsWith('/machines'))return Response.json([applyMachine]);
-      if(url.endsWith('/volumes'))return Response.json([{id:'vol_checkpoint',region:'ord',state:'created',encrypted:true,attached_machine_id:applyUpdates?applyMachine.id:null}]);
-      if(url.endsWith('/machine123'))return Response.json(applyMachine);
+      if(url.endsWith('/volumes'))return Response.json([{id:'vol_checkpoint',region:'ord',state:'created',encrypted:true,attached_machine_id:applyMachine.id}]);
+      if(url.endsWith('/abc123'))return Response.json(applyMachine);
       return Response.json({name:'packed-app',organization:{slug:'personal'}});
     }});
     const creationConfig={image:applyImage,env:{PRIVATE:'packed-create-private'}};
     let creations=0;const creating=new FlyMachinesClient({token:'fo1_scoped',authorizationScheme:'FlyV1',fetch:async(url,init)=>{creations++;assert.equal(url,'https://api.machines.dev/v1/apps/packed-app/machines');assert.equal(init.redirect,'manual');assert.equal(new Headers(init.headers).get('authorization'),'FlyV1 fo1_scoped');assert.deepEqual(JSON.parse(init.body),{name:'forwarder',region:'ord',config:creationConfig});return Response.json({...applyMachine,name:'forwarder',config:creationConfig});}});
-    assert.equal((await creating.create('packed-app',{name:'forwarder',region:'ord',config:creationConfig})).id,'machine123');assert.equal(creations,1);
+    assert.equal((await creating.create('packed-app',{name:'forwarder',region:'ord',config:creationConfig})).id,'abc123');assert.equal(creations,1);
     const volumeOptions={name:'packed_checkpoint',region:'ord',sizeGb:1,compute:{cpu_kind:'shared',cpus:2,memory_mb:4096}};
     const provisioning=new FlyMachinesClient({token:'fly-fixture',fetch:async(url,init)=>{assert.equal(url,'https://api.machines.dev/v1/apps/packed-app/volumes');assert.equal(init.redirect,'manual');assert.equal(init.credentials,'omit');assert.deepEqual(JSON.parse(init.body),{name:volumeOptions.name,region:volumeOptions.region,size_gb:1,compute:volumeOptions.compute,encrypted:true,machines_only:true,require_unique_zone:true});return Response.json({id:'vol_checkpoint',name:volumeOptions.name,region:'ord',size_gb:1,state:'created',encrypted:true,attached_machine_id:null});}});
     assert.equal((await provisioning.createVolume('packed-app',volumeOptions)).id,'vol_checkpoint');
     const applyAccount=new LogturaServiceClient({url:'https://apply.test',token:'lt_cli_'+'T'.repeat(43),fetch:accountFetch});
     await assert.rejects(applyLinkedFlyDeployment(applyAccount,'packed-apply/logt.yaml',{fly,image:'registry.test/forwarder@'+applyRoot,imageFetch,volume:'vol_checkpoint'}),/provider acknowledgement lost/);
     const applyIntent=await readPendingFlyApply('packed-apply/logt.yaml');assert.equal(registryReads,2);assert.equal(applyIntent.plan.after.image,applyImage);const creationArtifact=JSON.parse(Buffer.from(applyIntent.plan.after.files.find(file=>file.guest_path==='/etc/vector/logtura-runtime.json').raw_value,'base64').toString());const creationCompiled=await compileForwarderRuntime({service:creationArtifact.service,deploymentId:creationArtifact.deploymentId,document:creationArtifact.document,instance:creationArtifact.instance,env:applyExport.secretValues,providers:input.providers,destinations:input.destinations});const creationRuntime=await buildFlyRuntimeConfig({base:{image:applyImage},image:applyImage,volume:'vol_checkpoint',artifact:creationArtifact,bundle:creationCompiled.bundle});assert.deepEqual(creationRuntime.init,applyIntent.plan.after.init);assert.deepEqual(creationRuntime.files,applyIntent.plan.after.files);assert.equal(statSync('packed-apply/.logtura-apply.json').mode&0o777,0o600);loseUpdate=false;
-    const applied=await applyLinkedFlyDeployment(applyAccount,'packed-apply/logt.yaml',{fly,resume:true});assert.equal(applied.image,applyImage);assert.equal(registryReads,2);assert.equal(applyUpdates,1);assert.equal(applyIssues,1);assert.equal(applied.instanceId,applyReceipt.instanceId);assert.equal(await readPendingFlyApply('packed-apply/logt.yaml'),null);assert.deepEqual(JSON.parse(readFileSync(applied.rollbackFile,'utf8')),applyIntent);
+    const applied=await applyLinkedFlyDeployment(applyAccount,'packed-apply/logt.yaml',{fly,resume:true});assert.equal(applied.image,applyImage);assert.equal(registryReads,2);assert.equal(applyUpdates,1);assert.equal(applyIssues,1);assert.equal(applied.instanceId,applyReceipt.instanceId);assert.equal(await readPendingFlyApply('packed-apply/logt.yaml'),null);const completedApply=JSON.parse(readFileSync(applied.rollbackFile,'utf8'));for(const key of Object.keys(applyIntent))assert.deepEqual(completedApply[key],applyIntent[key]);assert.equal(completedApply.completion.binding.request.machineId,'abc123');
 
     assert.equal(manifestSecretName('CREDENTIALS','fixture'),exported.document.connections[0].credentials.env);
     const requestId='00000000-0000-4000-8000-000000000001';assert.equal(isDeploymentPushRequestId(requestId),true);

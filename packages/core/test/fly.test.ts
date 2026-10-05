@@ -212,3 +212,10 @@ it("creates a stopped candidate only on explicit skipLaunch and rejects malforme
  expect(JSON.parse(fetcher.mock.calls[0]![1]!.body as string)).toEqual({name:"candidate",region:"ord",config:current.config,skip_launch:true});
  await expect(client.create("app",{name:"candidate",region:"ord",config:current.config,skipLaunch:false as unknown as true})).rejects.toThrow("launch setting");expect(fetcher).toHaveBeenCalledOnce();
 });
+it("checks the caller fence before leasing and every stop, update and start, releasing on fence failure",async()=>{
+ for(const failAt of [1,2,3,4]){
+  const f=fixture();let guards=0;
+  await expect(applyFlyMachine(f.client,f.plan,{assertCurrent:async()=>{if(++guards===failAt)throw new Error("caller graph changed");}})).rejects.toThrow("caller graph changed");
+  expect(guards).toBe(failAt);expect(f.stops).toBe(failAt>2?1:0);expect(f.updates).toBe(failAt>3?1:0);expect(f.starts).toBe(0);expect(f.releases).toBe(failAt>1?1:0);
+ }
+});

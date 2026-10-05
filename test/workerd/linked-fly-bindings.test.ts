@@ -82,6 +82,15 @@ it("rolls back the receipt, target and graph rebase together on a storage failur
  await env.DB.exec("CREATE TRIGGER binding_injected_failure BEFORE UPDATE ON deployment_configuration_revisions BEGIN SELECT RAISE(ABORT,'injected storage failure'); END;");
  expect((await f.send()).status).toBe(503);expect(await getDeployment(env.DB,f.userId,f.deployment.id)).toEqual(before);expect(await readDeploymentConfiguration(env.DB,f.userId,f.deployment.id)).toEqual(state);expect(await readConfigurationVersion(env.DB,f.userId)).toBe(f.issued.configurationVersion);expect(await f.client.getFlyBindingReceipt(f.deployment.id,f.request.requestId)).toBeNull();
 });
+it("records an image update at the same graph clock while retaining the original standby binding",async()=>{
+ const f=await fixture(),replacement=await f.client.bindFlyReplacement(f.deployment.id,f.request);
+ const activation=await activateDeploymentWithReceipt(env.DB,f.userId,f.deployment.id,{requestId:crypto.randomUUID(),expectedConfigurationVersion:replacement.configurationVersion,expectedSequence:f.issued.sequence,revision:f.issued.revision,expectedInstanceId:f.request.instanceId});
+ const update={...f.request,requestId:activation.requestId,instanceId:activation.instanceId,expectedConfigurationVersion:replacement.configurationVersion,previousMachineId:f.request.machineId,machineId:f.request.machineId,expectedImageDigest:f.request.imageDigest,previousImageDigest:f.request.imageDigest,imageDigest:hash("e")};
+ const receipt=await f.client.bindFlyReplacement(f.deployment.id,update);expect(receipt.configurationVersion).toBe(replacement.configurationVersion);expect(await readConfigurationVersion(env.DB,f.userId)).toBe(replacement.configurationVersion);expect(await f.client.getFlyBinding(f.deployment.id)).toEqual(replacement);
+ const target=exportDeploymentTarget((await getDeployment(env.DB,f.userId,f.deployment.id))!);expect(target.imageDigest).toBe(hash("e"));expect(target.fly?.machineId).toBe(f.request.machineId);
+ expect(await f.client.bindFlyReplacement(f.deployment.id,update)).toEqual(receipt);expect((await f.send({...update,requestId:crypto.randomUUID(),imageDigest:hash("f")})).status).toBe(409);
+ expect((await readDeploymentConfiguration(env.DB,f.userId,f.deployment.id))!.stale).toBe(false);
+});
 it("isolates ownership, denies reporting and anonymous access, and protects browser writes with Origin",async()=>{
  const f=await fixture(),other=await seedUser();
  for(const headers of [{},{authorization:"Bearer forwarder-report-token"}])expect((await f.send(f.request,headers)).status).toBe(401);
@@ -93,11 +102,19 @@ it("isolates ownership, denies reporting and anonymous access, and protects brow
 });
 it("rejects malformed and oversized bodies, missing resources and invalid receipt identifiers",async()=>{
  const f=await fixture();
- for(const body of [null,[],{}, {...f.request,extra:"secret"},{...f.request,machineId:f.request.previousMachineId},{...f.request,previousConfigDigest:"private-secret"}])expect((await f.send(body)).status).toBe(400);
+ for(const body of [null,[],{}, {...f.request,extra:"secret"},{...f.request,machineId:"not-a-machine"},{...f.request,previousConfigDigest:"private-secret"}])expect((await f.send(body)).status).toBe(400);
  for(const body of [undefined,"{", " ".repeat(8193)])expect((await SELF.fetch(f.url,{method:"POST",headers:{authorization:`Bearer ${f.token}`},body})).status).toBe(body?.length===8193?413:400);
  expect((await SELF.fetch(f.url+"/bad",{headers:{authorization:`Bearer ${f.token}`}})).status).toBe(400);
  await expect(bindLinkedFlyReplacement(env.DB,f.userId,"missing",f.request)).rejects.toMatchObject({status:404});
  await f.client.bindFlyReplacement(f.deployment.id,f.request);
  await expect(env.DB.prepare("UPDATE linked_fly_binding_receipts SET created_at=0 WHERE deployment_id=?").bind(f.deployment.id).run()).rejects.toThrow("LOGT_FLY_BINDING_IMMUTABLE");
  await env.DB.prepare("DELETE FROM deployments WHERE id=?").bind(f.deployment.id).run();expect(await env.DB.prepare("SELECT * FROM linked_fly_binding_receipts WHERE deployment_id=?").bind(f.deployment.id).all()).toMatchObject({results:[]});
+});
+it("advertises binding capabilities only to the deployment owner",async()=>{
+ const f=await fixture(),path=`http://localhost/api/deployments/${f.deployment.id}/config/fly-capabilities`;
+ const owner=await SELF.fetch(path,{headers:{authorization:`Bearer ${f.token}`}});
+ expect(owner.status).toBe(200);expect(await owner.json()).toEqual({schemaVersion:1,features:["replacement","image-update"]});
+ expect((await SELF.fetch(path)).status).toBe(401);
+ const other=await fixture();expect((await SELF.fetch(path,{headers:{authorization:`Bearer ${other.token}`}})).status).toBe(404);
+ expect((await SELF.fetch(path.replace(f.deployment.id,"dep_missing"),{headers:{authorization:`Bearer ${f.token}`}})).status).toBe(404);
 });
