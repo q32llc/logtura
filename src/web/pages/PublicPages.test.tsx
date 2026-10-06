@@ -33,6 +33,10 @@ it("renders documentation tables, code samples and screenshot captions with mean
   docs("/docs/hosted-ux"); expect(screen.getByRole("img", { name: "Connections list" }).getAttribute("src")).toBe("/docs-screenshots/connections.png");
   expect(screen.getByText("Connections list", { selector: "p" })).toBeTruthy();
   expect(within(screen.getAllByRole("table")[0]!).getByRole("columnheader", { name: "Provider" })).toBeTruthy();
+  expect(screen.getByText(/does not require creating a Log Drain/)).toBeTruthy();
+  expect(screen.getByText(/supported by the Supabase driver/)).toBeTruthy();
+  expect(document.body.textContent).not.toContain("last 24 hours");
+  expect(document.body.textContent).not.toContain("create log drain");
 });
 it("documents supported standalone commands and the desired/applied distinction", () => {
   docs("/docs/open-source"); expect(screen.getByText(/logt -c logt.yaml validate/)).toBeTruthy();
