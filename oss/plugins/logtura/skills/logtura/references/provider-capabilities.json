@@ -1,0 +1,255 @@
+{
+  "cliVersion": "0.3.6",
+  "forwarderTargets": [
+    "docker",
+    "fly"
+  ],
+  "providers": [
+    {
+      "id": "cloudflare-worker-tail",
+      "family": "cloudflare",
+      "package": "@logtura/driver-cloudflare-worker-tail",
+      "displayName": "Cloudflare Workers",
+      "aliases": [
+        "workers",
+        "cloudflare_workers"
+      ],
+      "credentials": [
+        {
+          "config": "api_token",
+          "runtime": "apiToken",
+          "env": "CLOUDFLARE_API_TOKEN"
+        }
+      ],
+      "accountEnv": "CLOUDFLARE_ACCOUNT_ID",
+      "tokenPage": "https://dash.cloudflare.com/profile/api-tokens",
+      "connector": "cloudflare",
+      "connectMetadata": {
+        "permissionGroups": [
+          {
+            "key": "workers_scripts",
+            "type": "read"
+          },
+          {
+            "key": "workers_tail",
+            "type": "read"
+          }
+        ]
+      },
+      "selection": {
+        "field": "scripts",
+        "aliases": [
+          "workers",
+          "include",
+          "sources"
+        ],
+        "sourceKind": "cf_worker",
+        "mode": "list"
+      },
+      "runtime": "vector",
+      "recipe": "cloudflare"
+    },
+    {
+      "id": "cloudflare-ai-gateway",
+      "family": "cloudflare",
+      "package": "@logtura/driver-cloudflare-ai-gateway",
+      "displayName": "Cloudflare AI Gateway",
+      "aliases": [
+        "ai_gateway",
+        "cloudflare_ai_gateway"
+      ],
+      "credentials": [
+        {
+          "config": "api_token",
+          "runtime": "apiToken",
+          "env": "CLOUDFLARE_API_TOKEN"
+        }
+      ],
+      "accountEnv": "CLOUDFLARE_ACCOUNT_ID",
+      "tokenPage": "https://dash.cloudflare.com/profile/api-tokens",
+      "connector": "cloudflare",
+      "connectMetadata": {
+        "permissionGroups": [
+          {
+            "key": "ai_gateway",
+            "type": "read"
+          }
+        ]
+      },
+      "selection": {
+        "field": "gateways",
+        "aliases": [
+          "include",
+          "sources"
+        ],
+        "sourceKind": "cf_ai_gateway",
+        "mode": "list"
+      },
+      "runtime": "vector",
+      "recipe": "cloudflare"
+    },
+    {
+      "id": "fly-log-tail",
+      "family": "fly",
+      "package": "@logtura/driver-fly-log-tail",
+      "displayName": "Fly.io",
+      "aliases": [
+        "fly",
+        "fly_apps"
+      ],
+      "credentials": [
+        {
+          "config": "api_token",
+          "runtime": "apiToken",
+          "env": "FLY_API_TOKEN"
+        }
+      ],
+      "connector": "fly",
+      "selection": {
+        "field": "apps",
+        "aliases": [
+          "include",
+          "sources"
+        ],
+        "sourceKind": "fly_app",
+        "mode": "list"
+      },
+      "runtime": "vector",
+      "recipe": "fly"
+    },
+    {
+      "id": "railway-logs",
+      "family": "railway",
+      "package": "@logtura/driver-railway-logs",
+      "displayName": "Railway",
+      "aliases": [
+        "railway",
+        "railway_logs"
+      ],
+      "credentials": [
+        {
+          "config": "api_token",
+          "runtime": "apiToken",
+          "env": "RAILWAY_API_TOKEN"
+        },
+        {
+          "config": "project_id",
+          "runtime": "projectId",
+          "optional": true,
+          "sourceAliases": [
+            "project_id",
+            "projectId"
+          ]
+        },
+        {
+          "config": "environment_id",
+          "runtime": "environmentId",
+          "optional": true,
+          "sourceAliases": [
+            "environment_id",
+            "environmentId"
+          ]
+        }
+      ],
+      "accountAliases": [
+        "environment_id",
+        "environmentId"
+      ],
+      "tokenPage": "https://railway.com/account/tokens",
+      "connector": "railway",
+      "selection": {
+        "field": "services",
+        "aliases": [
+          "include",
+          "sources"
+        ],
+        "sourceKind": "railway_service",
+        "mode": "list",
+        "codec": "railway"
+      },
+      "runtime": "bun",
+      "recipe": "railway"
+    },
+    {
+      "id": "supabase-edge-logs",
+      "family": "supabase",
+      "package": "@logtura/driver-supabase-edge-logs",
+      "displayName": "Supabase",
+      "aliases": [
+        "edge",
+        "supabase_edge"
+      ],
+      "credentials": [
+        {
+          "config": "pat",
+          "runtime": "pat",
+          "env": "SUPABASE_PAT"
+        }
+      ],
+      "accountEnv": "SUPABASE_PROJECT_REF",
+      "tokenPage": "https://supabase.com/dashboard/account/tokens",
+      "selection": {
+        "field": "functions",
+        "aliases": [
+          "include"
+        ],
+        "sourceKind": "supabase_edge_fn",
+        "mode": "both",
+        "codec": "supabase",
+        "defaults": {
+          "gateway": true
+        }
+      },
+      "runtime": "vector",
+      "recipe": "supabase"
+    },
+    {
+      "id": "custom-vector",
+      "family": "custom-vector",
+      "package": "@logtura/custom-vector",
+      "displayName": "Custom Vector",
+      "aliases": [],
+      "credentials": [],
+      "selection": {
+        "field": "sources",
+        "sourceKind": "custom_vector",
+        "mode": "list"
+      },
+      "runtime": "custom"
+    },
+    {
+      "id": "vercel-logs",
+      "family": "vercel",
+      "package": "@logtura/driver-vercel-logs",
+      "displayName": "Vercel",
+      "aliases": [
+        "vercel",
+        "vercel_logs"
+      ],
+      "credentials": [
+        {
+          "config": "api_token",
+          "runtime": "apiToken",
+          "env": "VERCEL_API_TOKEN"
+        }
+      ],
+      "accountAliases": [
+        "team_id",
+        "teamId"
+      ],
+      "tokenPage": "https://vercel.com/account/tokens",
+      "connector": "vercel",
+      "selection": {
+        "field": "projects",
+        "aliases": [
+          "include",
+          "sources"
+        ],
+        "sourceKind": "vercel_project",
+        "mode": "list"
+      },
+      "runtime": "bun",
+      "recipe": "vercel"
+    }
+  ]
+}

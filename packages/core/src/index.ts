@@ -107,3 +107,6 @@ export {validateFlyCleanupRequest,validateFlyCleanupReceipt,validateFlyCleanupRe
 export type {FlyCleanupRequest,FlyCleanupReceipt,FlyCleanupRebaseReceipt} from "./fly-cleanup";
 export {validateDeploymentCreationRequest,validateDeploymentCreationReceipt,matchesDeploymentCreation} from './deployment-creation';
 export type {DeploymentCreationRequest,DeploymentCreationReceipt} from './deployment-creation';
+
+export { PROVIDER_CATALOG, providerDescriptor, providerFamily, defaultSourceSelection, providerDefaultCredentials, decodeProviderCredentials, validateProviderCatalog } from "./provider-catalog";
+export type { ProviderDescriptor, CredentialField } from "./provider-catalog";

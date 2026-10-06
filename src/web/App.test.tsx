@@ -74,6 +74,25 @@ it("renders public documentation through the production MDX transformation", asy
   expect(screen.getByRole("heading", { name: /Open.source/ })).toBeTruthy();
   expect(api.listDeployments).not.toHaveBeenCalled();
 });
+it.each([["/privacy", "Privacy policy"], ["/terms", "Terms of use"], ["/support", "Logtura support"]])("serves %s without account authorization or redirect", async (path, title) => {
+  vi.mocked(api.me).mockResolvedValue({ user: null }); page(path);
+  await screen.findByRole("link", { name: "Sign in with GitHub" });
+  expect(screen.getByRole("heading", { name: title, level: 1 })).toBeTruthy();
+  expect(screen.getByLabelText("Current route").textContent).toBe(path);
+  expect(api.listDeployments).not.toHaveBeenCalled();
+});
+it("explains standalone and linked data handling, license, and the actual support channel", async () => {
+  vi.mocked(api.me).mockResolvedValue({ user: null }); page("/privacy");
+  await screen.findByRole("link", { name: "Sign in with GitHub" });
+  expect(screen.getByText(/Installing the skill does not create a Logtura account/)).toBeTruthy();
+  expect(screen.getByText(/this policy does not specify a fixed retention period/)).toBeTruthy();
+  expect(screen.getByText(/encrypted in storage/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("link", { name: "Terms" }));
+  expect(screen.getByRole("link", { name: "Read the Apache 2.0 license" }).getAttribute("href")).toBe("https://github.com/logtura/logtura/blob/main/LICENSE");
+  fireEvent.click(screen.getByRole("link", { name: "Support" }));
+  expect(screen.getByRole("link", { name: "Open or search a support issue" }).getAttribute("href")).toBe("https://github.com/logtura/logtura/issues");
+  expect(screen.getByText(/request a private contact channel before sharing details/)).toBeTruthy();
+});
 it("refreshes the deployment badge every 30 seconds and preserves it across transient failures", async () => {
   vi.mocked(api.listDeployments).mockResolvedValueOnce({ deployments: [deployment] }).mockRejectedValueOnce(new Error("Transient" )).mockResolvedValue({ deployments: [] });
   vi.useFakeTimers(); page("/app/cli"); await act(async () => {});

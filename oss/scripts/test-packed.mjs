@@ -482,6 +482,16 @@ globalThis.fetch = async (input, init) => {
     const bundleDirectory=join(directory,"bundle");run(join(consumer,"node_modules",".bin","logtura"),["-c",config,"bundle","-o",bundleDirectory],consumer,providerEnvironment);
     assert.ok(readFileSync(join(bundleDirectory,"vector.yaml"),"utf8").includes(marker));
   }
+  const catalog = JSON.parse(bin("logtura", ["providers", "list", "--json"]));
+  assert.equal(catalog.length, 7);
+  assert.equal(catalog.find(provider => provider.id === "railway-logs").selection.field, "services");
+  const registryProbe = `import {listProviders} from '@logtura/cli/providers';if(listProviders().length!==7)throw new Error('Public registry is incomplete');`;
+  run(process.execPath, ["--input-type=module", "-e", registryProbe], consumer, offline);
+  const skillRoot = join(consumer, "node_modules/@logtura/cli/dist/skills/logtura");
+  assert.ok(readFileSync(join(skillRoot, "SKILL.md"), "utf8").includes("# Logtura onboarding"));
+  const capabilities = JSON.parse(readFileSync(join(skillRoot, "references/provider-capabilities.json"), "utf8"));
+  assert.deepEqual(capabilities.providers, catalog);
+  assert.equal(capabilities.cliVersion, JSON.parse(readFileSync(join(consumer, "node_modules/@logtura/cli/package.json"))).version);
   console.log(`Packed consumer checks passed for ${packages.length} packages, both CLI aliases and the forwarder runtime binary`);
   if(process.env.LOGT_PACKED_ARTIFACTS){
     const output=resolve(process.env.LOGT_PACKED_ARTIFACTS),publicPackages=inventory(root);

@@ -11,6 +11,7 @@ it("offers standalone documentation and GitHub sign-up to anonymous visitors", (
   home(); expect(screen.getAllByRole("link", { name: "Sign up with GitHub" }).every(link => link.getAttribute("href") === "/login/github")).toBe(true);
   expect(screen.getByRole("link", { name: "How it works" }).getAttribute("href")).toBe("#how");
   expect(screen.getAllByRole("link", { name: "Docs" }).every(link => link.getAttribute("href") === "/docs")).toBe(true);
+  for (const label of ["Privacy", "Terms", "Support"]) expect(screen.getByRole("link", { name: label }).getAttribute("href")).toBe(`/${label.toLowerCase()}`);
 });
 it("routes signed-in visitors to their dashboard", () => {
   home("/", true); expect(screen.getByRole("link", { name: "Go to dashboard" }).getAttribute("href")).toBe("/app");
@@ -18,10 +19,10 @@ it("routes signed-in visitors to their dashboard", () => {
 });
 it.each([["oauth_state", "Sign-in failed: bad OAuth state. Please try again."], ["auth_required", "Please sign in to continue."]])("explains the %s authentication return", (code, message) => { home(`/?error=${code}`); expect(screen.getByText(message)).toBeTruthy(); });
 it("does not echo an unknown authentication error into the page", () => { home("/?error=private-provider-detail"); expect(document.body.textContent).not.toContain("private-provider-detail"); });
-it.each([["overview", "Architecture"], ["hosted-ux", "Hosted UI"], ["deploy", "Deploy"], ["open-source", "Open source"]])("renders the real %s documentation", (slug, heading) => {
+it.each([["overview", "Architecture"], ["hosted-ux", "Hosted UI"], ["deploy", "Deploy"], ["open-source", "Open source"], ["agent-skills", "Use Logtura with Claude Code or Codex"]])("renders the real %s documentation", (slug, heading) => {
   docs(`/docs/${slug}`); expect(screen.getByRole("heading", { name: heading, level: 1 })).toBeTruthy();
   expect(screen.getByRole("link", { name: "GitHub" }).getAttribute("href")).toBe("https://github.com/logtura/logtura");
-  expect(screen.getAllByRole("link", { name: new RegExp(`^${slug === "overview" ? "Overview" : slug === "hosted-ux" ? "Hosted UX" : heading}`) }).every(link => link.hasAttribute("data-active"))).toBe(true);
+  expect(screen.getAllByRole("link", { name: new RegExp(`^${slug === "overview" ? "Overview" : slug === "hosted-ux" ? "Hosted UX" : slug === "agent-skills" ? "Claude Code & Codex" : heading}`) }).every(link => link.hasAttribute("data-active"))).toBe(true);
 });
 it("redirects an unknown documentation slug to the architecture page", () => { docs("/docs/unknown"); expect(screen.getByRole("heading", { name: "Architecture", level: 1 })).toBeTruthy(); });
 it("navigates documentation sections while retaining the public layout", () => {
@@ -32,6 +33,10 @@ it("renders documentation tables, code samples and screenshot captions with mean
   docs("/docs/hosted-ux"); expect(screen.getByRole("img", { name: "Connections list" }).getAttribute("src")).toBe("/docs-screenshots/connections.png");
   expect(screen.getByText("Connections list", { selector: "p" })).toBeTruthy();
   expect(within(screen.getAllByRole("table")[0]!).getByRole("columnheader", { name: "Provider" })).toBeTruthy();
+  expect(screen.getByText(/does not require creating a Log Drain/)).toBeTruthy();
+  expect(screen.getByText(/supported by the Supabase driver/)).toBeTruthy();
+  expect(document.body.textContent).not.toContain("last 24 hours");
+  expect(document.body.textContent).not.toContain("create log drain");
 });
 it("documents supported standalone commands and the desired/applied distinction", () => {
   docs("/docs/open-source"); expect(screen.getByText(/logt -c logt.yaml validate/)).toBeTruthy();

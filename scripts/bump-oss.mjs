@@ -84,3 +84,16 @@ for (const name of readdirSync(PACKAGES_DIR, { withFileTypes: true })) {
   writeFileSync(pkgPath, `${JSON.stringify(ordered, null, 2)}\n`);
   console.log(`bumped ${pkg.name} → ${NEW_VERSION}`);
 }
+
+// Agent packages follow the same release version; payload metadata is regenerated
+// separately when provider descriptors change.
+const agentRoot = join(__dirname, "..", "oss", "plugins", "logtura");
+for (const relative of ["plugin.json", ".claude-plugin/plugin.json", "skills/logtura/references/provider-capabilities.json"]) {
+  const file = join(agentRoot, relative);
+  try {
+    const value = JSON.parse(readFileSync(file, "utf8"));
+    if (relative.endsWith("provider-capabilities.json")) value.cliVersion = NEW_VERSION;
+    else value.version = NEW_VERSION;
+    writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+  } catch (error) { if (error.code !== "ENOENT") throw error; }
+}

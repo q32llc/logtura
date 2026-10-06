@@ -1,7 +1,7 @@
 # logtura
 
 Logtura builds [Vector](https://vector.dev) forwarders for platform logs:
-Cloudflare Workers, Fly apps, Supabase Edge Functions, Cloudflare AI Gateway,
+Cloudflare Workers, Fly apps, Railway services, Vercel runtime logs, Supabase Edge Functions, Cloudflare AI Gateway,
 and common destinations such as Slack, webhooks, Datadog metrics, and
 Prometheus remote-write.
 
@@ -11,7 +11,6 @@ The easiest OSS entry point is the CLI:
 npm install -g @logtura/cli
 logtura validate -c logtura.yaml
 logtura bundle -c logtura.yaml -o dist
-logtura install-zip -c logtura.yaml -o logtura-forwarder.tgz
 ```
 
 The CLI includes the current Logtura drivers and destinations. Under the hood
@@ -20,57 +19,42 @@ Dockerfile, env manifest, and component manifest artifacts.
 
 ## logtura.yaml
 
-Minimal Cloudflare Workers -> Slack example:
+Minimal standalone Cloudflare Workers → webhook example:
 
 ```yaml
+providers:
+  cloudflare:
+    provider: cloudflare
+    account_id: env:CLOUDFLARE_ACCOUNT_ID
+    credentials:
+      api_token: env:CLOUDFLARE_API_TOKEN
 sources:
   workers:
-    provider: cloudflare-worker-tail
-    account_id: env:CLOUDFLARE_ACCOUNT_ID
-    api_token: env:CLOUDFLARE_API_TOKEN
-    scripts:
-      - dirtsignal
-      - ipogrid
-
+    source: cloudflare-worker-tail
+    provider: cloudflare
+    scripts: [my-worker]
 sinks:
-  slack:
-    type: slack
-    webhook_url: env:SLACK_WEBHOOK_URL
-    channel: "#alerts"
-
+  alerts:
+    sink: webhook
+    url: env:ALERT_URL
 monitors:
-  - name: worker-errors
-    filter:
-      - errors
-      - rollup:
-          window_secs: 30
-          group_by: [script]
-          max_samples: 5
-    sinks: [slack]
+  - name: errors
+    source: workers
+    sinks: [alerts]
+    filter: [errors]
 ```
 
-Useful commands:
+Set the referenced variables privately, then validate and bundle. No Logtura
+website account is needed. `logtura init` and `logtura connect cloudflare` can
+scaffold an installation and discover available resources.
 
-```bash
-# Parse config and render a bundle in memory.
-logtura validate -c logtura.yaml
+## Claude Code and Codex
 
-# Also ask local Vector to validate the generated vector.yaml.
-logtura validate -c logtura.yaml --vector-validate
+Install the [Logtura skill](AGENT_SKILLS.md) to guide project setup, supported-host
+onboarding, standalone forwarding, or website-linked CLI updates. One portable
+instruction package is distributed through both clients' native plugin installers.
+It includes delivery verification and preserves existing deployment identities.
 
-# Write Dockerfile, vector.yaml, .env, install.sh, README.md, manifest.json.
-logtura bundle -c logtura.yaml -o dist/logtura-forwarder
-
-# Write a gzipped self-install archive.
-logtura install-zip -c logtura.yaml -o logtura-forwarder.tgz
-
-# Print a simple component table from Vector internal_metrics JSON/NDJSON.
-logtura stats --metrics metrics.json
-```
-
-`env:NAME` values are resolved from the local environment. `validate` exits
-with code `2` when required env vars are missing, after confirming the config
-and renderer path are otherwise valid.
 
 ## Packages
 

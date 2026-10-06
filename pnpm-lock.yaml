@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@logtura/cli':
+        specifier: workspace:*
+        version: link:packages/cli
       '@logtura/cloudflare-shared':
         specifier: workspace:*
         version: link:packages/cloudflare-shared

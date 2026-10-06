@@ -250,6 +250,9 @@ export function Home({ user }: { user: ApiUser | null }) {
         <Group justify="space-between" c="dimmed">
           <Text size="xs">logtura · open-source log forwarder control plane</Text>
           <Group gap="md">
+            <Anchor size="xs" c="dimmed" component={Link} to="/privacy">Privacy</Anchor>
+            <Anchor size="xs" c="dimmed" component={Link} to="/terms">Terms</Anchor>
+            <Anchor size="xs" c="dimmed" component={Link} to="/support">Support</Anchor>
             <Anchor size="xs" c="dimmed" component={Link} to="/docs">
               Docs
             </Anchor>

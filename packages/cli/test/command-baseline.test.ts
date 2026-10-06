@@ -14,6 +14,16 @@ beforeEach(()=>{
 });
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllEnvs();for(const directory of roots.splice(0))rmSync(directory,{recursive:true,force:true});});
 const run=(...args:string[])=>main(["-c",path,...args]);
+it("lists machine-readable provider capabilities without requiring or changing a config", async () => {
+ expect(await run("providers", "list", "--json")).toBe(0);
+ const providers=JSON.parse(String(vi.mocked(console.log).mock.calls.at(-1)![0]));
+ expect(providers.find((entry:any)=>entry.id==="railway-logs").selection.field).toBe("services");
+ expect(providers.find((entry:any)=>entry.id==="fly-log-tail").credentials[0].env).toBe("FLY_API_TOKEN");
+ expect(existsSync(path)).toBe(false);
+ expect(await run("providers")).toBe(0);
+ expect(await run("providers", "bad")).toBe(1);
+ expect(await run("providers", "list", "extra")).toBe(1);
+});
 function config(token="fixture-token") {writeFileSync(path,JSON.stringify({providers:{fly:{provider:"fly",credentials:{api_token:token}}},sources:{apps:{source:"fly-log-tail",provider:"fly",apps:["fixture-app"]}},sinks:{},monitors:[]}));}
 function spawn(status=0) {return vi.mocked(cp.spawnSync).mockReset().mockImplementation(()=>({status,stdout:Buffer.alloc(0),stderr:Buffer.alloc(0),pid:1,output:[],signal:null}));}
 it("initializes once, scaffolds source defaults and chooses unique default identities",async()=>{

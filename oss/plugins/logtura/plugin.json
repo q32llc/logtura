@@ -1,0 +1,43 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "logtura",
+  "version": "0.3.6",
+  "description": "Set up and update Logtura log forwarding from supported hosts, standalone or website-linked.",
+  "author": {
+    "name": "Logtura",
+    "url": "https://github.com/logtura"
+  },
+  "homepage": "https://logtura.com/docs/agent-skills",
+  "repository": "https://github.com/logtura/logtura",
+  "license": "Apache-2.0",
+  "keywords": [
+    "logtura",
+    "logs",
+    "cloudflare",
+    "fly",
+    "railway",
+    "vercel",
+    "supabase"
+  ],
+  "extensions": {
+    "com.openai": {
+      "publication": {
+        "countries": []
+      },
+      "interface": {
+        "displayName": "Logtura",
+        "shortDescription": "Set up log forwarding",
+        "longDescription": "Set up and update Logtura log forwarding from supported hosts, standalone or website-linked.",
+        "developerName": "Logtura",
+        "category": "Developer Tools",
+        "defaultPrompt": "Set up Logtura for this project's logs and verify delivery.",
+        "websiteURL": "https://logtura.com/docs/agent-skills",
+        "supportURL": "https://logtura.com/support",
+        "privacyPolicyURL": "https://logtura.com/privacy",
+        "termsOfServiceURL": "https://logtura.com/terms",
+        "logo": "assets/logo.png",
+        "composerIcon": "assets/logo.png"
+      }
+    }
+  }
+}

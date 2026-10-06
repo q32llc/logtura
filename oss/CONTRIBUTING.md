@@ -2,6 +2,16 @@
 
 The easiest contribution is a new driver. Most platforms with a CLI-based or HTTP-based log API map onto the existing driver shape in around 150 lines.
 
+## Provider extension path
+
+See the [tested example](examples/provider/README.md), shared
+`packages/core/test/provider-contract.ts` harness, and
+[agent installation guide](AGENT_SKILLS.md). Add a typed catalog descriptor and
+register the driver once in the CLI public registry; the service consumes that
+registry with explicit web adapters. Generic credentials and string-list
+selections need no new host branch in the parser. Keep web UX outside drivers.
+Add a host recipe and regenerate its capability metadata after building.
+
 ## Adding a provider driver
 
 A provider driver is a single TypeScript object satisfying the `ProviderDriver<TCreds>` contract from `@logtura/core`. It does four things:
@@ -18,12 +28,12 @@ Form fields, OAuth flows, and UI copy live in whatever hosting layer wraps the r
 The fastest path is to copy `packages/driver-fly-log-tail`, which is the smallest existing driver:
 
 ```sh
-cp -r packages/driver-fly-log-tail packages/driver-railway-logs
+cp -r packages/driver-fly-log-tail packages/driver-your-host
 # Rename inside: package.json, src/index.ts driver constant, test files.
 # Replace the Fly-specific verify/discover/generatePipeline logic.
 ```
 
-Test with `pnpm vitest run --project @logtura/driver-railway-logs`. Add a `test/vector-validate.test.ts` that pipes the generated bundle through `docker run timberio/vector:0.55.0-debian validate`. Every existing driver has one. It is the only check that catches VRL syntax errors before deploy.
+Test with `pnpm vitest run --project @logtura/driver-your-host`. Add a `test/vector-validate.test.ts` that pipes the generated bundle through `docker run timberio/vector:0.55.0-debian validate`. Every existing driver has one. It is the only check that catches VRL syntax errors before deploy.
 
 ## Adding a destination driver
 
@@ -56,7 +66,7 @@ Open a PR against `main`. The CI workflow at `.github/workflows/test.yml` runs t
 Every package shares one version. To cut a release:
 
 ```sh
-node scripts/bump-oss.mjs 0.X.Y   # in the private monorepo
+node scripts/bump-oss.mjs 0.X.Y   # in the service workspace
 # commit, sync to logtura/logtura, push main
 cd ../logtura-public
 git tag v0.X.Y

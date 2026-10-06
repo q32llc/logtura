@@ -23,7 +23,7 @@ A connection holds a provider account credential. Open `Connections → New conn
 | Fly          | Personal access token + org slug     | Read apps, read log stream                   |
 | Railway      | API token + team ID                  | Read services, subscribe to logs             |
 | Supabase     | Access token                         | Read projects, read edge logs                |
-| Vercel       | API token + team ID                  | Read projects, create log drain              |
+| Vercel       | API token + team ID                  | Read projects, deployments, and runtime logs              |
 
 Credentials are encrypted with `CREDENTIAL_ENCRYPTION_KEY` before they are stored in D1. The control plane uses them for two operations:
 
@@ -47,11 +47,12 @@ Discovery runs as a queued job. The connection page shows the latest discovery j
 
 ![Connection detail with discovered sources](/docs-screenshots/connection-detail.png)
 
-Source selection is one of three shapes:
+Source selection follows the driver's declared capabilities:
 
-- `all` — every source the driver returns (only supported by drivers with that capability, e.g. `vercel-logs`).
-- `list` — explicit source IDs picked in the UI.
-- `tag` — sources matching a tag filter, where the provider exposes tags.
+- `list` — explicit source IDs picked in the UI. Cloudflare Workers/AI Gateway, Fly, Railway, and Vercel use explicit lists.
+- `all` — every source the driver returns, supported by the Supabase driver.
+
+Vercel forwarding reads runtime logs directly; it does not require creating a Log Drain. Supabase selections distinguish Edge Functions and gateway logs. The CLI can report the current catalog with `logtura providers list --json`.
 
 ## Destinations
 
@@ -86,9 +87,9 @@ The deployment detail page shows:
 
 - Status: queued, deploying, running, failed.
 - Last heartbeat timestamp.
-- Per-source event rates from the last 24 hours.
+- Recent per-component rates derived from observed counter changes, with freshness and observation intervals shown.
 - The generated Vector config (read-only).
 
 ![Deployment detail with out-of-date banner](/docs-screenshots/deployment-detail.png)
 
-If you change a connection, source list, or destination, the deployment is marked **bundle outdated**. Redeploy to push the new config.
+If you change a connection, source list, or destination, the deployment is marked **bundle outdated**. The desired and applied revision indicators show whether the running forwarder has loaded the latest configuration. A CLI `push` synchronizes the desired manifest but does not itself restart the forwarder; apply or redeploy it, then verify the loaded revision, heartbeat, and actual event delivery. See [the open-source guide](/docs/open-source) for website → CLI → website updates.

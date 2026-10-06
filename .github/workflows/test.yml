@@ -32,6 +32,18 @@ jobs:
       - name: build service and public packages
         run: pnpm build
 
+      - name: native Claude Code and Codex packages
+        run: pnpm test:agents
+
+      - name: retain native agent installation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-reports
+          path: .tmp/agent-reports/
+          if-no-files-found: error
+          retention-days: 14
+
       - name: packed consumer checks
         run: pnpm test:packed
 

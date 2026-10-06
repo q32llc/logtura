@@ -1,3 +1,5 @@
+import { providerFamily, type ProviderDescriptor, type ProviderDriver } from "@logtura/core";
+import { getProvider } from "./registry";
 import { spawnSync } from "node:child_process";
 import type { DiscoveredSource } from "@logtura/core";
 import {
@@ -9,7 +11,6 @@ import { cloudflareAiGatewayDriver } from "@logtura/driver-cloudflare-ai-gateway
 import { flyLogTailDriver } from "@logtura/driver-fly-log-tail";
 import { railwayLogsDriver, getRailwayProjectTokenScope } from "@logtura/driver-railway-logs";
 import { vercelLogsDriver } from "@logtura/driver-vercel-logs";
-import { supabaseEdgeLogsDriver } from "@logtura/driver-supabase-edge-logs";
 import { confirm, ask, askSecret, openBrowser } from "./prompt";
 import type { CloudflarePermissionGroup } from "./source-metadata";
 
@@ -50,7 +51,10 @@ export interface ProviderConnector {
 }
 
 export function getProviderConnector(provider: string): ProviderConnector | null {
-  return CONNECTORS[provider] ?? null;
+  if (Object.hasOwn(CONNECTORS, provider)) return CONNECTORS[provider]!;
+  const descriptor = providerFamily(provider);
+  const driver = descriptor && getProvider(descriptor.id);
+  return descriptor && driver && descriptor.credentials.some(field => field.env) ? tokenProviderConnector(descriptor, driver) : null;
 }
 
 const CONNECTORS: Record<string, ProviderConnector> = {
@@ -78,15 +82,21 @@ const CONNECTORS: Record<string, ProviderConnector> = {
     discover: (apiToken, accountId) => vercelLogsDriver.discoverSources({ credentials: { apiToken }, accountId: accountId ?? "" }),
     sourceDrivers: ["vercel-logs"],
   }),
-  supabase: simpleTokenConnector({
-    id: "supabase",
-    tokenEnv: "SUPABASE_PAT",
-    tokenPage: "https://supabase.com/dashboard/account/tokens",
-    verify: async (pat) => supabaseEdgeLogsDriver.verifyCredentials({ pat }),
-    discover: (pat, accountId) => supabaseEdgeLogsDriver.discoverSources({ credentials: { pat }, accountId: accountId ?? "" }),
-    sourceDrivers: ["supabase-edge-logs"],
-  }),
 };
+
+/** Generic single-token connector for contributed providers; no host switch. */
+export function tokenProviderConnector(descriptor: ProviderDescriptor, driver: ProviderDriver): ProviderConnector {
+  const field = descriptor.credentials.find(field => field.env);
+  if (!field?.env) throw new Error(`Provider ${descriptor.id} needs a credential environment field`);
+  return simpleTokenConnector({
+    id: descriptor.family,
+    tokenEnv: field.env,
+    tokenPage: descriptor.tokenPage ?? "",
+    verify: token => driver.verifyCredentials({ [field.runtime]: token }),
+    discover: (token, accountId) => driver.discoverSources({ credentials: { [field.runtime]: token }, accountId: accountId ?? "" }),
+    sourceDrivers: [driver.id],
+  });
+}
 
 function cloudflareConnector(): ProviderConnector {
   return {
