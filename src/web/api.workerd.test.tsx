@@ -10,7 +10,7 @@ beforeEach(() => {
   vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
     if (typeof input !== "string" || !input.startsWith("/api/")) return nativeFetch(input, init);
     const headers = new Headers(init?.headers);
-    headers.set("cookie", service.cookie); headers.set("origin", service.url);
+    headers.set("cookie", service.cookie); headers.set("origin", service.url); headers.set("connection", "close");
     return nativeFetch(new URL(input, service.url), { ...init, headers });
   });
 });

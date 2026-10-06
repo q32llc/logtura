@@ -5,9 +5,9 @@ const issues = "https://github.com/logtura/logtura/issues";
 const license = "https://github.com/logtura/logtura/blob/main/LICENSE";
 
 export function Privacy() {
-  return <PublicPage title="Privacy policy">
-    <Text>Logtura publishes the open-source CLI, libraries, and Claude Code / Codex skill, and operates logtura.com. Updated October 6, 2026.</Text>
-    <Title order={2}>Skill and standalone CLI</Title>
+  return <PublicPage title="Logtura privacy policy">
+    <Text>This policy covers the Logtura website and hosted service, open-source CLI, libraries and forwarder, and Claude Code / Codex skill. Updated October 6, 2026.</Text>
+    <Title order={2}>Open-source software and agent skill</Title>
     <Text>The skill is a package of instructions and reference files. It has no hosted backend, tracking code, or credential store. Your coding agent processes prompts, project files, and command output under its own provider's policies and permissions. Installing the skill does not create a Logtura account.</Text>
     <Text>Standalone CLI configuration and credentials stay in the files and environment you choose. Commands that discover resources or deploy a forwarder contact the selected hosting providers. Your forwarder reads logs from your configured sources and sends them to your configured destinations; those providers receive the data needed for those operations. Standalone use does not require sending your configuration or logs to logtura.com.</Text>
     <Title order={2}>Website and linked deployments</Title>
@@ -22,8 +22,8 @@ export function Privacy() {
 }
 
 export function Terms() {
-  return <PublicPage title="Terms of use">
-    <Text>These terms describe use of the Logtura skill and CLI and the optional logtura.com service. Updated October 6, 2026.</Text>
+  return <PublicPage title="Logtura terms of use">
+    <Text>These terms apply to the Logtura website and hosted service, open-source CLI, libraries and forwarder, and Claude Code / Codex skill. Updated October 6, 2026.</Text>
     <Title order={2}>Open-source software</Title>
     <Text>The Logtura skill, CLI, and libraries are distributed under the Apache License 2.0. The license governs their use, modification, redistribution, and warranty limitations.</Text>
     <Anchor href={license}>Read the Apache 2.0 license</Anchor>

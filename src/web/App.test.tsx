@@ -74,7 +74,7 @@ it("renders public documentation through the production MDX transformation", asy
   expect(screen.getByRole("heading", { name: /Open.source/ })).toBeTruthy();
   expect(api.listDeployments).not.toHaveBeenCalled();
 });
-it.each([["/privacy", "Privacy policy"], ["/terms", "Terms of use"], ["/support", "Logtura support"]])("serves %s without account authorization or redirect", async (path, title) => {
+it.each([["/privacy", "Logtura privacy policy"], ["/terms", "Logtura terms of use"], ["/support", "Logtura support"]])("serves %s without account authorization or redirect", async (path, title) => {
   vi.mocked(api.me).mockResolvedValue({ user: null }); page(path);
   await screen.findByRole("link", { name: "Sign in with GitHub" });
   expect(screen.getByRole("heading", { name: title, level: 1 })).toBeTruthy();
