@@ -1,8 +1,8 @@
 # 0.3.4 coordinated rollout
 
 Status: published and deployed. The evidence below supersedes the historical
-preparation notes. Original forwarder delivery is verified; final standby cleanup is verified. Production CLI creation round-trip acceptance
-and the complete requirements audit remain in progress.
+preparation notes. Original forwarder delivery is verified; final standby cleanup is verified. Production CLI creation round-trip acceptance is complete. The bounded readback
+patch release and complete requirements audit remain in progress.
 
 The coordinated public release includes recoverable hosted CLI creation/linking
 and strict compatibility with Fly's known decorated mount readbacks during retained
@@ -152,3 +152,26 @@ start, one restore update and successful subsequent observation/start. All 41
 replacement tests and the complete 1,891-test owned coverage suite pass, as does
 root typecheck: 97.71% lines, 96.85% statements, 94.27% branches, 98.92% functions.
 This change is not yet merged or published; it does not rewrite `v0.3.4`.
+
+
+Production creation cleanup completed with its durable ledger at
+`.tmp/production-cli-creation-034/cleanup.json`: owned record deleted, immutable
+creation receipt retained, original graph/instance preserved. Account-wide
+configuration fencing makes other issued revisions stale after account edits;
+refreshing an export alone does not reissue a desired revision. Published original
+pull/push therefore reissued the unchanged manifest at sequence 3/version 18,
+and published deploy applied it to the existing mounted machine with instance
+`ff336b64-eacd-4411-a481-4b6b30ae36ce`. Desired/applied sequence 3 is current,
+and the original manifest hash is unchanged.
+
+The service repository is now public and `master` requires strict `test` success,
+including admins, with force pushes/deletion disabled. Public OSS `main` retains
+the equivalent gate. Failed jobs on `4edad0a` initially executed no steps because
+GitHub blocked private account Actions for payment/spending limits. After public
+visibility was observed, the same test/image runs were rerun; image succeeded,
+and test validation is in progress. No workflow assertion or gate was lowered.
+Gitleaks 8.30.1 scanned all history with a redacted private report: one generic
+match is the natural-language phrase in the plan's heartbeat baseline row.
+A separate scan of all 2,555 reachable Git blobs against 22 current production
+credential values found zero matches. No `.env`, `.dev.vars`, `.aws`, local
+credentials or production capture directory is tracked in any Git history.

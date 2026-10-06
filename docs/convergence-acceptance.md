@@ -1,19 +1,21 @@
 # Convergence acceptance evidence
 
-Current release update, October 5, 2026: all 15 actual npm 0.3.3 archives are
-verified against immutable `v0.3.3` (`cfaf36e6`). Private `fc40b797` CI is green,
-and production now uses that exact registry-backed Worker and website. Schemas
-33–36 were imported after fresh all-row compatibility replay; uploaded bytes,
-bindings and natural original-forwarder checkpoint progress passed. The disposable
-registry Fly canary passed delivery/restart/update/rollback and owned cleanup.
-See [0.3.3 rollout evidence](service-rollout-0.3.3.md). The original retained apply is recovered, the 0.3.3 image is applied, and the
-website reports its baseline manifest in sync; natural sink delivery is observed.
-Explicit rollback/cleanup and final restoration remain open;
-earlier entries saying 0.3.3 is unpublished or schema 36 is undeployed are superseded.
+Current release update, October 5, 2026: all 15 actual npm 0.3.4 archives are
+verified against immutable `v0.3.4` (`f5d8ea74`). Production uses the actual
+registry-backed Worker and website through schema 37. Fresh all-row replay,
+remote staging, owned Fly delivery/update/restart/rollback and cleanup passed.
+The original forwarder has completed rollback, both cleanup modes and a fresh
+0.3.4 apply with the unchanged original graph and natural sink delivery.
+Published CLI creation → website edit → CLI pull/push → website verification
+also passed on a disposable owned production record; its deletion receipt is retained.
+After cleanup the original unchanged graph was reissued/applied at sequence 3.
+See [0.3.4 rollout evidence](service-rollout-0.3.4.md).
 
-The remaining phase-5 CLI creation/linking gap is being closed in the
-[creation slice](cli-deployment-creation.md). Its local implementation and tests
-do not imply npm publication or production schema 37 rollout.
+Both `logtura/logtura` and service repository `q32llc/logtura` are now public.
+Both default branches require the up-to-date `test` check, including for admins,
+and prohibit force pushes and branch deletion. Earlier private-plan protection
+limitations are historical. Public PR 23's bounded rollback-readback improvement
+is merged; coordinated 0.3.5 publication and final audit remain open.
 
 This is the current acceptance index for the [full plan](oss-service-convergence-plan.md),
 not a replacement for its baseline matrix. The goal is still in progress. Historical
@@ -26,19 +28,23 @@ Supabase auth and encoded metrics. The parser fixes are part of the immutable
 0.3.2 tag, whose complete registry publication is verified against the original
 tested archives. Production uses those actual npm packages. See [current rollout evidence](service-rollout-0.3.2.md).
 
-| Requirement | Current evidence | Remaining acceptance |
+| Requirement | Authoritative current evidence | Remaining acceptance |
 | --- | --- | --- |
-| Standalone published CLI and libraries | All 15 npm 0.3.2 archives match the original immutable release manifest; isolated JavaScript, NodeNext/Bundler TypeScript, both CLI aliases, runtime binary and offline generation checks pass. Public [release](https://github.com/logtura/logtura/releases/tag/v0.3.2) retains archives and recovery receipts. | Preserve these checks for subsequent releases. |
-| Service uses packaged public operations | `test:packed:service` compiles the actual service and website outside the workspace, verifies package isolation, rejects a missing core entry and runs native D1 lifecycle checks. Production 0.3.2 consumes actual registry archives. | No workspace-only build is accepted as release evidence. |
-| Portable desired configuration and loaded manifests | Public config/manifest APIs, service revision APIs, CLI pull/push/apply and runtime reporting ship together. Full private CI exercises browser edits, installed CLI edits, native workerd, actual Vector and applied acknowledgement. | Production CLI push → website and website edit → published CLI pull passed with exact graph restoration. Original forwarder loaded-manifest proof remains open. |
-| Thorough deterministic baseline | Workerd, package, UI, provider runtime and local browser/CLI/Vector suites pass in private [CI 37128046420](https://github.com/q32llc/logtura/actions/runs/37128046420). Public protected-main [CI 37128549675](https://github.com/logtura/logtura/actions/runs/37128549675) passes independently. | The selected native matrix audit is complete; preserve the distinction between fixture contracts and live accounts. |
-| High owned coverage and failure enforcement | Vitest includes backend, package and UI production sources with per-package/module floors. CI uploads LCOV/JSON/HTML and enforces 95% changed executable lines. An intentionally untested public PR failed at 0/2 lines and was blocked, then closed without merging. No Codecov service is required. | Private branch protection remains unavailable under the repository's current GitHub plan; this external limitation is not represented as an enforced private merge gate. |
-| Remote lifecycle and cleanup | `test:e2e:http` accepts a selected remote test account; `test:e2e:cloudflare` stages an audited artifact on disposable Worker/D1/queue resources. Actual npm-backed 0.3.2 staging passed and cleaned its resources. Ledgers, uncertain-dispatch fences and subprocess guards are tracked and tested. | Required CI uses workerd/Miniflare without Cloudflare credentials. Remote harnesses remain optional operator tools; the Cloudflare-backed Actions workflow has been removed. |
-| Live standalone source delivery | The reusable [source-delivery harness](live-source-canary.md) now selects an explicit stable release. Actual npm 0.3.2 passed Worker tail → generated Vector → owned webhook delivery, with normalized-event checks and resource removal. The earlier 0.3.1 run also proved repeated cleanup without installed packages or a valid selected version. | This selected live integration does not imply every external provider has a live sandbox. The deterministic provider/destination matrix remains separate. |
-| Released Fly backend, restart, update and rollback | Actual registry consumer receipt is private at `.tmp/live-fly-032-registry-consumer/consumer-receipt.json`. Disposable run `.tmp/live-fly-canary/run-aWv4zO/run.json` passes real source delivery, fresh reports after restart, new-manifest application and rollback, with phase fences. | This actual-registry canary proves disposable delivery/restart/apply/rollback with owned cleanup, rather than original production forwarder upgrade. |
-| Original forwarder compatibility and service rollout | [0.3.0](service-rollout-0.3.0.md) records additive schema migration; [0.3.2](service-rollout-0.3.2.md) records actual Worker/website byte verification, preserved bindings and stable deployment fields. Natural heartbeat and metrics advance after deployment. Fresh production-data native replay validates existing token behavior and wide counters in the candidate and current retained rollback Worker without outbound provider calls. | Upgrade the original mountless forwarder separately, preserving logical identity, routing and rollback configuration. Verify loaded manifest and real delivery afterward. |
-| Dependencies and runtime identity | Compatible test tooling updates and their reliability fix are shipped. [Dependency decisions](dependency-upgrade-plan.md) explicitly defer coordinated majors and Vector interpolation changes. Live registry Fly proof used the CI-built immutable image below. | Do not count deferred major upgrades as already performed; they retain their own decision and validation gates. |
-| Default branches and immutable releases | Public protected PRs 10/11 merged; immutable `v0.3.2` points to `fe3c174`, and protected main is `433660f`. Corrected recovery reused the original tested archives and verified all 15 registry versions. Private production source `48b4e84` has green exact-commit CI and is pushed to `master`. | Subsequent changes still require their own commit, push and appropriate CI evidence. |
+| Published standalone CLI/libraries | All 15 actual npm 0.3.4 archives verified against immutable `f5d8ea74`, isolated installed consumer receipt and both aliases/runtime binary; standalone generation has no service requirement. | Preserve exact archive checks for 0.3.5. |
+| Packaged service backend | Production Worker `739068f2-d0a9-442a-b4f2-e3e01d44ce8a` matches actual-registry service artifact `.tmp/service-034-registry`; isolated package/native-D1 missing-entry negative control passes. | Repeat actual-registry build/deployment for the new patch. |
+| Portable configuration and loaded manifests | Original graph hash `bc54fc48…` remains unchanged; issued runtime `ff336b64…` reports desired/applied sequence 3. Real website shows In sync and all 63 sources/one monitor/one sink. | Preserve proof after the patch rollout. |
+| Website ↔ CLI synchronization | Website-created original is updated through published CLI and loaded runtime. Published CLI-created disposable identity is edited in the website, pulled/pushed by CLI, verified on reload, deleted with retained immutable receipt. Full local installed-CLI/browser/workerd/Vector path also passes. | Final named-case requirement audit, rather than inferring all recovery cases from this happy path. |
+| Deterministic baseline | Native route/ownership/selection/queue/ingest/cron suites; independent package/real runtime transport matrix; browser/UI and installed-package E2E with failure cleanup. Local current core/backend suite: 1,891 tests across 151 files. | Complete the explicit baseline case-to-test audit; exact new service CI is running. |
+| High owned CI coverage | Local 97.71% lines, 96.85% statements, 94.27% branches, 98.92% functions; per-package/module floors, separately measured UI, LCOV/JSON/HTML artifacts and 95% changed-line gate. Required failure PR was blocked and closed. No Codecov dependency. | Exact new public/service checks and final report inspection. |
+| Required CI gate | Both repositories now public; OSS main and service master require strict `test` success, including admins, and prohibit force pushes/deletion. | Earlier private-plan limitation is resolved. |
+| Remote lifecycle/isolation | Actual-registry Cloudflare run `run-x55Cst` passed schema 17→37, routing and owned Worker/D1/queue absence. Native CI needs no cloud credentials. | Preserve cleanup/uncertain-dispatch checks for the patch rehearsal. |
+| Selected live source delivery | Published standalone Worker tail → generated Vector → owned webhook passed with explicit owned cleanup; fixture/live distinctions are in the runtime matrix. | No assertion of live sandboxes for every external provider. |
+| Fly runtime and rollback | Actual-registry canary `run-ANWfco` passed delivery/restart/update/rollback. Original published CLI rollback, restored-candidate cleanup, fresh 0.3.4 apply and final standby cleanup all passed. Actual original sink received/sent a natural event. | PR 23 fixes the observed readback lag; publish/deploy 0.3.5 and rehearse the patched path. |
+| Existing deployment/service compatibility | Fresh schema-36 backup and both retained/candidate native replays preserved all 836 application rows/30 tables/history/24 deployment fields through schema 37; byte/binding-verified production rollout and natural metrics/heartbeat passed. | Fresh compatibility gates for the patch rollout. |
+| Dependencies/runtime identity | Compatible Hono/router and test-tool patch updates shipped; generated/runtime validation pins Vector 0.55.0. Separate major/interpolation/advisory decisions remain in dependency plan. | Deferred major upgrades keep their separate decision scope. |
+| Default branches/immutable release | Public PRs 21/22 merged, 0.3.4 release run `37390843139` passed with original archive receipts. PR 23 merged as `860f791e…`, required CI `37395128666` passed and complete review audit is clear. Service current fix source `4edad0a` is pushed; image rerun passed, tests live. | Protected 0.3.5 version merges, exact-main validation, immutable tag, publication and deployment. |
+
+The entries below retain earlier release evidence; the matrix above is current.
 
 The registry Fly run used OCI index
 `sha256:2f8d548133cbab9cfc96113da726918ece81698b29c72fcea0506a9e31e8bf36`,

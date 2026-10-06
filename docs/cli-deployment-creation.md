@@ -50,7 +50,9 @@ the real website, and pulls/pushes it through the CLI. That created logical iden
 continues through actual Vector apply, mounted update, restart, rollback, both
 cleanup modes and fresh deployment. Teardown owns both deployment records.
 
-Creation is not yet a published or production capability. Before rollout, retain
+Creation is published in 0.3.4 and deployed through schema 37. The historical
+preparation gates below are now satisfied; see the current
+[rollout evidence](service-rollout-0.3.4.md). Before rollout, retain
 native/installed-package/coverage evidence, merge protected public CI, publish a
 coordinated immutable release, and compile the service against those registry
 archives. Replay a fresh production schema-36 backup through schema 37 with both
@@ -76,3 +78,13 @@ owned teardown passed. Independent package typechecks initially found a test
 mock's erased Vitest type and an untyped owner setter; both are corrected and
 all 15 package typechecks pass. PR 21 retains that correction and must pass a
 fresh required CI run before merge.
+
+
+Production acceptance, October 5: the actual published CLI created an owned,
+unbound disposable record with empty source/monitor selections. The logged-in
+website changed its name and metrics; published pull captured that configuration.
+A local metrics edit was pushed at desired sequence 2 and appeared after website
+reload. The record was deleted through the owned API, and the immutable creation
+receipt reports `deleted`. No provider resource was provisioned. The original
+unchanged manifest was then reissued and applied at sequence 3 with its existing
+machine and preserved checkpoint. All original graph selections remain intact.
