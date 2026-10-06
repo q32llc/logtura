@@ -62,8 +62,18 @@ remained byte-identical to the accepted 0.3.5 runtime
 (`sha256:aab25be01f3ba14819e8fdadd7805b06e0706924c6f437b249539241e1813baa`),
 with unchanged bindings. Browser reload confirmed the logo and all six Hosted UX
 screenshots load. The original deployment remained running and in sync at
-revision 3. The complete registry-backed 0.3.6 website/service rollout follows
-its exact-default validation separately.
+revision 3.
+
+The complete registry-backed 0.3.6 service and website deployed from merged
+commit `96e4ab18c727dfa35dfbd826f0ef9340c9283127` after exact-master CI run
+37486208496 passed. Production Worker version
+`8c72e6ca-af3e-4baf-a390-4f718095678e` is active at 100%; bindings were
+preserved and the uploaded Worker matched
+`sha256:0dcf7a666778e99547e4e57b610c16231b4ae0211410c0396e8217ec4e36d7bb`.
+The deployment verifier matched the website bundle and all eight public assets.
+Browser checks loaded the skill, privacy, terms, and support pages, plus the logo
+and all six Hosted UX screenshots. The existing forwarder remained running and
+in sync at revision 3 after deployment.
 
 ## Correct Git LFS handling
 
@@ -86,6 +96,6 @@ contain actual image/content bytes rather than LFS placeholders.
 
 Owned marketplace installation and immutable GitHub/npm releases are shipped.
 The listing has an actual inspected 512-square brand icon and concrete website,
-support, privacy, and terms routes. Verify the deployed anonymous content before
-submitting. Vendor-directory submission, verified publisher selection, legal
-attestations, approval, and public listing are distinct outstanding stages.
+support, privacy, and terms routes. Their deployed content and anonymous route
+tests are verified. Vendor-directory submission, verified publisher selection,
+legal attestations, approval, and public listing are distinct outstanding stages.
