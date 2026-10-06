@@ -1,15 +1,21 @@
 # Logtura shared backend and deployment synchronization plan
 
-Current release update, October 5, 2026: all 15 actual npm 0.3.3 archives are
-verified against immutable `v0.3.3` (`cfaf36e6`). Private `fc40b797` CI is green,
-and production now uses that exact registry-backed Worker and website. Schemas
-33–36 were imported after fresh all-row compatibility replay; uploaded bytes,
-bindings and natural original-forwarder checkpoint progress passed. The disposable
-registry Fly canary passed delivery/restart/update/rollback and owned cleanup.
-See [0.3.3 rollout evidence](service-rollout-0.3.3.md). The original retained apply is recovered, the 0.3.3 image is applied, and the
-website reports its baseline manifest in sync; natural sink delivery is observed.
-Explicit rollback/cleanup and final restoration remain open;
-earlier entries saying 0.3.3 is unpublished or schema 36 is undeployed are superseded.
+Current release update, October 5, 2026: all 15 actual npm 0.3.4 archives are
+verified against immutable `v0.3.4` (`f5d8ea74`). Production uses the actual
+registry-backed Worker and website through schema 37. Fresh all-row replay,
+remote staging, owned Fly delivery/update/restart/rollback and cleanup passed.
+The original forwarder has completed rollback, both cleanup modes and a fresh
+0.3.4 apply with the unchanged original graph and natural sink delivery.
+Published CLI creation → website edit → CLI pull/push → website verification
+also passed on a disposable owned production record; its deletion receipt is retained.
+After cleanup the original unchanged graph was reissued/applied at sequence 3.
+See [0.3.4 rollout evidence](service-rollout-0.3.4.md).
+
+Both `logtura/logtura` and service repository `q32llc/logtura` are now public.
+Both default branches require the up-to-date `test` check, including for admins,
+and prohibit force pushes and branch deletion. Earlier private-plan protection
+limitations are historical. Public PR 23's bounded rollback-readback improvement
+is merged; coordinated 0.3.5 publication and final audit remain open.
 
 This plan makes the published CLI and libraries fully usable without the hosted service, makes the service consume the same public backend operations, and lets users move between the website and CLI while updating the same forwarder. A thorough compatibility baseline and enforced CI coverage come first. Dependency major upgrades have a separate decision process.
 
