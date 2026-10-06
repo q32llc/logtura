@@ -72,6 +72,11 @@ follow-up restores LFS pointers at the repository tips, hydrates asset-sensitive
 CI checkouts, verifies pointer/object integrity with `git lfs fsck`, and tests that
 both installed native plugins contain actual PNG bytes. The public repository
 carries its own attributes and native-consumer Git LFS prerequisite.
+Actual GitHub installation exposed Claude Code 2.1.291 skipping LFS hydration
+in its marketplace clone. The Claude guide therefore uses a normal hydrated Git
+checkout as a local marketplace; Codex's direct GitHub installation hydrates
+correctly. A fresh disposable test passed installation, PNG-byte verification,
+refresh, and removal for both documented routes.
 
 Historical ordinary-image commits and immutable release tags are retained;
 no history or published release was rewritten. Release ZIP/tar/npm artifacts
