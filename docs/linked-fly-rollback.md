@@ -1,5 +1,22 @@
 # Explicit linked Fly rollback
 
+Current production acceptance is recorded in [the 0.3.4 rollout](service-rollout-0.3.4.md).
+The original deployment completed the published CLI mountless replacement,
+explicit rollback, restored-candidate cleanup, fresh apply and final standby
+cleanup. Its unchanged graph reports desired/applied sequence 3, and only the
+current mounted forwarder remains running with its original checkpoint. These
+operations also run in required installed-CLI/workerd/browser/Vector E2E.
+The coordinated 0.3.5 rollback readback patch is published and deployed, with
+new actual-registry rehearsals and unchanged original graph acceptance. See
+[the latest rollout](service-rollout-0.3.5.md) and
+[the complete baseline audit](convergence-baseline-audit.md).
+
+The implementation notes below preserve earlier milestone evidence. Their
+pending-release statements describe those historical milestones; the rollout
+and current [acceptance index](convergence-acceptance.md) determine current status.
+
+## Implementation history
+
 The owner-authenticated protocol restores a retained original self-managed Fly
 forwarder without claiming that its legacy runtime loaded a newer manifest.
 Provider payloads and credentials remain in the CLI's private archives; service

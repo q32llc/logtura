@@ -1,28 +1,38 @@
 # Logtura shared backend and deployment synchronization plan
 
-Current release update, October 5, 2026: all 15 actual npm 0.3.4 archives are
-verified against immutable `v0.3.4` (`f5d8ea74`). Production uses the actual
-registry-backed Worker and website through schema 37. Fresh all-row replay,
-remote staging, owned Fly delivery/update/restart/rollback and cleanup passed.
-The original forwarder has completed rollback, both cleanup modes and a fresh
-0.3.4 apply with the unchanged original graph and natural sink delivery.
-Published CLI creation → website edit → CLI pull/push → website verification
-also passed on a disposable owned production record; its deletion receipt is retained.
-After cleanup the original unchanged graph was reissued/applied at sequence 3.
-See [0.3.4 rollout evidence](service-rollout-0.3.4.md).
+Current acceptance, October 5, 2026: coordinated 0.3.5 is published and deployed.
+All 15 immutable actual-registry packages and the registry-backed service have
+passed exact protected CI, installed-consumer and runtime gates. Fresh schema-37
+retained/candidate replays preserve all application rows; owned Cloudflare and
+Fly delivery/restart/update/rollback rehearsals pass. Production bytes, website,
+bindings and natural telemetry are verified.
 
-Both `logtura/logtura` and service repository `q32llc/logtura` are now public.
-Both default branches require the up-to-date `test` check, including for admins,
-and prohibit force pushes and branch deletion. Earlier private-plan protection
-limitations are historical. Public PR 23's bounded rollback-readback improvement
-is merged; coordinated 0.3.5 publication and final audit remain open.
+The published CLI updates the sole original mounted forwarder on its original
+checkpoint. Its unchanged graph is accepted at desired/applied sequence 3 with
+generator 0.3.5, and its actual sink receives/sends a natural event after upgrade.
+The signed-in website shows In sync, 63 sources, one monitor and one sink.
+Published CLI creation → website edit → CLI pull/push → reload and owned deletion
+also passed; original replacement, rollback and both cleanup modes are verified.
+
+Both repositories are public and enforce strict `test`, including admins, on
+`main`/`master`. Our own LCOV/JSON/HTML, module floors and 95% changed-line gate
+meet package, service and separate UI targets; Codecov is not used. Full fresh
+review audits are clear. Two latest detached canary volume tombstones remain
+`pending_destroy` after acknowledged deletion; older volumes are absent and no
+active canary remains. No absence or billing claim is inferred from tombstones.
+
+The [complete baseline requirement audit](convergence-baseline-audit.md),
+[current acceptance index](convergence-acceptance.md) and
+[0.3.5 rollout receipts](service-rollout-0.3.5.md) prove the original scope.
+The plan below retains its requirements and dated implementation history; older
+pending/remaining statements describe those intermediate milestones.
 
 This plan makes the published CLI and libraries fully usable without the hosted service, makes the service consume the same public backend operations, and lets users move between the website and CLI while updating the same forwarder. A thorough compatibility baseline and enforced CI coverage come first. Dependency major upgrades have a separate decision process.
 
-Status: implementation in progress. The starting inventory records repository and production inspection on October 1, 2026; implemented milestones and remaining work are tracked below. Completion still requires all outcome/validation gates. This plan does not authorize destructive tests against existing production resources.
+Status: planned capabilities published and deployed, with the complete baseline and release acceptance recorded above. The original October 1 inventory and dated milestones remain below for traceability. This plan does not authorize destructive tests against existing production resources.
 
 The [current acceptance index](convergence-acceptance.md) separates released,
-deployed and observed evidence from the remaining production and external gates.
+deployed and observed evidence, with original requirements mapped in the baseline audit.
 
 The [runtime delivery audit](runtime-delivery-matrix.md) now proves generated
 Supabase PAT polling, Fly exec-source framing and native Prometheus/Datadog
