@@ -49,6 +49,7 @@ async function codexSkills(expected = true) {
 
 report.clients.claude = run("claude", ["--version"]).trim();
 report.clients.codex = run("codex", ["--version"]).trim();
+report.clients.gitLfs = run("git", ["lfs", "version"]).trim();
 run("claude", ["plugin", "validate", join(root, "plugins/logtura")]);
 run("claude", ["plugin", "validate", root]);
 run("claude", ["plugin", "marketplace", "add", root]);
@@ -62,6 +63,10 @@ run("codex", ["plugin", "marketplace", "add", root]);
 run("codex", ["plugin", "add", selector]);
 await codexSkills();
 report.checks.push("codex native installation and app-server skill discovery");
+for (const cache of ["/root/.claude/plugins/cache", "/root/.codex/plugins"]) {
+  assert.ok(find(cache, "logo.png").some(file => readFileSync(file).subarray(0, 8).toString("hex") === "89504e470d0a1a0a"), "Installed plugin branding must be hydrated PNG bytes, not an LFS pointer");
+}
+report.checks.push("both installed packages contain hydrated PNG branding");
 
 for (const name of ["plugin.json", ".claude-plugin/plugin.json"]) {
   const file = join(root, "plugins/logtura", name), manifest = JSON.parse(readFileSync(file));

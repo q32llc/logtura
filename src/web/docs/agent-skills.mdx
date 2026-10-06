@@ -8,10 +8,16 @@ Standalone use needs no Logtura account. Install Node.js 22+ and the
 `@logtura/cli` package (0.3.6 or later) as well as the skill. Provider credentials are needed for
 live discovery and delivery.
 
+Install Git LFS and run `git lfs install` once before cloning a marketplace.
+Release archives include image bytes directly and do not require Git LFS.
+Claude Code 2.1.291 skips LFS hydration when it clones a GitHub marketplace;
+use the hydrated checkout below so its installed icon contains actual PNG bytes.
+
 ## Claude Code
 
 ```sh
-claude plugin marketplace add logtura/logtura
+git clone https://github.com/logtura/logtura.git "$HOME/.local/share/logtura-agent-skills"
+claude plugin marketplace add "$HOME/.local/share/logtura-agent-skills"
 claude plugin install logtura@logtura --scope user
 ```
 
