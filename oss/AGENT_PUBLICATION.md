@@ -4,6 +4,21 @@ The owned GitHub marketplaces and release archives are the primary distribution
 paths. The package is skills-only: no MCP server, app binding, hooks, or new
 authentication service. Native installation tests make no model calls.
 
+## Public discovery status
+
+- [skills.sh](https://skills.sh/logtura/logtura) discovers the public repository
+  and exposes `npx skills add logtura/logtura --skill logtura` for supported agents.
+- The owned Claude Code and Codex marketplaces are published in this repository
+  and covered by native lifecycle tests.
+- OpenAI directory upload currently requires developer identity verification in
+  the owning Platform organization before a draft can be created.
+- Claude Directory submission currently requires an organization owner, or a
+  paid personal plan. The currently available Puzzle role can view submissions
+  but cannot create one; the personal account is on the Free plan.
+
+Vendor review and publication remain pending. The account owner must complete
+identity or plan requirements and the vendors' legal attestations.
+
 ## Release artifacts
 
 After building the public packages:

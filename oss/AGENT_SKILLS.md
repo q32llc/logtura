@@ -8,6 +8,19 @@ The skill runs through the open-source CLI. Standalone use requires no Logtura
 account. Install Node.js 22+ and `@logtura/cli` 0.3.6 or later; installing the skill alone does
 not install the CLI or give the agent provider credentials.
 
+## Quick install from skills.sh
+
+The public [skills.sh listing](https://skills.sh/logtura/logtura) discovers the
+same portable skill from this repository and installs it into a supported local
+agent:
+
+```sh
+npx skills add logtura/logtura --skill logtura
+```
+
+Use the native marketplace instructions below when you prefer client-managed
+plugin updates or want to pin an immutable release checkout.
+
 Install Git LFS and run `git lfs install` once before cloning a marketplace.
 Release archives include image bytes directly and do not require Git LFS.
 Claude Code 2.1.291 skips LFS hydration when it clones a GitHub marketplace;
