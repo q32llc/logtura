@@ -12,7 +12,7 @@ export function metadata(version, catalog) {
   assert.match(version, /^\d+\.\d+\.\d+$/);
   const identity = { name: "logtura", version, description: "Set up and update Logtura log forwarding from supported hosts, standalone or website-linked.", author: { name: "Logtura", url: "https://github.com/logtura" }, homepage: "https://logtura.com/docs/agent-skills", repository: "https://github.com/logtura/logtura", license: "Apache-2.0" };
   return {
-    "plugins/logtura/plugin.json": { $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", ...identity, keywords: ["logtura", "logs", "cloudflare", "fly", "railway", "vercel", "supabase"], extensions: { "com.openai": { interface: { displayName: "Logtura", shortDescription: "Set up log forwarding", longDescription: identity.description, developerName: "Logtura", category: "Developer Tools", defaultPrompt: "Set up Logtura for this project's logs and verify delivery." } } } },
+    "plugins/logtura/plugin.json": { $schema: "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json", ...identity, keywords: ["logtura", "logs", "cloudflare", "fly", "railway", "vercel", "supabase"], extensions: { "com.openai": { publication: { countries: [] }, interface: { displayName: "Logtura", shortDescription: "Set up log forwarding", longDescription: identity.description, developerName: "Logtura", category: "Developer Tools", defaultPrompt: "Set up Logtura for this project's logs and verify delivery.", websiteURL: identity.homepage, supportURL: "https://logtura.com/support", privacyPolicyURL: "https://logtura.com/privacy", termsOfServiceURL: "https://logtura.com/terms", logo: "assets/logo.png", composerIcon: "assets/logo.png" } } } },
     "plugins/logtura/.claude-plugin/plugin.json": identity,
     ".claude-plugin/marketplace.json": { name: "logtura", owner: identity.author, plugins: [{ name: "logtura", source: "./plugins/logtura", description: identity.description }] },
     ".agents/plugins/marketplace.json": { name: "logtura", plugins: [{ name: "logtura", source: { source: "local", path: "./plugins/logtura" }, policy: { installation: "AVAILABLE", authentication: "ON_INSTALL" }, category: "Developer Tools" }] },
@@ -45,6 +45,16 @@ export function validate(directory, expected) {
       assert.ok(inside && !inside.startsWith("..") && !inside.startsWith("/"), `Reference escapes plugin: ${name}`);
       assert.ok(existsSync(absolute), `Missing reference: ${name} → ${target}`);
     }
+  }
+  const listing = expected["plugins/logtura/plugin.json"].extensions["com.openai"].interface;
+  for (const field of ["logo", "composerIcon"]) {
+    const path = resolve(plugin, listing[field]);
+    assert.ok(relative(plugin,path) && !relative(plugin,path).startsWith(".."), "Listing icon escapes plugin");
+    const bytes = readFileSync(path);
+    assert.equal(bytes.subarray(0,8).toString("hex"), "89504e470d0a1a0a", "Listing icon must be PNG");
+    assert.ok(bytes.length <= 5*1024*1024);
+    const size = field === "logo" ? 256 : 48;
+    assert.ok(bytes.readUInt32BE(16) >= size && bytes.readUInt32BE(16) === bytes.readUInt32BE(20), "Listing icon must be square and large enough");
   }
   const entry = readFileSync(join(plugin, "skills/logtura/SKILL.md"), "utf8");
   assert.match(entry, /^---\nname: logtura\ndescription: .+\n/);

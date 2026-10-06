@@ -21,13 +21,22 @@
   ],
   "extensions": {
     "com.openai": {
+      "publication": {
+        "countries": []
+      },
       "interface": {
         "displayName": "Logtura",
         "shortDescription": "Set up log forwarding",
         "longDescription": "Set up and update Logtura log forwarding from supported hosts, standalone or website-linked.",
         "developerName": "Logtura",
         "category": "Developer Tools",
-        "defaultPrompt": "Set up Logtura for this project's logs and verify delivery."
+        "defaultPrompt": "Set up Logtura for this project's logs and verify delivery.",
+        "websiteURL": "https://logtura.com/docs/agent-skills",
+        "supportURL": "https://logtura.com/support",
+        "privacyPolicyURL": "https://logtura.com/privacy",
+        "termsOfServiceURL": "https://logtura.com/terms",
+        "logo": "assets/logo.png",
+        "composerIcon": "assets/logo.png"
       }
     }
   }

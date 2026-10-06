@@ -11,6 +11,7 @@ it("offers standalone documentation and GitHub sign-up to anonymous visitors", (
   home(); expect(screen.getAllByRole("link", { name: "Sign up with GitHub" }).every(link => link.getAttribute("href") === "/login/github")).toBe(true);
   expect(screen.getByRole("link", { name: "How it works" }).getAttribute("href")).toBe("#how");
   expect(screen.getAllByRole("link", { name: "Docs" }).every(link => link.getAttribute("href") === "/docs")).toBe(true);
+  for (const label of ["Privacy", "Terms", "Support"]) expect(screen.getByRole("link", { name: label }).getAttribute("href")).toBe(`/${label.toLowerCase()}`);
 });
 it("routes signed-in visitors to their dashboard", () => {
   home("/", true); expect(screen.getByRole("link", { name: "Go to dashboard" }).getAttribute("href")).toBe("/app");

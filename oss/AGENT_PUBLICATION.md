@@ -37,12 +37,25 @@ Example prompts:
 - Update my website-linked forwarder to include this new site and verify delivery.
 - Connect this Railway environment and forward only the selected service's logs.
 
-The native release archive is **not claimed to be directory-submission-ready**.
-Before submitting, verify the intended publisher identity and directory category;
-provide actual published website/support/privacy/terms URLs covering this plugin,
-a suitable listing icon, and publisher choices for countries and commerce
-declarations. Existing service legal pages must be checked for applicability;
-do not invent policy commitments for a local instruction package.
+Publisher display name: **Logtura** (owner-confirmed). Availability: **all supported
+countries**, represented by an explicit empty country restriction list. The skill
+has no purchase flow; provider charges and the optional hosted service are separate.
+The package reuses Logtura's inspected 512 × 512 PNG logo for both listing icons.
+
+Listing destinations:
+
+- Website: https://logtura.com/docs/agent-skills
+- Support: https://logtura.com/support
+- Privacy: https://logtura.com/privacy
+- Terms: https://logtura.com/terms
+
+These are owned website routes; verify the deployed content and anonymous access
+before submitting. The privacy page describes the skill, standalone CLI, linked
+service, and third-party processing; it promises no invented retention interval.
+The owner must review policy adequacy and complete any legal attestations.
+The portal may require a verified publisher identity; package display metadata
+cannot substitute for verification. Confirm its supported category and commerce
+field choices there. No claim of vendor directory approval is made.
 
 OpenAI requires a package upload, validation and review, then owner-controlled
 publication. Skill-only plugins need no MCP test cases, demo, or reviewer login.
