@@ -43,7 +43,8 @@
     "test:fly-source-runtime": "node scripts/test-fly-source-flow.mjs",
     "test:metrics-runtime": "node scripts/test-metrics-flow.mjs",
     "test:supabase-refresh-runtime": "node scripts/test-supabase-refresh-flow.mjs",
-    "smoke:production": "node scripts/smoke-production.mjs"
+    "smoke:production": "node scripts/smoke-production.mjs",
+    "test:agents": "node oss/scripts/agent-artifacts.mjs --check && node oss/scripts/agent-artifacts.test.mjs && node oss/scripts/test-agent-install.mjs"
   },
   "dependencies": {
     "@logtura/cloudflare-shared": "workspace:*",
@@ -71,7 +72,8 @@
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.30.6",
     "remark-gfm": "^4.0.1",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "@logtura/cli": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.16.3",

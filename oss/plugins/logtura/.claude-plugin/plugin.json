@@ -1,0 +1,12 @@
+{
+  "name": "logtura",
+  "version": "0.3.6",
+  "description": "Set up and update Logtura log forwarding from supported hosts, standalone or website-linked.",
+  "author": {
+    "name": "Logtura",
+    "url": "https://github.com/logtura"
+  },
+  "homepage": "https://logtura.com/docs/agent-skills",
+  "repository": "https://github.com/logtura/logtura",
+  "license": "Apache-2.0"
+}

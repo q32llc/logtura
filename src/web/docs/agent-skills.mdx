@@ -1,0 +1,49 @@
+# Use Logtura with Claude Code or Codex
+
+The Logtura skill helps your coding agent connect project logs, configure sources
+and destinations, and update an existing forwarder. It includes Cloudflare,
+Fly.io, Railway, Vercel, and Supabase recipes.
+
+Standalone use needs no Logtura account. Install Node.js 22+ and the
+`@logtura/cli` package (0.3.6 or later) as well as the skill. Provider credentials are needed for
+live discovery and delivery.
+
+## Claude Code
+
+```sh
+claude plugin marketplace add logtura/logtura
+claude plugin install logtura@logtura --scope user
+```
+
+In a new session, invoke `/logtura:logtura` and describe the project, sources,
+and destination. For example: “Set up standalone Logtura forwarding for this
+Worker's errors and verify a test event reaches my webhook.”
+
+## Codex
+
+```sh
+codex plugin marketplace add logtura/logtura
+codex plugin add logtura@logtura
+```
+
+Select `logtura:logtura` in the skill picker or invoke `$logtura:logtura` with
+your task. For an existing deployment: “Pull my website deployment, add this
+new site, push the update, and verify the website and forwarder agree.”
+
+## Update an existing forwarder
+
+The skill uses the CLI's pull/edit/push workflow and preserves deployment IDs.
+It checks both the accepted website configuration and the forwarder's applied
+configuration, then verifies actual event delivery.
+
+Source host support and forwarder deployment targets are separate. The CLI has
+a native Fly deploy path; generated Docker bundles can run on another Docker
+host. The skill does not add native Railway or Vercel forwarder deploy commands.
+
+These instructions target local coding clients with shell access. Installing a
+skill does not grant credentials or synchronize local tools to a cloud session.
+
+See the [complete installation guide](https://github.com/logtura/logtura/blob/main/AGENT_SKILLS.md)
+for update/removal commands, version pinning, standalone skill-folder installation,
+and tested client versions. The GitHub marketplaces are the owned distribution
+source; vendor-directory approval is a separate step.

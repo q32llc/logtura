@@ -1,3 +1,4 @@
+import { PROVIDER_CATALOG } from "@logtura/core";
 export interface CloudflarePermissionGroup {
   key: string;
   type: "read" | "edit";
@@ -15,27 +16,12 @@ export interface SourceConnectMetadata {
   metadata?: Record<string, unknown>;
 }
 
-const SOURCE_METADATA: Record<string, SourceConnectMetadata> = {
-  "cloudflare-worker-tail": {
-    provider: "cloudflare",
-    metadata: {
-      permissionGroups: [
-      { key: "workers_scripts", type: "read" },
-      { key: "workers_tail", type: "read" },
-      ],
-    },
-  },
-  "cloudflare-ai-gateway": {
-    provider: "cloudflare",
-    metadata: {
-      permissionGroups: [{ key: "ai_gateway", type: "read" }],
-    },
-  },
-  "fly-log-tail": { provider: "fly" },
-  "railway-logs": { provider: "railway" },
-  "supabase-edge-logs": { provider: "supabase" },
-  "vercel-logs": { provider: "vercel" },
-};
+const SOURCE_METADATA: Record<string, SourceConnectMetadata> = Object.fromEntries(
+  PROVIDER_CATALOG.filter(entry => entry.credentials.length > 0).map(entry => [entry.id, {
+    provider: entry.family,
+    ...(entry.connectMetadata ? { metadata: entry.connectMetadata } : {}),
+  }]),
+);
 
 export function sourceConnectMetadata(source: string): SourceConnectMetadata | null {
   return SOURCE_METADATA[source] ?? null;

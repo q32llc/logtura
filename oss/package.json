@@ -30,7 +30,8 @@
     "test:ai-gateway-runtime": "node scripts/test-ai-gateway-flow.mjs",
     "test:fly-source-runtime": "node scripts/test-fly-source-flow.mjs",
     "test:metrics-runtime": "node scripts/test-metrics-flow.mjs",
-    "test:supabase-refresh-runtime": "node scripts/test-supabase-refresh-flow.mjs"
+    "test:supabase-refresh-runtime": "node scripts/test-supabase-refresh-flow.mjs",
+    "test:agents": "node scripts/agent-artifacts.mjs --check && node scripts/agent-artifacts.test.mjs && node scripts/test-agent-install.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",

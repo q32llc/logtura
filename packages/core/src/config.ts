@@ -1,3 +1,4 @@
+import { PROVIDER_CATALOG, providerDescriptor, decodeProviderCredentials, type ProviderDescriptor } from "./provider-catalog";
 import { canonicalConfigJson } from "./json";
 export { canonicalConfigJson } from "./json";
 import { parseDeploymentManifest, normalizeDeploymentManifest } from "./manifest";
@@ -9,6 +10,7 @@ type UnknownRecord = Record<string, unknown>;
 export type ConfigIncludeReader = (include: string) => unknown;
 export interface ConfigParseOptions {
   providers?: GenerateInput["providers"];
+  providerDescriptors?: readonly ProviderDescriptor[];
   destinations?: GenerateInput["destinations"];
   env?: Readonly<Record<string, string | undefined>>;
   readInclude?: ConfigIncludeReader;
@@ -30,8 +32,9 @@ export function parseConfigDocument(document: unknown, options: ConfigParseOptio
   const requiredEnv = new Set<string>();
   const env = (value: unknown) => resolveEnv(value, missingEnv, requiredEnv, options.env ?? {});
   const readInclude: ConfigIncludeReader = options.readInclude ?? ((include) => { throw new Error(`No include reader supplied for ${include}`); });
-  const providerRefs = parseProviderRefs(asRecord(doc.providers ?? {}, "providers"), env);
-  const connections = parseSources(asRecord(doc.sources ?? {}, "sources"), providerRefs, env, readInclude);
+  const catalog = options.providerDescriptors ?? PROVIDER_CATALOG;
+  const providerRefs = parseProviderRefs(asRecord(doc.providers ?? {}, "providers"), env, catalog);
+  const connections = parseSources(asRecord(doc.sources ?? {}, "sources"), providerRefs, env, readInclude, catalog);
   const destinations = parseSinks(asRecord(doc.sinks ?? {}, "sinks"), env, requiredEnv, readInclude);
   const sourceRefs = new Map(Object.keys(asRecord(doc.sources ?? {}, "sources")).map((key, i) => [key, connections[i]!.connection.id]));
   const monitors = parseMonitors(asArray(doc.monitors ?? [], "monitors"), destinations, sourceRefs);
@@ -57,6 +60,7 @@ interface ProviderRef {
 function parseProviderRefs(
   providers: UnknownRecord,
   env: (value: unknown) => unknown,
+  catalog: readonly ProviderDescriptor[],
 ): Map<string, ProviderRef> {
   const out = new Map<string, ProviderRef>();
   for (const [id, raw] of Object.entries(providers)) {
@@ -71,31 +75,10 @@ function parseProviderRefs(
       provider,
       displayName: stringField(p, "display_name", stringField(p, "displayName", id)) ?? id,
       externalAccountId: accountId,
-      credentials: providerCredentials(provider, p, env),
+      credentials: decodeProviderCredentials(provider, p, env, catalog),
     });
   }
   return out;
-}
-
-function providerCredentials(
-  provider: string,
-  p: UnknownRecord,
-  env: (value: unknown) => unknown,
-): Record<string, unknown> {
-  const raw = isRecord(p.credentials) ? p.credentials : {};
-  const from = (key: string, fallback?: unknown) => env(raw[key] ?? p[key] ?? fallback);
-  if (provider === "cloudflare") return { apiToken: stringValue(from("api_token")) ?? "" };
-  if (provider === "fly") return { apiToken: stringValue(from("api_token")) ?? "" };
-  if (provider === "railway") {
-    return {
-      apiToken: stringValue(from("api_token")) ?? "",
-      projectId: stringValue(from("project_id")),
-      environmentId: stringValue(from("environment_id")),
-    };
-  }
-  if (provider === "supabase") return { pat: stringValue(from("pat")) ?? "" };
-  if (provider === "vercel") return { apiToken: stringValue(from("api_token")) ?? "" };
-  return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, env(v)]));
 }
 
 function parseSources(
@@ -103,17 +86,20 @@ function parseSources(
   providers: Map<string, ProviderRef>,
   env: (value: unknown) => unknown,
   readInclude: ConfigIncludeReader,
+  catalog: readonly ProviderDescriptor[],
 ): GeneratorConnection[] {
   const out: GeneratorConnection[] = [];
   for (const [id, raw] of Object.entries(sources)) {
     const s = asRecord(raw, `sources.${id}`);
-    const sourceDriver = stringField(s, "source", stringField(s, "driver", sourceAlias(id)));
+    const sourceDriver = stringField(s, "source", stringField(s, "driver", catalog.find(entry => entry.aliases.includes(id))?.id ?? null));
     if (!sourceDriver) throw new Error(`sources.${id}.source is required`);
     if (sourceDriver === "custom-vector") {
       out.push(customVectorConnection(id, s, readInclude));
       continue;
     }
-    const providerKind = providerKindForSource(sourceDriver);
+    const descriptor = providerDescriptor(sourceDriver, catalog);
+    const providerKind = descriptor?.family ?? (sourceDriver.startsWith("cloudflare-") ? "cloudflare" : null);
+    if (!providerKind) throw new Error(`unknown source driver: ${sourceDriver}`);
     const providerId = stringField(s, "provider");
     const provider = resolveProviderRef(providers, providerKind, providerId, `sources.${id}`);
     const externalAccountId =
@@ -123,8 +109,7 @@ function parseSources(
             s.accountId ??
             s.external_account_id ??
             s.externalAccountId ??
-            (sourceDriver === "vercel-logs" ? s.team_id ?? s.teamId : undefined) ??
-            (sourceDriver === "railway-logs" ? s.environment_id ?? s.environmentId : undefined),
+            descriptor?.accountAliases?.map(key => s[key]).find(value => value !== null && value !== undefined),
         ),
       ) ?? provider.externalAccountId;
     out.push({
@@ -134,9 +119,9 @@ function parseSources(
         displayName: stringField(s, "display_name", stringField(s, "displayName", id)) ?? id,
         externalAccountId,
       },
-      selectedSources: sourceRows(identityOwner(s, id, "con"), sourceDriver, s, externalAccountId),
+      selectedSources: sourceRows(identityOwner(s, id, "con"), sourceDriver, s, externalAccountId, descriptor),
       selectAll: boolField(s, "all", false),
-      credentials: credentialsForSource(sourceDriver, provider, s, env),
+      credentials: credentialsForSource(descriptor, provider, s, env),
     });
   }
   return out;
@@ -165,43 +150,18 @@ function resolveProviderRef(
 }
 
 function credentialsForSource(
-  sourceDriver: string,
+  descriptor: ProviderDescriptor | null,
   provider: ProviderRef,
   s: UnknownRecord,
   env: (value: unknown) => unknown,
 ): Record<string, unknown> {
   const creds = { ...provider.credentials };
-  if (sourceDriver === "railway-logs") {
-    return {
-      ...creds,
-      projectId:
-        stringValue(env(s.project_id ?? s.projectId)) ??
-        stringValue(creds.projectId),
-      environmentId:
-        stringValue(env(s.environment_id ?? s.environmentId)) ??
-        stringValue(creds.environmentId),
-    };
+  for (const field of descriptor?.credentials ?? []) {
+    if (!field.sourceAliases) continue;
+    const raw = field.sourceAliases.map(key => s[key]).find(value => value !== null && value !== undefined);
+    creds[field.runtime] = stringValue(env(raw)) ?? stringValue(creds[field.runtime]);
   }
   return creds;
-}
-
-function providerKindForSource(sourceDriver: string): string {
-  if (sourceDriver.startsWith("cloudflare-")) return "cloudflare";
-  if (sourceDriver === "fly-log-tail") return "fly";
-  if (sourceDriver === "railway-logs") return "railway";
-  if (sourceDriver === "supabase-edge-logs") return "supabase";
-  if (sourceDriver === "vercel-logs") return "vercel";
-  throw new Error(`unknown source driver: ${sourceDriver}`);
-}
-
-function sourceAlias(id: string): string | null {
-  if (id === "workers" || id === "cloudflare_workers") return "cloudflare-worker-tail";
-  if (id === "edge" || id === "supabase_edge") return "supabase-edge-logs";
-  if (id === "fly" || id === "fly_apps") return "fly-log-tail";
-  if (id === "railway" || id === "railway_logs") return "railway-logs";
-  if (id === "ai_gateway" || id === "cloudflare_ai_gateway") return "cloudflare-ai-gateway";
-  if (id === "vercel" || id === "vercel_logs") return "vercel-logs";
-  return null;
 }
 
 function customVectorConnection(id: string, s: UnknownRecord, readInclude: ConfigIncludeReader): GeneratorConnection {
@@ -231,24 +191,9 @@ function sourceRows(
   driver: string,
   s: UnknownRecord,
   externalAccountId: string | null,
+  descriptor: ProviderDescriptor | null,
 ): Source[] {
-  if (driver === "cloudflare-worker-tail") {
-    return stringList(s.scripts ?? s.workers ?? s.include ?? s.sources, `sources.${id}.scripts`)
-      .map((name) => source(id, name, "cf_worker"));
-  }
-  if (driver === "cloudflare-ai-gateway") {
-    return stringList(s.gateways ?? s.include ?? s.sources, `sources.${id}.gateways`)
-      .map((name) => source(id, name, "cf_ai_gateway"));
-  }
-  if (driver === "fly-log-tail") {
-    return stringList(s.apps ?? s.include ?? s.sources, `sources.${id}.apps`)
-      .map((name) => source(id, name, "fly_app"));
-  }
-  if (driver === "vercel-logs") {
-    return stringList(s.projects ?? s.include ?? s.sources, `sources.${id}.projects`)
-      .map((projectId) => source(id, projectId, "vercel_project"));
-  }
-  if (driver === "railway-logs") {
+  if (descriptor?.selection.codec === "railway") {
     return railwayServiceRows(
       id,
       s.services ?? s.include ?? s.sources,
@@ -256,7 +201,7 @@ function sourceRows(
       externalAccountId,
     );
   }
-  if (driver === "supabase-edge-logs") {
+  if (descriptor?.selection.codec === "supabase") {
     const rows: Source[] = [];
     for (const item of asArray(s.functions ?? s.include ?? [], `sources.${id}.functions`)) {
       if (typeof item === "string") {
@@ -283,9 +228,10 @@ function sourceRows(
     }
     return rows;
   }
-  return stringList(s.sources, `sources.${id}.sources`).map((name) =>
-    source(id, name, driver),
-  );
+  const selection = descriptor?.selection;
+  const field = selection?.field ?? "sources";
+  const raw = [field, ...(selection?.aliases ?? [])].map(key => s[key]).find(value => value !== null && value !== undefined);
+  return stringList(raw, `sources.${id}.${field}`).map(name => source(id, name, selection?.sourceKind ?? driver));
 }
 
 function source(

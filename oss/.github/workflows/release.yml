@@ -79,6 +79,12 @@ jobs:
         env:
           LOGT_PACKED_ARTIFACTS: .tmp/release
 
+      - name: native Claude Code and Codex packages
+        run: pnpm test:agents
+
+      - name: archive tested skill and plugin release assets
+        run: node scripts/agent-artifacts.mjs --archive .tmp/release/agents
+
       - name: typecheck
         run: pnpm typecheck
 
@@ -132,6 +138,7 @@ jobs:
           path: |
             .tmp/release/
             coverage/
+            .tmp/agent-reports/
           if-no-files-found: error
           retention-days: 30
 
@@ -145,7 +152,7 @@ jobs:
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
-            .tmp/release/*.tgz .tmp/release/manifest.json .tmp/release/registry-receipt.json
+            .tmp/release/*.tgz .tmp/release/manifest.json .tmp/release/registry-receipt.json .tmp/release/agents/*
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -170,7 +177,7 @@ jobs:
         run: |
           node --input-type=module -e 'import assert from "node:assert/strict";assert.match(process.env.LOGT_RELEASE_TAG,/^v\d+\.\d+\.\d+$/);'
           mkdir -p .tmp/recovery-tools
-          cp scripts/release-artifacts.mjs scripts/recover-release.mjs .tmp/recovery-tools/
+          cp scripts/release-artifacts.mjs scripts/recover-release.mjs scripts/agent-artifacts.mjs .tmp/recovery-tools/
           git checkout --detach "refs/tags/$LOGT_RELEASE_TAG"
       - name: verify original validation run and recover exact tested archives
         run: node .tmp/recovery-tools/recover-release.mjs "$LOGT_RELEASE_EVIDENCE_RUN"
@@ -189,5 +196,7 @@ jobs:
           if gh release view "$LOGT_RELEASE_TAG" >/dev/null 2>&1; then
             echo "Tag release already exists; verified registry receipt is retained"
           else
-            gh release create "$LOGT_RELEASE_TAG" --title "$LOGT_RELEASE_TAG" --generate-notes .tmp/release/*.tgz .tmp/release/manifest.json .tmp/release/registry-receipt.json .tmp/release/recovery-evidence.json
+            assets=(.tmp/release/*.tgz .tmp/release/manifest.json .tmp/release/registry-receipt.json .tmp/release/recovery-evidence.json)
+            if [ -d .tmp/release/agents ]; then assets+=(.tmp/release/agents/*); fi
+            gh release create "$LOGT_RELEASE_TAG" --title "$LOGT_RELEASE_TAG" --generate-notes "${assets[@]}"
           fi

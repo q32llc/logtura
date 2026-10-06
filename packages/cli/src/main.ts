@@ -1,3 +1,4 @@
+import { PROVIDER_CATALOG, providerDescriptor, providerFamily, defaultSourceSelection, providerDefaultCredentials } from "@logtura/core";
 import { pushDeploymentConfig,readPendingPush } from "./push";
 import { readDeploymentLink } from "./deployment-link";
 import { assertNoPendingPush } from "./file-transaction";
@@ -56,7 +57,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       console.log(help());
       return 0;
     }
-    const readOnly=["login","whoami","logout","stats","diff","validate","bundle","push","deploy","create"].includes(command) || (command==="config" && ["status","recover","hash","diff"].includes(args[0]??""));
+    if (command === "providers") {
+      if (args.length && (args.length !== 1 || args[0] !== "list")) throw new Error("usage: logtura providers [list] [--json]");
+      console.log(global.json ? JSON.stringify(PROVIDER_CATALOG, null, 2) : PROVIDER_CATALOG.map(p => `${p.id} (${p.family}; ${p.selection.mode}; ${p.runtime})`).join("\n"));
+      return 0;
+    }
+    const readOnly=["providers","login","whoami","logout","stats","diff","validate","bundle","push","deploy","create"].includes(command) || (command==="config" && ["status","recover","hash","diff"].includes(args[0]??""));
     if(!readOnly)assertNoPendingPush(findConfigPath(global.config).path);
     if(command==="create")return await cmdCreate(global,args);
     if(command==="push")return await cmdPush(global,args);
@@ -623,16 +629,6 @@ function defaultSourceName(source: string, existing: Record<string, unknown>): s
   return `${base}-${i}`;
 }
 
-function defaultSourceSelection(source: string): Record<string, unknown> {
-  if (source === "cloudflare-worker-tail") return { scripts: [] };
-  if (source === "cloudflare-ai-gateway") return { gateways: [] };
-  if (source === "fly-log-tail") return { apps: [] };
-  if (source === "railway-logs") return { services: [] };
-  if (source === "vercel-logs") return { projects: [] };
-  if (source === "supabase-edge-logs") return { functions: [], gateway: true };
-  return { sources: [] };
-}
-
 function defaultSinkConfig(kind: string, name: string): Record<string, unknown> {
   const envName = safeEnv(`${kind}_${name}`);
   if (kind === "slack") return { webhook_url: `env:${envName}_WEBHOOK_URL` };
@@ -659,18 +655,8 @@ function explicitSinkSecrets(
 }
 
 function providerDefaultAccountEnv(provider: string): string | null {
-  if (provider === "cloudflare") return "env:CLOUDFLARE_ACCOUNT_ID";
-  if (provider === "supabase") return "env:SUPABASE_PROJECT_REF";
-  return null;
-}
-
-function providerDefaultCredentials(provider: string): Record<string, unknown> {
-  if (provider === "cloudflare") return { api_token: "env:CLOUDFLARE_API_TOKEN" };
-  if (provider === "fly") return { api_token: "env:FLY_API_TOKEN" };
-  if (provider === "railway") return { api_token: "env:RAILWAY_API_TOKEN" };
-  if (provider === "supabase") return { pat: "env:SUPABASE_PAT" };
-  if (provider === "vercel") return { api_token: "env:VERCEL_API_TOKEN" };
-  return {};
+  const name = providerFamily(provider)?.accountEnv;
+  return name ? `env:${name}` : null;
 }
 
 function missingEnvNames(parserMissing: string[], envVars: BundleEnvVar[]): string[] {
@@ -708,14 +694,10 @@ function mergeDiscoveredSources(
 }
 
 function sourceInventoryField(source: string, items: DiscoveredSource[]): Record<string, unknown> {
-  const ids = items.map(item => item.externalId);
-  if (source === "cloudflare-worker-tail") return { scripts: ids };
-  if (source === "cloudflare-ai-gateway") return { gateways: ids };
-  if (source === "fly-log-tail") return { apps: ids };
-  if (source === "railway-logs") return { services: items.map(item => ({ id: item.externalId, name: item.displayName, environment_id: item.metadata?.environment_id })) };
-  if (source === "vercel-logs") return { projects: ids };
-  if (source === "supabase-edge-logs") return { functions: items.filter(item => item.sourceKind === "supabase_edge_fn").map(item => ({ slug: item.externalId, function_id: item.metadata?.function_id })), gateway: items.some(item => item.sourceKind === "supabase_gateway") };
-  return { sources: ids };
+  const selection = providerDescriptor(source)?.selection;
+  if (selection?.codec === "railway") return { services: items.map(item => ({ id: item.externalId, name: item.displayName, environment_id: item.metadata?.environment_id })) };
+  if (selection?.codec === "supabase") return { functions: items.filter(item => item.sourceKind === "supabase_edge_fn").map(item => ({ slug: item.externalId, function_id: item.metadata?.function_id })), gateway: items.some(item => item.sourceKind === "supabase_gateway") };
+  return { [selection?.field ?? "sources"]: items.map(item => item.externalId) };
 }
 
 function connectMetadataForProvider(
@@ -792,6 +774,7 @@ function help(): string {
   return `logt <command> [options]
 
 Commands:
+  providers list [--json]           List source capabilities and credential references
   init                              Create logt.yaml
   create --connection <id> --name <name> [-o file]  Create and link a hosted deployment
   create --resume                  Recover creation; --abandon archives verified deletion

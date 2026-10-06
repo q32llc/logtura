@@ -8,7 +8,8 @@ import { railwayLogsDriver } from "@logtura/driver-railway-logs";
 import { vercelLogsDriver } from "@logtura/driver-vercel-logs";
 import { supabaseEdgeLogsDriver } from "@logtura/driver-supabase-edge-logs";
 import * as prompt from "../src/prompt";
-import { getProviderConnector, type ConnectOptions } from "../src/provider-connectors";
+import { getProviderConnector, tokenProviderConnector, type ConnectOptions } from "../src/provider-connectors";
+import { providerDescriptor } from "@logtura/core";
 vi.mock("node:child_process", { spy: true });
 vi.mock("@logtura/cloudflare-shared", { spy: true });
 vi.mock("../src/prompt", () => ({ ask: vi.fn(), askSecret: vi.fn(), confirm: vi.fn(), openBrowser: vi.fn() }));
@@ -27,6 +28,11 @@ function cloudflare() {
 }
 const connect = (provider: string, options: ConnectOptions = {}, values: Record<string, string> = {}) => getProviderConnector(provider)!.connect({ name: "local", options, env: { values: new Map(Object.entries(values)) } });
 it("returns no connector for an unknown provider", () => expect(getProviderConnector("unknown")).toBeNull());
+it("rejects a generic connector without credential metadata and leaves custom Vector unconnected", () => {
+  expect(getProviderConnector("custom-vector")).toBeNull();
+  expect(getProviderConnector("__proto__")).toBeNull();
+  expect(() => tokenProviderConnector(providerDescriptor("custom-vector")!, flyLogTailDriver)).toThrow("credential environment field");
+});
 it("verifies and discovers Cloudflare locally without browser or prompt in quiet mode", async () => {
   const mocks = cloudflare();
   expect(await connect("cloudflare", { token: "explicit", quiet: true })).toMatchObject({ provider: "cloudflare", providerName: "local", displayName: "Cloudflare account", accountId: "account", envValues: { CLOUDFLARE_API_TOKEN: "explicit", CLOUDFLARE_ACCOUNT_ID: "account" }, sources: [{ source: "cloudflare-worker-tail", items: [item] }, { source: "cloudflare-ai-gateway", items: [] }] });

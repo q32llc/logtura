@@ -1,0 +1,14 @@
+{
+  "name": "logtura",
+  "owner": {
+    "name": "Logtura",
+    "url": "https://github.com/logtura"
+  },
+  "plugins": [
+    {
+      "name": "logtura",
+      "source": "./plugins/logtura",
+      "description": "Set up and update Logtura log forwarding from supported hosts, standalone or website-linked."
+    }
+  ]
+}

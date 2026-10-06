@@ -19,9 +19,11 @@ import { Link, Navigate, useParams } from "react-router-dom";
 import Deploy from "../docs/deploy.mdx";
 import HostedUx from "../docs/hosted-ux.mdx";
 import OpenSource from "../docs/open-source.mdx";
+import AgentSkills from "../docs/agent-skills.mdx";
 import Overview from "../docs/overview.mdx";
 
 const DOCS = [
+  { slug: "agent-skills", title: "Claude Code & Codex", description: "Install Logtura onboarding instructions for your coding agent.", Component: AgentSkills },
   {
     slug: "overview",
     title: "Overview",

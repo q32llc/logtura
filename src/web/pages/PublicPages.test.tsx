@@ -18,10 +18,10 @@ it("routes signed-in visitors to their dashboard", () => {
 });
 it.each([["oauth_state", "Sign-in failed: bad OAuth state. Please try again."], ["auth_required", "Please sign in to continue."]])("explains the %s authentication return", (code, message) => { home(`/?error=${code}`); expect(screen.getByText(message)).toBeTruthy(); });
 it("does not echo an unknown authentication error into the page", () => { home("/?error=private-provider-detail"); expect(document.body.textContent).not.toContain("private-provider-detail"); });
-it.each([["overview", "Architecture"], ["hosted-ux", "Hosted UI"], ["deploy", "Deploy"], ["open-source", "Open source"]])("renders the real %s documentation", (slug, heading) => {
+it.each([["overview", "Architecture"], ["hosted-ux", "Hosted UI"], ["deploy", "Deploy"], ["open-source", "Open source"], ["agent-skills", "Use Logtura with Claude Code or Codex"]])("renders the real %s documentation", (slug, heading) => {
   docs(`/docs/${slug}`); expect(screen.getByRole("heading", { name: heading, level: 1 })).toBeTruthy();
   expect(screen.getByRole("link", { name: "GitHub" }).getAttribute("href")).toBe("https://github.com/logtura/logtura");
-  expect(screen.getAllByRole("link", { name: new RegExp(`^${slug === "overview" ? "Overview" : slug === "hosted-ux" ? "Hosted UX" : heading}`) }).every(link => link.hasAttribute("data-active"))).toBe(true);
+  expect(screen.getAllByRole("link", { name: new RegExp(`^${slug === "overview" ? "Overview" : slug === "hosted-ux" ? "Hosted UX" : slug === "agent-skills" ? "Claude Code & Codex" : heading}`) }).every(link => link.hasAttribute("data-active"))).toBe(true);
 });
 it("redirects an unknown documentation slug to the architecture page", () => { docs("/docs/unknown"); expect(screen.getByRole("heading", { name: "Architecture", level: 1 })).toBeTruthy(); });
 it("navigates documentation sections while retaining the public layout", () => {

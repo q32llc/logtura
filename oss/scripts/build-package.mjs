@@ -1,5 +1,5 @@
 import { build } from "esbuild";
-import { chmodSync, readFileSync, rmSync, writeFileSync, readdirSync, existsSync } from "node:fs";
+import { cpSync, chmodSync, readFileSync, rmSync, writeFileSync, readdirSync, existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import ts from "typescript";
@@ -50,9 +50,13 @@ for (const file of declarationFiles("dist")) {
   if (changes.length) writeFileSync(file, output);
 }
 if (cli) {
+  await build({entryPoints:["src/registry.ts"],outfile:"dist/registry.js",bundle:true,packages:"external",format:"esm",platform:"neutral",target:"es2022"});
   await build({entryPoints:["src/runtime-bin.ts"],outfile:"dist/runtime-bin.js",bundle:true,
     format:"esm",platform:"node",target:"node22",banner:{js:"#!/usr/bin/env node"}});
   chmodSync("dist/runtime-bin.js",0o755);
   writeFileSync("dist/bin.js", '#!/usr/bin/env node\nimport { main } from "./main.js";\nprocess.exitCode = await main();\n');
   chmodSync("dist/bin.js", 0o755);
+  const repository = resolve("../..");
+  const skillRoot = existsSync(join(repository, "plugins/logtura/skills/logtura")) ? repository : join(repository, "oss");
+  cpSync(join(skillRoot, "plugins/logtura/skills/logtura"), "dist/skills/logtura", {recursive:true});
 }
