@@ -16,7 +16,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          lfs: true
           fetch-depth: 0
+
+      - name: verify LFS pointers and downloaded object integrity
+        run: git lfs fsck
 
       - uses: pnpm/action-setup@v4
         with:

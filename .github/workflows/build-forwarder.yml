@@ -29,6 +29,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: verify LFS pointers and downloaded object integrity
+        run: git lfs fsck
 
       - uses: pnpm/action-setup@v4
         with:

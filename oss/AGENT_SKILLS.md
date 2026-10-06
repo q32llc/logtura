@@ -8,6 +8,10 @@ The skill runs through the open-source CLI. Standalone use requires no Logtura
 account. Install Node.js 22+ and `@logtura/cli` 0.3.6 or later; installing the skill alone does
 not install the CLI or give the agent provider credentials.
 
+For GitHub marketplace installation, install Git LFS and run `git lfs install`
+once so Git hydrates the packaged PNG branding. Release archives already contain
+the image bytes and do not require Git LFS.
+
 ## Claude Code
 
 ```sh

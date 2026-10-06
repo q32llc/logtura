@@ -79,3 +79,19 @@ service repository for budgeted baseline-versus-skill evaluations before directo
 submission. Record client/model versions, task inputs, traces, verified output,
 and cost. Include negative activation cases. Model evaluations and vendor-native
 resource creation have not been represented as passing by these scripts.
+
+### Initial 0.3.6 model smoke rehearsal
+
+The release includes an owned [sanitized summary](https://github.com/logtura/logtura/releases/download/v0.3.6/agent-behavior-summary-0.3.6.json)
+for three fixture cases, with and without the skill, on both native clients:
+adding a Worker without losing existing identities and generating a CLI bundle;
+answering an unsupported-host question; and analyzing logs without changing
+forwarding configuration. All 12 final outcome assertions passed. Codex command
+traces show skill reads for the forwarding/catalog tasks and none for log analysis;
+Claude's result-only JSON does not establish activation accuracy.
+
+The summary records versions, latency, usage, reported Claude cost, and test
+container corrections. This is a small initial rehearsal, not evidence that the
+skill outperforms the baseline or that all live host onboarding paths passed.
+The wider task matrix and selected live provisioning evaluations remain separate,
+budgeted acceptance work. Normal CI still makes no paid model calls.

@@ -6,7 +6,3 @@
 *.jpg filter=lfs diff=lfs merge=lfs -text
 *.jpeg filter=lfs diff=lfs merge=lfs -text
 *.webp filter=lfs diff=lfs merge=lfs -text
-
-# Small published website and plugin assets must work in ordinary checkouts.
-public/** -filter -diff -merge -text
-oss/plugins/** -filter -diff -merge -text
