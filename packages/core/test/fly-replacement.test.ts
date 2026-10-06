@@ -6,7 +6,7 @@ function fixture(){
  const before={id:"old",name:"forwarder",instance_id:"old_version",state:"started",region:"ord",config:{image:"registry.test/old:latest",env:{PRIVATE:"preserve-exact"},files:[{guest_path:"/etc/vector/vector.yaml",raw_value:"b2xk",mode:0o400}],guest:{memory_mb:512},checks:{old:{port:8686}},init:{cmd:["--config","/etc/vector/vector.yaml"]},restart:{policy:"always"}},image_ref:{registry:"registry.test",repository:"old",digest:`sha256:${"b".repeat(64)}`}};
  let machines:FlyMachine[]=[structuredClone(before)],volumes:FlyVolume[]=[{id:"vol_new",region:"ord",encrypted:true,state:"created",attached_machine_id:null}],mode="normal",claimed=false,casFail=false,journalRace=false,guards=0;
  const plan=planFlyReplacement({id,app:"app",org:"personal",machine:before,volume:"vol_new",volumes,config:{...before.config,image,mounts:[{path:"/var/lib/logtura",volume:"vol_new"}],env:{PRIVATE:"new"}}});
- let state:FlyReplacementState={plan,phase:"prepared",machineId:null};
+ let state:FlyReplacementState={plan,phase:"prepared",machineId:null},rollbackReadbackPending=false;
  const calls:Array<{path:string;method:string;body:Record<string,unknown>|null;nonce?:string}>=[];
  const fetcher:typeof fetch=async(url,init)=>{
   const path=new URL(String(url)).pathname,method=init!.method!,body=init!.body?JSON.parse(init!.body as string):null;
@@ -43,10 +43,12 @@ function fixture(){
    return new Response(null,{status:204});
   }
   if(machine){
+   if(method==="GET" && machine.id==="old" && rollbackReadbackPending){rollbackReadbackPending=false;return Response.json({...before,state:"stopped"});}
    if(method==="POST"){
     expect(body.current_version).toBe(machine.instance_id);machine.config=body.config;machine.instance_id="rollback_version";
     if(mode==="rollback-no-install"){machine.config=before.config;machine.instance_id=before.instance_id;}
     if(mode==="rollback-update-loss")throw new Error("lost rollback update");
+    if(mode==="rollback-readback-lag")rollbackReadbackPending=true;
    }
    return Response.json(machine);
   }
@@ -80,6 +82,15 @@ it("rolls back exact old settings and image after stopping the new process, reta
  expect(rollback.phase).toBe("rolled_back");expect(f.machines[0]!.config).toEqual(f.plan.rollback);expect(f.machines[0]!.state).toBe("started");expect(f.machines[1]!.state).toBe("stopped");
  await f.run(true);expect(f.calls.filter(call=>call.path.endsWith("/old") && call.method==="POST")).toHaveLength(1);
  await expect(f.run()).rejects.toThrow("rolled back");
+});
+it("waits for a known prior configuration readback after restore without restarting or updating twice",async()=>{
+ const f=fixture();await f.run();f.mode="rollback-readback-lag";
+ await expect(f.run(true)).rejects.toMatchObject({name:"FlyReplacementPending",phase:"rolling_back"});
+ expect(f.state.phase).toBe("rolling_back");expect(f.machines.map(m=>m.state)).toEqual(["stopped","stopped"]);
+ expect(f.calls.filter(c=>c.path.endsWith("/old/start"))).toHaveLength(0);
+ expect((await f.run(true)).phase).toBe("rolled_back");
+ expect(f.calls.filter(c=>c.path.endsWith("/machines/old") && c.method==="POST")).toHaveLength(1);
+ expect(f.calls.filter(c=>c.path.endsWith("/old/start"))).toHaveLength(1);
 });
 it.each(["rollback-update-loss","stop-loss","start-loss"])("recovers rollback after %s without duplicate committed writes",async mode=>{
  const f=fixture();await f.run();f.mode=mode;await expect(f.run(true)).rejects.toThrow("lost");expect(f.state.phase).toBe("rolling_back");f.mode="normal";await f.run(true);expect(f.state.phase).toBe("rolled_back");

@@ -133,3 +133,22 @@ then showed **In sync**, desired/applied revision 2, the unchanged manifest and
 cleanup modes and fresh latest apply are now live acceptance evidence.
 Production CLI-created identity round-trip/deletion and bounded provider readback
 lag regression/shipment remain explicit work before goal completion.
+
+## Published production CLI creation round-trip
+
+The actual published 0.3.4 CLI created owned disposable deployment
+`dep_5ECnQx0IpGEJmiwiUWELLg` with explicit empty source/monitor selections and
+no provider binding. The logged-in website opened that identity, renamed it and
+changed metrics from none to logtura. Published CLI pull captured the changed
+manifest (`ebea611a…`). A local metrics-only edit was pushed as desired sequence
+2 with metrics `none`; a website reload showed the same saved setting and name.
+This verifies both directions on a CLI-created production identity without
+provisioning another forwarder or routing synthetic events to Slack.
+
+Rollback readback improvement is proposed in public PR 23. Its existing strict
+old-machine fence still rejects foreign edits, while a known previous readback
+now enters the existing bounded pending loop. The regression proves no premature
+start, one restore update and successful subsequent observation/start. All 41
+replacement tests and the complete 1,891-test owned coverage suite pass, as does
+root typecheck: 97.71% lines, 96.85% statements, 94.27% branches, 98.92% functions.
+This change is not yet merged or published; it does not rewrite `v0.3.4`.

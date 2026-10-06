@@ -118,7 +118,7 @@ export async function executeFlyReplacement(store:FlyReplacementStore,client:Fly
         await guard();
         if(!exact(rereadOld.config,plan.rollback)){await client.update(plan.app,old.id,plan.rollback,rereadOld.instance_id,oldNonce);}
         const restored=await client.machine(plan.app,old.id);checkOld(restored,plan);
-        if(!exact(restored.config,plan.rollback))throw new Error("Previous Fly configuration was not restored");
+        if(!exact(restored.config,plan.rollback))throw new FlyReplacementPending("rolling_back","Previous Fly configuration restore is pending; resume rollback");
         if(restored.state!=="started"){
           if(!["created","stopped","suspended"].includes(restored.state))throw new FlyReplacementPending("rolling_back","Previous Fly start is pending; resume rollback");
           await guard();await client.start(plan.app,old.id,oldNonce);}
