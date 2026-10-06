@@ -5280,3 +5280,28 @@ restart/rollback/both cleanup modes now run on the CLI-created logical identity.
 Public PR 21 is pending protected CI and review. Do not count this slice as npm
 published or production deployed: coordinated release, fresh schema-36 backup
 compatibility replay, SQL-file import of schema 37 and live smoke remain required.
+
+
+### Published 0.3.4 and original recovery acceptance (October 5, 2026)
+
+CLI-owned creation is merged through protected public PR 21, coordinated versions
+through PR 22, and all 15 npm packages are verified at immutable tag `v0.3.4`.
+The actual-registry backend and website are production deployed through schema 37.
+Exact private CI passed and owned coverage remains high without Codecov.
+See [the current rollout evidence](service-rollout-0.3.4.md) for release, image,
+all-row compatibility, disposable remote cleanup and production dispatch receipts.
+
+The original published-CLI rollback completed using its durable resume after an
+observed Fly update readback lag. Restored cleanup completed, and fresh 0.3.4 apply
+has accepted the original unchanged manifest. Current-manifest acknowledgement is
+verified; final live delivery/standby cleanup, production creation round-trip and
+complete requirement audit remain open. The lag needs bounded pending handling
+and a regression proving safe recovery without weakening configuration fences.
+The deliberate required-coverage failure PR 1 is closed unmerged.
+
+
+Subsequent live acceptance verified natural delivery through the original sink,
+completed final retained-standby cleanup, and confirmed the logged-in website is
+in sync with desired/applied revision 2 and the original unchanged graph. Exactly
+one 0.3.4 forwarder runs with the preserved checkpoint. Production CLI creation
+round-trip, readback-lag improvement and final requirement audit remain open.
