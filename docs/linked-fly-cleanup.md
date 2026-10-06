@@ -1,5 +1,22 @@
 # Explicit linked Fly cleanup
 
+Current production acceptance is recorded in [the 0.3.4 rollout](service-rollout-0.3.4.md).
+The original deployment completed the published CLI mountless replacement,
+explicit rollback, restored-candidate cleanup, fresh apply and final standby
+cleanup. Its unchanged graph reports desired/applied sequence 3, and only the
+current mounted forwarder remains running with its original checkpoint. These
+operations also run in required installed-CLI/workerd/browser/Vector E2E.
+The coordinated 0.3.5 rollback readback patch is published and deployed, with
+new actual-registry rehearsals and unchanged original graph acceptance. See
+[the latest rollout](service-rollout-0.3.5.md) and
+[the complete baseline audit](convergence-baseline-audit.md).
+
+The implementation notes below preserve earlier milestone evidence. Their
+pending-release statements describe those historical milestones; the rollout
+and current [acceptance index](convergence-acceptance.md) determine current status.
+
+## Implementation history
+
 The packaged core plans and executes retained-machine cleanup. Schema 36, owner
 reservation/rebase routes and the public SDK are implemented and being validated;
 private CLI adaptation and installed lifecycle acceptance remain.

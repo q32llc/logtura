@@ -1,76 +1,38 @@
 # Convergence acceptance evidence
 
-Current release update, October 5, 2026: all 15 actual npm 0.3.4 archives are
-verified against immutable `v0.3.4` (`f5d8ea74`). Production uses the actual
-registry-backed Worker and website through schema 37. Fresh all-row replay,
-remote staging, owned Fly delivery/update/restart/rollback and cleanup passed.
-The original forwarder has completed rollback, both cleanup modes and a fresh
-0.3.4 apply with the unchanged original graph and natural sink delivery.
-Published CLI creation → website edit → CLI pull/push → website verification
-also passed on a disposable owned production record; its deletion receipt is retained.
-After cleanup the original unchanged graph was reissued/applied at sequence 3.
-See [0.3.4 rollout evidence](service-rollout-0.3.4.md).
+The planned capabilities are published and deployed in coordinated 0.3.5.
+All 15 public packages are usable without a hosted account, the service consumes
+the actual registry-backed public operations, and the original deployment remains
+current and forwarding. The signed-in production website and published CLI have
+been exercised in both directions. Major runtime/frontend/vault decisions remain
+in their separate plan as originally scoped.
 
-Both `logtura/logtura` and service repository `q32llc/logtura` are now public.
-Both default branches require the up-to-date `test` check, including for admins,
-and prohibit force pushes and branch deletion. Earlier private-plan protection
-limitations are historical. Public PR 23's bounded rollback-readback improvement
-is merged; coordinated 0.3.5 publication and final audit remain open.
+Read [the full requirement baseline audit](convergence-baseline-audit.md) for the
+case-to-test mapping and [the 0.3.5 rollout](service-rollout-0.3.5.md) for exact
+source, archive, image, backup, rehearsal and deployment receipts. Historical
+milestones in the original plan describe intermediate states, not current gaps.
 
-This is the current acceptance index for the [full plan](oss-service-convergence-plan.md),
-not a replacement for its baseline matrix. The goal is still in progress. Historical
-milestones in that plan describe intermediate states; the evidence below identifies
-what has actually shipped and what still needs verification.
+| Requirement | Completed authoritative evidence |
+| --- | --- |
+| Independent packaged CLI/library | All 15 actual npm 0.3.5 archives match the immutable original tested bytes; ordinary JS/TS consumers, both CLI aliases and runtime execute outside the workspace. Network-denied standalone generation proves no service dependency. Provider credentials and infrastructure remain necessary for provider operations. |
+| Shared packaged service backend | `.tmp/service-035-registry` builds with installed public modules, not workspace packages; types, Worker, website, native D1 lifecycle and missing-entry negative control pass. Production uploaded Worker/website match that exact artifact. Hosted OAuth, persistence, sessions and jobs remain service adapters. |
+| Portable configuration/loaded manifests | Stable identities, canonical hashes, private references, strict schemas, lossless supported-field round trips and actual loaded-file/env readiness are tested. Original graph hash `bc54fc48…` remains unchanged; accepted runtime `114ce418…` reports generator 0.3.5 and desired/applied sequence 3. |
+| Website ↔ CLI | Required installed browser/CLI/workerd/Vector journey covers graph changes, apply and failure recovery. Production CLI-created disposable identity → website edit → CLI pull/push → reload → verified owned deletion passed in 0.3.4. Original website-created deployment is pulled/applied by published 0.3.5 CLI and shows In sync on reload. |
+| Thorough deterministic baseline | Exact service-main run `37398309631` passes all registered unit/native projects, actual generated provider/destination transports, independently measured UI, isolated installed packages and full local E2E with both injected-failure cleanup paths. Local core/backend baseline is 1,891 tests across 151 files. Detailed assertions are mapped in the baseline audit. |
+| High owned CI coverage | Exact public-main reports: 99.24% lines, 97.70% statements, 99.33% functions, 95.58% branches. Exact service backend: 95.78/95.57/98.14/91.92%; separate UI: 94.97/93.81/96.53/90.75% in the same order. LCOV/JSON consistency, module floors, HTML uploads and 95% changed executable lines all pass. Codecov is not used. |
+| Required checks and reviews | Both repositories are public. OSS `main` and service `master` require strict up-to-date `test`, including admins, and prohibit force pushes/deletion. The deliberately failing PR is closed and unmerged. Full fresh audits of all 24 public PRs and service release PR 1 found no reviews, comments or threads and no uninspected pagination. |
+| Remote lifecycle | Actual-registry Cloudflare `run-nQBrbj` passes schema 17→37, real HTTP lifecycle and legacy reporting, with Worker/D1/queue absence verified. Reusable explicitly selected runners support remote target/identity/fixture capabilities and owned run-ledger reconciliation. Ordinary CI uses local workerd/Miniflare without cloud credentials. |
+| Actual runtime delivery | The runtime delivery matrix covers all registered provider/destination rows through actual generated Vector parsers/transports/encoders, including Bun sidecars, Supabase refresh, Datadog protobuf/Zstd and Prometheus Snappy. Fixtures are distinguished from live account claims. Actual-registry Fly `run-UbbX6R` proves owned Worker source → webhook delivery, mounted restart, update and rollback. |
+| Existing production compatibility | Fresh retained/candidate schema-37 native replays preserve all 846 rows, 31 tables, migration history and 24 deployment fields, with zero outbound requests. Production version `6dd30d3f…` has byte/binding/asset verification and natural persisted telemetry. No migration runs for 0.3.5. |
+| Original forwarder/rollback | Published 0.3.4 CLI completed original replacement, explicit rollback, both cleanup modes and restoration. Published 0.3.5 CLI updates the sole mounted original machine in place with its original encrypted checkpoint. Accepted manifest/state is current; actual original sink receives/sends a natural event after upgrade. The known delayed restore readback is now bounded pending work with a strict regression. |
+| Cleanup/privacy | No active canary machine, Worker or tail remains. Older volumes are absent; the two latest are detached `pending_destroy` tombstones after acknowledged DELETE, without claiming absence or billing facts. Original checkpoint is attached. Production configuration/SQL/settings/credentials remain private and ignored; actual credential values were absent from the complete repository history audit. |
+| Dependencies and support window | Compatible tested Hono/router/test-tool patches ship, Vector is pinned at 0.55.0, and the baseline audit explicitly defines 0.3.x legacy configuration/schema-1/reporting support. Major upgrades, interpolation changes and future credential vault design retain their separate decision plan. |
+| Coordinated defaults/release | Reviewed protected version merges are public `c287447c…` and service `eebf3792…`; both exact-main checks and image build pass. Immutable `v0.3.5` publication run `37400216202` passes every registry archive and installed consumer. Documentation changes remain subject to the same protected test gate. |
 
-The [runtime delivery matrix](runtime-delivery-matrix.md) now proves all selected
-provider/destination transport rows in native fixtures, including refreshable
-Supabase auth and encoded metrics. The parser fixes are part of the immutable
-0.3.2 tag, whose complete registry publication is verified against the original
-tested archives. Production uses those actual npm packages. See [current rollout evidence](service-rollout-0.3.2.md).
-
-| Requirement | Authoritative current evidence | Remaining acceptance |
-| --- | --- | --- |
-| Published standalone CLI/libraries | All 15 actual npm 0.3.4 archives verified against immutable `f5d8ea74`, isolated installed consumer receipt and both aliases/runtime binary; standalone generation has no service requirement. | Preserve exact archive checks for 0.3.5. |
-| Packaged service backend | Production Worker `739068f2-d0a9-442a-b4f2-e3e01d44ce8a` matches actual-registry service artifact `.tmp/service-034-registry`; isolated package/native-D1 missing-entry negative control passes. | Repeat actual-registry build/deployment for the new patch. |
-| Portable configuration and loaded manifests | Original graph hash `bc54fc48…` remains unchanged; issued runtime `ff336b64…` reports desired/applied sequence 3. Real website shows In sync and all 63 sources/one monitor/one sink. | Preserve proof after the patch rollout. |
-| Website ↔ CLI synchronization | Website-created original is updated through published CLI and loaded runtime. Published CLI-created disposable identity is edited in the website, pulled/pushed by CLI, verified on reload, deleted with retained immutable receipt. Full local installed-CLI/browser/workerd/Vector path also passes. | Final named-case requirement audit, rather than inferring all recovery cases from this happy path. |
-| Deterministic baseline | Native route/ownership/selection/queue/ingest/cron suites; independent package/real runtime transport matrix; browser/UI and installed-package E2E with failure cleanup. Local current core/backend suite: 1,891 tests across 151 files. | Complete the explicit baseline case-to-test audit; exact new service CI is running. |
-| High owned CI coverage | Local 97.71% lines, 96.85% statements, 94.27% branches, 98.92% functions; per-package/module floors, separately measured UI, LCOV/JSON/HTML artifacts and 95% changed-line gate. Required failure PR was blocked and closed. No Codecov dependency. | Exact new public/service checks and final report inspection. |
-| Required CI gate | Both repositories now public; OSS main and service master require strict `test` success, including admins, and prohibit force pushes/deletion. | Earlier private-plan limitation is resolved. |
-| Remote lifecycle/isolation | Actual-registry Cloudflare run `run-x55Cst` passed schema 17→37, routing and owned Worker/D1/queue absence. Native CI needs no cloud credentials. | Preserve cleanup/uncertain-dispatch checks for the patch rehearsal. |
-| Selected live source delivery | Published standalone Worker tail → generated Vector → owned webhook passed with explicit owned cleanup; fixture/live distinctions are in the runtime matrix. | No assertion of live sandboxes for every external provider. |
-| Fly runtime and rollback | Actual-registry canary `run-ANWfco` passed delivery/restart/update/rollback. Original published CLI rollback, restored-candidate cleanup, fresh 0.3.4 apply and final standby cleanup all passed. Actual original sink received/sent a natural event. | PR 23 fixes the observed readback lag; publish/deploy 0.3.5 and rehearse the patched path. |
-| Existing deployment/service compatibility | Fresh schema-36 backup and both retained/candidate native replays preserved all 836 application rows/30 tables/history/24 deployment fields through schema 37; byte/binding-verified production rollout and natural metrics/heartbeat passed. | Fresh compatibility gates for the patch rollout. |
-| Dependencies/runtime identity | Compatible Hono/router and test-tool patch updates shipped; generated/runtime validation pins Vector 0.55.0. Separate major/interpolation/advisory decisions remain in dependency plan. | Deferred major upgrades keep their separate decision scope. |
-| Default branches/immutable release | Public PRs 21/22 merged, 0.3.4 release run `37390843139` passed with original archive receipts. PR 23 merged as `860f791e…`, required CI `37395128666` passed and complete review audit is clear. Service current fix source `4edad0a` is pushed; image rerun passed, tests live. | Protected 0.3.5 version merges, exact-main validation, immutable tag, publication and deployment. |
-
-The entries below retain earlier release evidence; the matrix above is current.
-
-The registry Fly run used OCI index
-`sha256:2f8d548133cbab9cfc96113da726918ece81698b29c72fcea0506a9e31e8bf36`,
-resolved by the packaged backend to Linux platform image
-`sha256:a8637df390d6e243e19309be1a9d7661066b99d72817c9485daca81ed64a9e81`.
-Its owned machine, Worker and tail are deleted. Volume deletion was acknowledged
-and the detached `pending_destroy` tombstone was verified; absence is not claimed.
-The original forwarder's config, instance and started state remained unchanged.
-
-The ordinary production browser session approved the user-authorized temporary
-published CLI grant. Reversible CLI and website edits passed in both directions,
-and the original graph was restored. A separate local smoke client is also approved;
-its read-only probe passes liveness while truthfully reporting no applied manifest.
-Persistent lifetime support is deployed with exact-commit CI, native compatibility
-and uploaded-byte verification. The browser-owner decision and server lifetime are
-verified; the temporary grant is revoked and rejected with HTTP 401. See
-[smoke-access rollout](service-rollout-smoke-access.md).
-
-The original mountless Fly upgrade exposed a real provider constraint: its separately
-created checkpoint volume cannot be attached through the existing in-place update.
-Fly returned HTTP 400; the exact old configuration was verified and restarted.
-The issued runtime and private apply/volume journals remain for recovery through the
-retained-machine replacement path. No loaded-manifest upgrade is claimed.
-The [linked replacement implementation](linked-fly-replacement.md) records the
-binding/recovery contract and the remaining installed-CLI and rollout acceptance.
-
-Completion still requires original forwarder loaded-manifest upgrade/rollback and
-accurate disposition of the private branch-protection limitation. Production snapshots, raw receipts,
-credentials and complete provider configuration remain private and gitignored.
+Supporting decision/evidence files: [runtime delivery matrix](runtime-delivery-matrix.md),
+[dependency upgrade plan](dependency-upgrade-plan.md),
+[production smoke access](production-smoke-testing.md),
+[CLI creation](cli-deployment-creation.md),
+[replacement](linked-fly-replacement.md), [rollback](linked-fly-rollback.md),
+[cleanup](linked-fly-cleanup.md), and the preceding
+[0.3.4 production round trip](service-rollout-0.3.4.md).
