@@ -1,5 +1,7 @@
 # logtura
 
+[![Agent skill on skills.sh](https://skills.sh/b/logtura/logtura)](https://skills.sh/logtura/logtura)
+
 Logtura builds [Vector](https://vector.dev) forwarders for platform logs:
 Cloudflare Workers, Fly apps, Railway services, Vercel runtime logs, Supabase Edge Functions, Cloudflare AI Gateway,
 and common destinations such as Slack, webhooks, Datadog metrics, and
@@ -54,6 +56,15 @@ Install the [Logtura skill](AGENT_SKILLS.md) to guide project setup, supported-h
 onboarding, standalone forwarding, or website-linked CLI updates. One portable
 instruction package is distributed through both clients' native plugin installers.
 It includes delivery verification and preserves existing deployment identities.
+
+The shortest cross-client install uses the public skills.sh directory:
+
+```bash
+npx skills add logtura/logtura --skill logtura
+```
+
+The native Claude Code and Codex marketplace commands, version pinning, updates,
+and removal instructions are in [AGENT_SKILLS.md](AGENT_SKILLS.md).
 
 
 ## Packages
