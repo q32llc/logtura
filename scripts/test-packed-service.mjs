@@ -95,6 +95,7 @@ try{
  assert.ok(publicFiles.includes('logo.svg'));assert.ok(publicFiles.includes('docs-screenshots/connections.png'));
  for(const file of publicFiles){
   const expected=readFileSync(join(root,'public',file));
+  assert.ok(!expected.subarray(0,80).toString().startsWith('version https://git-lfs.github.com/spec/'),`Unresolved LFS asset: ${file}`);
   assert.deepEqual(readFileSync(join(consumer,'dist',file)),expected,`Public asset missing or changed in release: ${file}`);
   const response=await localHttpFetch(local.url+'/'+file);assert.equal(response.status,200);
   assert.deepEqual(Buffer.from(await response.arrayBuffer()),expected,`Public asset did not serve original bytes: ${file}`);
