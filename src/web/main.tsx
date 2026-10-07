@@ -2,17 +2,21 @@ import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
 
 import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, hydrateRoot } from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import { App } from "./App";
 
 const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("#root missing");
 
-createRoot(rootEl).render(
+const prerendered = rootEl.hasChildNodes();
+const app = (
   <StrictMode>
     <BrowserRouter>
-      <App />
+      <App initialUser={prerendered ? null : undefined} />
     </BrowserRouter>
-  </StrictMode>,
+  </StrictMode>
 );
+
+if (prerendered) hydrateRoot(rootEl, app);
+else createRoot(rootEl).render(app);
