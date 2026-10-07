@@ -1,4 +1,3 @@
-/* istanbul ignore file -- exercised by the real browser/workerd E2E journey */
 import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
 
