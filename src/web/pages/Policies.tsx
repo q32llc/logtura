@@ -1,6 +1,6 @@
 import { Anchor, Container, Group, Stack, Text, Title } from "@mantine/core";
 import { Link } from "react-router-dom";
-import { publicPages, type PublicPageName } from "../../public-pages";
+import { publicPages, type PublicPageName } from "../public-pages";
 
 export function Privacy() {
   return <PolicyPage name="privacy" />;
