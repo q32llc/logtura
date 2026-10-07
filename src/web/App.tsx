@@ -54,15 +54,16 @@ interface AuthState {
   user: ApiUser | null;
 }
 
-export function App() {
-  const [auth, setAuth] = useState<AuthState>({ loading: true, user: null });
+export function App({ initialUser, staticRender = false }: { initialUser?: ApiUser | null; staticRender?: boolean } = {}) {
+  const [auth, setAuth] = useState<AuthState>({ loading: initialUser === undefined, user: initialUser ?? null });
 
   useEffect(() => {
+    if (staticRender) return;
     api
       .me()
       .then((res) => setAuth({ loading: false, user: res.user }))
       .catch(() => setAuth({ loading: false, user: null }));
-  }, []);
+  }, [staticRender]);
 
   return (
     <MantineProvider theme={theme} defaultColorScheme="dark">

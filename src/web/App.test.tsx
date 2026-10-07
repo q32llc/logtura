@@ -35,6 +35,11 @@ it("withholds protected content until authentication resolves", async () => {
   await act(async () => { finish({ user }); }); await signIn();
   expect(api.listConnections).toHaveBeenCalledTimes(1); expect(screen.getByRole("heading", { name: "Connections" })).toBeTruthy();
 });
+it("renders a supplied identity without an auth request during static rendering", () => {
+  render(<MemoryRouter initialEntries={["/"]}><App initialUser={user} staticRender /></MemoryRouter>);
+  expect(screen.getByRole("link", { name: "Sign out" })).toBeTruthy();
+  expect(api.me).not.toHaveBeenCalled();
+});
 it("treats an authentication lookup failure as signed-out and does not expose its details", async () => {
   vi.mocked(api.me).mockRejectedValue(new Error("Private authentication failure")); page(); await screen.findByText("Please sign in to continue.");
   expect(document.body.textContent).not.toContain("Private authentication failure"); expect(api.listConnections).not.toHaveBeenCalled();
