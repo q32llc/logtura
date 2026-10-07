@@ -9,7 +9,7 @@ import { App } from "./App";
 const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("#root missing");
 
-const prerendered = rootEl.hasChildNodes();
+const prerendered = rootEl.dataset.prerenderedPath === window.location.pathname;
 const app = (
   <StrictMode>
     <BrowserRouter>

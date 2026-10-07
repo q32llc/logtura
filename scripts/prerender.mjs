@@ -40,7 +40,7 @@ for (const route of routes) {
   ].join("\n    ");
   const html = shell
     .replace("<title>logtura</title>", metadata)
-    .replace('<div id="root"></div>', `<div id="root">${rendered}</div>`);
+    .replace('<div id="root"></div>', `<div id="root" data-prerendered-path="${route.path}">${rendered}</div>`);
   const output = route.path === "/" ? join(dist, "index.html") : join(dist, `${route.path.slice(1)}.html`);
   await mkdir(dirname(output), { recursive: true });
   await writeFile(output, html);
