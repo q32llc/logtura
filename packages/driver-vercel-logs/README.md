@@ -27,5 +27,6 @@ From the monorepo root, `pnpm build && pnpm test:vercel-runtime` runs the emitte
 helper under its declared Bun image against a controlled HTTP endpoint, then
 builds the public install context and verifies actual Vector/webhook delivery.
 The fixture checks personal/team requests, stream restart and cancellation,
-normalization, filters, retry, shutdown, and owned-resource cleanup after an
-injected failure. It uses no Vercel credentials or live Vercel account.
+server-ended stream reads, request transport failures, normalization, filters,
+retry, shutdown, and owned-resource cleanup after an injected failure. It uses
+no Vercel credentials or live Vercel account.
