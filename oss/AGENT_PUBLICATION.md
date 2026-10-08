@@ -36,7 +36,7 @@ require regenerating metadata (`--write`) after building, then committing it.
 
 ## Vendor directory drafts
 
-Listing title: **Logtura**. Subtitle: **Configure open-source log forwarding**.
+Listing title: **Logtura**. Subtitle: **Open-source log forwarding**.
 
 Draft description: Configure and operate the open-source Logtura CLI, library,
 and forwarder across Cloudflare, Fly.io, Railway, Vercel, Supabase, and supported

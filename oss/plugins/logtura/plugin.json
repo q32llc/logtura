@@ -26,7 +26,7 @@
       },
       "interface": {
         "displayName": "Logtura",
-        "shortDescription": "Configure open-source log forwarding",
+        "shortDescription": "Open-source log forwarding",
         "longDescription": "Configure and operate the open-source Logtura CLI, library, and forwarder across supported log sources and destinations. Set up standalone forwarding, filters, deployments, delivery verification, and provider integrations. A Logtura account is optional; website synchronization is available for linked deployments.",
         "developerName": "Logtura",
         "category": "Developer Tools",
