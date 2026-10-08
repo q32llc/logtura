@@ -6,6 +6,10 @@ export function Privacy() {
   return <PolicyPage name="privacy" />;
 }
 
+export function PluginPrivacy() {
+  return <PolicyPage name="pluginPrivacy" />;
+}
+
 export function Terms() {
   return <PolicyPage name="terms" />;
 }

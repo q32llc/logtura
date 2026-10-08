@@ -37,7 +37,7 @@ import { Deployments } from "./pages/Deployments";
 import { Destinations } from "./pages/Destinations";
 import { Docs } from "./pages/Docs";
 import { Home } from "./pages/Home";
-import { Privacy, Support, Terms } from "./pages/Policies";
+import { PluginPrivacy, Privacy, Support, Terms } from "./pages/Policies";
 import { Monitors } from "./pages/Monitors";
 import { NewConnection } from "./pages/NewConnection";
 import type { ApiUser } from "./types";
@@ -72,6 +72,7 @@ export function App({ initialUser, staticRender = false }: { initialUser?: ApiUs
         <Routes>
           <Route path="/" element={<Home user={auth.user} />} />
           <Route path="/privacy" element={<Privacy />} />
+          <Route path="/privacy/plugin" element={<PluginPrivacy />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/support" element={<Support />} />
           <Route path="/app/cli" element={<CliAccess user={auth.user} loading={auth.loading} />} />

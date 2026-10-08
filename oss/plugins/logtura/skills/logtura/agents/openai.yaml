@@ -1,3 +1,3 @@
 interface:
   display_name: "Logtura"
-  short_description: "Configure open-source log forwarding"
+  short_description: "Open-source log forwarding"

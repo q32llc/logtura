@@ -36,7 +36,7 @@ require regenerating metadata (`--write`) after building, then committing it.
 
 ## Vendor directory drafts
 
-Listing title: **Logtura**. Subtitle: **Configure open-source log forwarding**.
+Listing title: **Logtura**. Subtitle: **Open-source log forwarding**.
 
 Draft description: Configure and operate the open-source Logtura CLI, library,
 and forwarder across Cloudflare, Fly.io, Railway, Vercel, Supabase, and supported
@@ -62,12 +62,13 @@ Listing destinations:
 
 - Website: https://logtura.com/docs/agent-skills
 - Support: https://logtura.com/support
-- Privacy: https://logtura.com/privacy
+- Privacy: https://logtura.com/privacy/plugin
 - Terms: https://logtura.com/terms
 
 These are owned website routes; verify the deployed content and anonymous access
-before submitting. The privacy page describes the skill, standalone CLI, linked
-service, and third-party processing; it promises no invented retention interval.
+before submitting. The plugin-specific notice states that this skills-only package
+has no MCP server or Logtura data collection and links to the general policy for
+the optional website service.
 The owner must review policy adequacy and complete any legal attestations.
 The portal may require a verified publisher identity; package display metadata
 cannot substitute for verification. Confirm its supported category and commerce

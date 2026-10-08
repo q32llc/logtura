@@ -13,6 +13,7 @@ const { renderPath } = await import(pathToFileURL(join(root, ".tmp/prerender/ent
 const routes = [
   { path: "/", title: "Logtura — Open-source log forwarding", description: "Discover logs across cloud providers and run an open-source forwarder in infrastructure you control.", expected: "Every log, from every provider" },
   { path: "/privacy", title: "Privacy policy | Logtura", description: "How Logtura handles data across its website, hosted service, open-source software, and agent skill.", expected: "Logtura privacy policy" },
+  { path: "/privacy/plugin", title: "Plugin privacy notice | Logtura", description: "The skills-only Logtura plugin has no MCP server and sends no data to Logtura.", expected: "No MCP server or Logtura data collection" },
   { path: "/terms", title: "Terms of use | Logtura", description: "Terms for the Logtura website, hosted service, open-source software, and agent skill.", expected: "Logtura terms of use" },
   { path: "/support", title: "Support | Logtura", description: "Support for the Logtura CLI, libraries, agent skill, hosted service, and linked forwarders.", expected: "Logtura support" },
   { path: "/docs", title: "Architecture | Logtura Docs", description: "How the Logtura control plane and open-source forwarder fit together.", expected: "Logtura has two parts" },
