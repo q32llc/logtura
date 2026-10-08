@@ -2,7 +2,7 @@
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "logtura",
   "version": "0.3.6",
-  "description": "Set up and update Logtura log forwarding from supported hosts, standalone or website-linked.",
+  "description": "Configure and operate the open-source Logtura CLI and forwarder across supported log sources and destinations. No Logtura account is required.",
   "author": {
     "name": "Logtura",
     "url": "https://github.com/logtura"
@@ -26,11 +26,11 @@
       },
       "interface": {
         "displayName": "Logtura",
-        "shortDescription": "Set up log forwarding",
-        "longDescription": "Set up and update Logtura log forwarding from supported hosts, standalone or website-linked.",
+        "shortDescription": "Configure open-source log forwarding",
+        "longDescription": "Configure and operate the open-source Logtura CLI, library, and forwarder across supported log sources and destinations. Set up standalone forwarding, filters, deployments, delivery verification, and provider integrations. A Logtura account is optional; website synchronization is available for linked deployments.",
         "developerName": "Logtura",
         "category": "Developer Tools",
-        "defaultPrompt": "Set up Logtura for this project's logs and verify delivery.",
+        "defaultPrompt": "Configure this project's log forwarding with open-source Logtura and verify delivery.",
         "websiteURL": "https://logtura.com/docs/agent-skills",
         "supportURL": "https://logtura.com/support",
         "privacyPolicyURL": "https://logtura.com/privacy",
