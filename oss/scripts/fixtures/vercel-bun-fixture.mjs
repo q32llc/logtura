@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {writeFileSync} from "node:fs";
 
 const vectorMode=process.env.LOGT_VERCEL_VECTOR === "1";
-const modes=vectorMode ? ["vector"] : ["personal","team","missing","discovery-http","discovery-json","discovery-shape","deployment-id","stream-http","row-json","row-shape","empty","abort","discovery-abort"];
+const modes=vectorMode ? ["vector"] : ["personal","team","missing","discovery-http","discovery-json","discovery-shape","deployment-id","stream-http","stream-fetch","stream-reset","row-json","row-shape","empty","abort","discovery-abort"];
 const privateText="private-vercel-fixture-body";
 const row=(id,message="Fixture 🦊 delivery",extra={})=>({rowId:id,message,level:"error",timestampInMs:1790899200000,requestPath:"/api/fixture",...extra});
 for(const mode of modes) {
@@ -49,6 +49,7 @@ for(const mode of modes) {
         if(streams===1) firstAt=Date.now(); else if(streams===2) secondAt=Date.now();
         if(mode === "stream-http") return openFailure(request,429);
         if(mode === "abort") return new Response(new ReadableStream({start(){}}));
+        if(mode === "stream-reset") return new Response(new ReadableStream({start(controller){setTimeout(()=>controller.error(new Error(privateText)),25);}}));
         if(mode === "row-json") {
           let cancelled=false;
           const cancel=()=>{if(!cancelled){cancelled=true;cancellations++;}};
@@ -69,7 +70,7 @@ for(const mode of modes) {
     }
   });
   const preload=`/fixture/redirect-${mode}.mjs`;
-  writeFileSync(preload,`import assert from "node:assert/strict";\nconst nativeFetch=globalThis.fetch;\nglobalThis.fetch=(input,options)=>{const url=new URL(String(input));assert.equal(url.origin,"https://api.vercel.com");url.host="127.0.0.1:${server.port}";url.protocol="http:";return nativeFetch(url,options);};\n`+(["abort","discovery-abort"].includes(mode)?`const nativeTimeout=globalThis.setTimeout;globalThis.setTimeout=(callback,delay,...args)=>nativeTimeout(callback,delay===300000||delay===30000?100:delay,...args);\n`:""));
+  writeFileSync(preload,`import assert from "node:assert/strict";\nconst nativeFetch=globalThis.fetch;\nglobalThis.fetch=(input,options)=>{const url=new URL(String(input));assert.equal(url.origin,"https://api.vercel.com");${mode==="stream-fetch"?`if(url.pathname.includes("/runtime-logs"))return Promise.reject(new Error("${privateText}"));`:""}url.host="127.0.0.1:${server.port}";url.protocol="http:";return nativeFetch(url,options);};\n`+(["abort","discovery-abort"].includes(mode)?`const nativeTimeout=globalThis.setTimeout;globalThis.setTimeout=(callback,delay,...args)=>nativeTimeout(callback,delay===300000||delay===30000?100:delay,...args);\n`:""));
   if(vectorMode)writeFileSync("/fixture/bin/bun",`#!/bin/sh\nexec /usr/local/bin/bun --preload ${preload} "$@"\n`,{mode:0o755});
   const child=Bun.spawn(vectorMode?["/usr/bin/vector","--config","/etc/vector/vector.yaml"]:["bun","--preload",preload,"/fixture/vercel.mjs",team,JSON.stringify([{id:"prj_fixture",name:"Fixture"}])],{env:{...process.env,...(!vectorMode?{VERCEL_API_TOKEN:mode==="missing"?"":"fixture-vercel-token"}:{}),...(vectorMode?{PATH:`/fixture/bin:${process.env.PATH}`}:{})},stdout:"pipe",stderr:"pipe"});
   async function read(stream,target) {
@@ -102,6 +103,9 @@ for(const mode of modes) {
     } else if(mode==="abort") {
       assert.equal(streams,2);assert.deepEqual(output,[]);assert.deepEqual(errors,[]);
       assert.ok(secondAt-firstAt>=3000);
+    } else if(mode==="stream-reset") {
+      assert.equal(streams,2);assert.deepEqual(output,[]);assert.deepEqual(errors,[]);
+      assert.ok(secondAt-firstAt>=2900,"Rejected stream reads must back off before reconnecting");
     } else if(vectorMode) {
       assert.equal(streams,2,JSON.stringify({deliveries,errors}));assert.equal(attempts,2);
       assert.deepEqual(deliveries.map(event=>event.message),["[/api/fixture] Fixture 🦊 delivery","[/api/fixture] After reconnect"]);
@@ -116,7 +120,7 @@ for(const mode of modes) {
       assert.deepEqual(events.map(event=>event.deploymentId),["dpl_first","dpl_next"]);
       assert.ok(events.every(event=>event.projectId==="prj_fixture"&&event.projectName==="Fixture"));assert.deepEqual(errors,[]);
     } else {
-      const expected={"discovery-http":"Vercel request failed: HTTP 403","discovery-json":"Invalid Vercel JSON response","discovery-shape":"Invalid Vercel deployment inventory","deployment-id":"Invalid Vercel deployment identity","stream-http":"Vercel request failed: HTTP 429","row-json":"Invalid Vercel runtime log JSON","row-shape":"Invalid Vercel runtime log row"}[mode];
+      const expected={"discovery-http":"Vercel request failed: HTTP 403","discovery-json":"Invalid Vercel JSON response","discovery-shape":"Invalid Vercel deployment inventory","deployment-id":"Invalid Vercel deployment identity","stream-http":"Vercel request failed: HTTP 429","stream-fetch":"Vercel runtime log request failed","row-json":"Invalid Vercel runtime log JSON","row-shape":"Invalid Vercel runtime log row"}[mode];
       assert.equal(discovery,2);if(["row-json","discovery-http","stream-http"].includes(mode))assert.equal(cancellations,2,"Failed open HTTP requests must be aborted");assert.equal(output.length,1,"Repeated helper errors must be cooldown suppressed");
       const event=JSON.parse(output[0]);assert.equal(event.source,"logtura_vercel_helper");assert.equal(event.projectId,"prj_fixture");assert.equal(event.message,`vercel tail prj_fixture: ${expected}`);assert.equal(event.helperErrorSuppressed,0);assert.equal(event.helperErrorCooldownMs,300000);
       assert.equal(errors.length,2);assert.ok(errors.every(line=>line===`vercel tail prj_fixture: ${expected}`));

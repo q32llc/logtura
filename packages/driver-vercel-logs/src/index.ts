@@ -271,6 +271,19 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const HELPER_ERROR_COOLDOWN_MS = 5 * 60 * 1000;
 class TailError extends Error {}
 
+function isExpectedStreamRestart(err) {
+  return Boolean(err && typeof err === "object" && err.name === "AbortError");
+}
+
+async function vercelFetch(url, options, failureMessage) {
+  try {
+    return await fetch(url, options);
+  } catch (err) {
+    if (isExpectedStreamRestart(err)) throw err;
+    throw new TailError(failureMessage);
+  }
+}
+
 async function requireSuccess(response) {
   if (!response.ok) {
     await response.body?.cancel();
@@ -288,10 +301,10 @@ async function vercelJson(path, params) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), 30000);
   try {
-    const res = await fetch(url, {
+    const res = await vercelFetch(url, {
       headers: { authorization: "Bearer " + token, accept: "application/json" },
       signal: ac.signal,
-    });
+    }, "Vercel deployment request failed");
     await requireSuccess(res);
     let data;
     try { data = await res.json(); }
@@ -332,10 +345,6 @@ function remember(projectId, rowId) {
   projectSeen.push(rowId);
   if (projectSeen.length > 5000) projectSeen.splice(0, projectSeen.length - 5000);
   return true;
-}
-
-function isExpectedStreamRestart(err) {
-  return Boolean(err && typeof err === "object" && err.name === "AbortError");
 }
 
 function errorMessage(err) {
@@ -380,10 +389,10 @@ async function tailProject(project) {
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort(), 300000);
       try {
-        const res = await fetch(url, {
+        const res = await vercelFetch(url, {
           headers: { authorization: "Bearer " + token, accept: "application/json" },
           signal: ac.signal,
-        });
+        }, "Vercel runtime log request failed");
         await requireSuccess(res);
         if (!res.body) throw new TailError("Vercel runtime log stream is missing");
         const reader = res.body.getReader();
@@ -404,7 +413,16 @@ async function tailProject(project) {
         };
         try {
           for (;;) {
-            const { done, value } = await reader.read();
+            let chunk;
+            try {
+              chunk = await reader.read();
+            } catch {
+              // Vercel's live stream is finite (currently up to five minutes).
+              // Bun can report the server closing it as a rejected read instead
+              // of a clean EOF, so reconnect just as we do for normal EOF.
+              break;
+            }
+            const { done, value } = chunk;
             if (done) {
               buffer += decoder.decode();
               emitLine(buffer);

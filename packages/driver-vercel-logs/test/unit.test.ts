@@ -71,6 +71,12 @@ describe("vercelLogsDriver", () => {
     expect(pipe.runtimeAssets?.[0]?.content).toContain(
       "helperErrorSuppressed",
     );
+    expect(pipe.runtimeAssets?.[0]?.content).toContain(
+      '"Vercel runtime log request failed"',
+    );
+    expect(pipe.runtimeAssets?.[0]?.content).toContain(
+      "Bun can report the server closing it as a rejected read",
+    );
   });
 
   it("rejects all-selection and unsafe project ids", () => {
