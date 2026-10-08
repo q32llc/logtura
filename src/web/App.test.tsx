@@ -79,12 +79,19 @@ it("renders public documentation through the production MDX transformation", asy
   expect(screen.getByRole("heading", { name: /Open.source/ })).toBeTruthy();
   expect(api.listDeployments).not.toHaveBeenCalled();
 });
-it.each([["/privacy", "Logtura privacy policy"], ["/terms", "Logtura terms of use"], ["/support", "Logtura support"]])("serves %s without account authorization or redirect", async (path, title) => {
+it.each([["/privacy", "Logtura privacy policy"], ["/privacy/plugin", "Logtura plugin privacy notice"], ["/terms", "Logtura terms of use"], ["/support", "Logtura support"]])("serves %s without account authorization or redirect", async (path, title) => {
   vi.mocked(api.me).mockResolvedValue({ user: null }); page(path);
   await screen.findByRole("link", { name: "Sign in with GitHub" });
   expect(screen.getByRole("heading", { name: title, level: 1 })).toBeTruthy();
   expect(screen.getByLabelText("Current route").textContent).toBe(path);
   expect(api.listDeployments).not.toHaveBeenCalled();
+});
+it("states that the skills-only plugin has no MCP server or Logtura data collection", async () => {
+  vi.mocked(api.me).mockResolvedValue({ user: null }); page("/privacy/plugin");
+  await screen.findByRole("heading", { name: "Logtura plugin privacy notice" });
+  expect(screen.getByText(/contains no MCP server, remote API connection, hosted backend/)).toBeTruthy();
+  expect(screen.getByText(/Installing or using the plugin sends no data to Logtura/)).toBeTruthy();
+  expect(screen.getByRole("link", { name: "General Logtura privacy policy" }).getAttribute("href")).toBe("/privacy");
 });
 it("explains standalone and linked data handling, license, and the actual support channel", async () => {
   vi.mocked(api.me).mockResolvedValue({ user: null }); page("/privacy");

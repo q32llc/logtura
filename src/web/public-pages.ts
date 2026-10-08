@@ -16,7 +16,7 @@ export interface PublicPageDefinition {
 const issues = "https://github.com/logtura/logtura/issues";
 const license = "https://github.com/logtura/logtura/blob/main/LICENSE";
 
-export type PublicPageName = "privacy" | "terms" | "support";
+export type PublicPageName = "privacy" | "pluginPrivacy" | "terms" | "support";
 
 export const publicPages: Record<PublicPageName, PublicPageDefinition> = {
   privacy: {
@@ -27,6 +27,7 @@ export const publicPages: Record<PublicPageName, PublicPageDefinition> = {
       { heading: "Open-source software and agent skill", blocks: [
         { type: "paragraph", text: "The skill is a package of instructions and reference files. It has no hosted backend, tracking code, or credential store. Your coding agent processes prompts, project files, and command output under its own provider's policies and permissions. Installing the skill does not create a Logtura account." },
         { type: "paragraph", text: "Standalone CLI configuration and credentials stay in the files and environment you choose. Commands that discover resources or deploy a forwarder contact the selected hosting providers. Your forwarder reads logs from your configured sources and sends them to your configured destinations; those providers receive the data needed for those operations. Standalone use does not require sending your configuration or logs to logtura.com." },
+        { type: "link", href: "/privacy/plugin", label: "Plugin privacy notice" },
       ] },
       { heading: "Website and linked deployments", blocks: [
         { type: "paragraph", text: "GitHub sign-in supplies your GitHub identifier, login, profile name, avatar URL, and available email address. Logtura stores this account information, connection and destination settings, deployment manifests, authorization records, and deployment status and metrics to operate your account. Session cookies maintain sign-in; CLI access tokens authorize linked commands." },
@@ -36,6 +37,26 @@ export const publicPages: Record<PublicPageName, PublicPageDefinition> = {
       { heading: "Retention and control", blocks: [
         { type: "paragraph", text: "Local configuration, generated bundles, and forwarder checkpoints remain under your control. You can remove website resources, revoke CLI access in the website, and revoke provider credentials at the provider. Removing configuration does not by itself stop a running forwarder or delete data already delivered to another service." },
         { type: "paragraph", text: "Account and deployment records are stored to support the service; this policy does not specify a fixed retention period for account records, operational diagnostics, or infrastructure backups. For account deletion or privacy questions, use the support page to request a private contact channel. Do not post credentials, logs, or personal information in a public issue." },
+        { type: "link", href: "/support", label: "Privacy questions and support" },
+      ] },
+    ],
+  },
+  pluginPrivacy: {
+    title: "Logtura plugin privacy notice",
+    description: "Data practices for the skills-only Logtura plugin distributed for ChatGPT, Codex, and Claude Code.",
+    sections: [
+      { blocks: [{ type: "paragraph", text: "This notice applies specifically to the Logtura plugin and agent skill distributed for ChatGPT, Codex, and Claude Code. Updated October 7, 2026." }] },
+      { heading: "No MCP server or Logtura data collection", blocks: [
+        { type: "paragraph", text: "The plugin is a package of instructions and reference files. It contains no MCP server, remote API connection, hosted backend, analytics, telemetry, tracking code, advertising code, or credential store." },
+        { type: "paragraph", text: "Installing or using the plugin sends no data to Logtura. Logtura does not receive or collect personal data, prompts, project files, command output, logs, credentials, usage events, device identifiers, IP addresses, or account identifiers through the plugin. Because the plugin collects no data, there are no plugin data-use purposes, recipients, or retention periods." },
+      ] },
+      { heading: "Your agent, CLI, and selected providers", blocks: [
+        { type: "paragraph", text: "Your coding agent may read project files and run commands only through the permissions and policies of the agent provider you use. The open-source Logtura CLI runs in your environment. When you ask it to discover resources, deploy a forwarder, or deliver logs, it connects directly to the hosting providers and destinations you select." },
+        { type: "paragraph", text: "Standalone use does not require a Logtura account and does not send configuration or logs to logtura.com. If you explicitly choose a website-linked deployment, the general Logtura privacy policy describes the separate hosted service and the operational data needed for that service." },
+      ] },
+      { heading: "Your controls", blocks: [
+        { type: "paragraph", text: "You can remove the plugin from your agent, delete local Logtura files, restrict agent permissions, revoke provider credentials, or stop a forwarder at any time. Removing the plugin does not delete data already sent to a hosting provider or destination you selected." },
+        { type: "link", href: "/privacy", label: "General Logtura privacy policy" },
         { type: "link", href: "/support", label: "Privacy questions and support" },
       ] },
     ],
