@@ -1,7 +1,7 @@
 {
   "name": "logtura",
   "version": "0.3.6",
-  "description": "Set up and update Logtura log forwarding from supported hosts, standalone or website-linked.",
+  "description": "Configure and operate the open-source Logtura CLI and forwarder across supported log sources and destinations. No Logtura account is required.",
   "author": {
     "name": "Logtura",
     "url": "https://github.com/logtura"

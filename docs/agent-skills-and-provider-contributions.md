@@ -141,7 +141,7 @@ Use the OSS release version for plugin and skill artifacts initially. Include th
 
 Keep `SKILL.md` a short procedure router, targeting roughly 150–250 lines. The important permanent context is Logtura's configuration/identity model, standalone default, linked deployment synchronization, and delivery verification. Load a host reference only when that host is relevant. Avoid generic explanations of Git, Docker, HTTP, or tokens. This follows the standard's guidance on focused skills, progressive detail, and learning from execution failures. [Skill authoring best practices](https://agentskills.io/skill-creation/best-practices).
 
-Proposed description intent: use for setting up or changing Logtura log forwarding, onboarding supported hosts, configuring sources/destinations, and synchronizing a Logtura-linked forwarder. Do not trigger on every deployment, database task, general Cloudflare question, or log-analysis request.
+Proposed description intent: use for configuring and operating the open-source Logtura CLI, library, and forwarder; setting up standalone forwarding; onboarding supported hosts; changing sources, filters, and destinations; deploying or verifying a forwarder; and contributing provider support. A Logtura account is optional, and website synchronization applies only to a linked deployment. Do not trigger on every deployment, database task, general Cloudflare question, or log-analysis request.
 
 Common procedure:
 

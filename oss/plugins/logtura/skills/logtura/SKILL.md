@@ -1,6 +1,6 @@
 ---
 name: logtura
-description: Set up or update Logtura log forwarding from Cloudflare, Fly.io, Railway, Vercel, or Supabase; configure sources, filters, and destinations; and synchronize a website-linked forwarder through the CLI. Use for Logtura onboarding and forwarding changes, not general host deployment or log analysis.
+description: Configure and operate the open-source Logtura CLI, library, and forwarder for Cloudflare, Fly.io, Railway, Vercel, Supabase, and supported destinations. Use for standalone log forwarding, source and filter changes, forwarder deployment, delivery verification, or provider contributions. A Logtura account is optional; use website synchronization only when the user requests a linked deployment.
 license: Apache-2.0
 metadata:
   requires: Local shell, Node.js 22+, Logtura CLI 0.3.6+; provider credentials for discovery; Docker or Fly for deployment.

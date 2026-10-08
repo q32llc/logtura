@@ -36,15 +36,16 @@ require regenerating metadata (`--write`) after building, then committing it.
 
 ## Vendor directory drafts
 
-Listing title: **Logtura**. Subtitle: **Set up log forwarding**.
+Listing title: **Logtura**. Subtitle: **Configure open-source log forwarding**.
 
-Draft description: Set up or update Logtura log forwarding from Cloudflare,
-Fly.io, Railway, Vercel, or Supabase. Configure selected sources, filters, and
-destinations through the open-source CLI, with no Logtura account needed for
-standalone use. Existing website-linked forwarders can be updated through the
-CLI while retaining deployment identity. Requires a local shell, Node.js 22+,
-the Logtura CLI, and credentials for live hosts. Source project setup and forwarder
-deployment are separate capabilities; available tools depend on the client surface.
+Draft description: Configure and operate the open-source Logtura CLI, library,
+and forwarder across Cloudflare, Fly.io, Railway, Vercel, Supabase, and supported
+destinations. Set up standalone forwarding, choose sources, apply filters, deploy
+or update a forwarder, verify delivery, and contribute provider integrations. No
+Logtura account is required. Website synchronization is an optional workflow for
+linked deployments. Requires a local shell, Node.js 22+, the Logtura CLI, and
+credentials for live hosts. Source project setup and forwarder deployment are
+separate capabilities; available tools depend on the client surface.
 
 Example prompts:
 
