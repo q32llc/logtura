@@ -37,7 +37,7 @@ describe("vercelLogsDriver", () => {
     expect(transforms).toHaveLength(4);
     expect(sources[0]!.key).toBe("vercel_con_x_tail");
     expect(sources[0]!.yaml).toContain(
-      "exec bun /opt/logtura/assets/vercel-logs/logtura-vercel-tail.mjs",
+      "exec node /opt/logtura/assets/vercel-logs/logtura-vercel-tail.mjs",
     );
     expect(sources[0]!.yaml).toContain("include_stderr: false");
     expect(sources[0]!.yaml).toContain('"id":"prj_test"');
@@ -55,15 +55,22 @@ describe("vercelLogsDriver", () => {
       "VERCEL_API_TOKEN",
       "VERCEL_TEAM_ID",
     ]);
-    expect(pipe.dockerfileDeps[0]?.directive).toBe(
-      "COPY --from=oven/bun:1.3.3-debian /usr/local/bin/bun /usr/local/bin/bun",
+    expect(pipe.dockerfileDeps[0]?.directive).toContain(
+      "COPY --from=node:22.23.3-bookworm-slim@sha256:",
     );
+    expect(pipe.dockerfileDeps[0]?.directive).toContain(
+      "/usr/local/bin/node /usr/local/bin/node",
+    );
+    expect(pipe.dockerfileDeps[0]?.aptPackages).toBeUndefined();
     expect(pipe.runtimeAssets?.[0]?.path).toBe("logtura-vercel-tail.mjs");
     expect(pipe.runtimeAssets?.[0]?.content).toContain("async function tailProject");
     expect(pipe.runtimeAssets?.[0]?.content).toContain("/v6/deployments");
     expect(pipe.runtimeAssets?.[0]?.content).toContain("/runtime-logs");
     expect(pipe.runtimeAssets?.[0]?.content).toContain(
       'url.searchParams.set("format", "lines")',
+    );
+    expect(pipe.runtimeAssets?.[0]?.content).toContain(
+      '"Vercel runtime log request failed", 3',
     );
     expect(pipe.runtimeAssets?.[0]?.content).toContain(
       "await Promise.all(projects.map",
@@ -106,7 +113,7 @@ describe("vercelLogsDriver", () => {
       selection: { kind: "list", sources: [vercelProject("prj_test")] },
     });
     expect(pipe.components[0]?.yaml).toContain(
-      "exec bun /opt/logtura/assets/vercel-logs/logtura-vercel-tail.mjs ''",
+      "exec node /opt/logtura/assets/vercel-logs/logtura-vercel-tail.mjs ''",
     );
     expect(String(pipe.runtimeAssets?.[0]?.content)).toContain(
       "if (teamId) url.searchParams.set(\"teamId\", teamId)",
