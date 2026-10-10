@@ -35,7 +35,7 @@ interface VercelProject {
 const API_BASE = "https://api.vercel.com";
 const TAIL_ASSET = "logtura-vercel-tail.mjs";
 const TAIL_ASSET_PATH = `/opt/logtura/assets/vercel-logs/${TAIL_ASSET}`;
-const BUN_IMAGE = "oven/bun:1.3.3-debian";
+const NODE_IMAGE = "node:22.23.3-bookworm-slim@sha256:43ac6c60b8f89723f746e8a92ce91abd5017e627ce1ddfe4238355d3a30b772c";
 
 export const vercelLogsDriver: ProviderDriver<VercelCredentials> = {
   id: "vercel-logs",
@@ -194,7 +194,7 @@ export const vercelLogsDriver: ProviderDriver<VercelCredentials> = {
       ],
       dockerfileDeps: [
         {
-          directive: `COPY --from=${BUN_IMAGE} /usr/local/bin/bun /usr/local/bin/bun`,
+          directive: `COPY --from=${NODE_IMAGE} /usr/local/bin/node /usr/local/bin/node`,
         },
       ],
       runtimeAssets: [
@@ -239,7 +239,7 @@ function vercelExecSourceYaml(
     })),
   );
   const script = [
-    `exec bun ${TAIL_ASSET_PATH} ${shellQuote(teamId)} ${shellQuote(projectsJson)}`,
+    `exec node ${TAIL_ASSET_PATH} ${shellQuote(teamId)} ${shellQuote(projectsJson)}`,
   ].join("\n");
   return [
     `    type: exec`,
@@ -275,12 +275,18 @@ function isExpectedStreamRestart(err) {
   return Boolean(err && typeof err === "object" && err.name === "AbortError");
 }
 
-async function vercelFetch(url, options, failureMessage) {
-  try {
-    return await fetch(url, options);
-  } catch (err) {
-    if (isExpectedStreamRestart(err)) throw err;
-    throw new TailError(failureMessage);
+async function vercelFetch(url, options, failureMessage, retries = 0) {
+  for (let attempt = 0;; attempt++) {
+    try {
+      return await fetch(url, options);
+    } catch (err) {
+      if (isExpectedStreamRestart(err)) throw err;
+      if (attempt >= retries) throw new TailError(failureMessage);
+      // Match the Vercel CLI's three transport retries. Runtime-log streams
+      // occasionally fail before an HTTP response exists, which is not an
+      // authentication failure and should not become a customer log event.
+      await sleep(Math.min(250 * (2 ** attempt), 2000));
+    }
   }
 }
 
@@ -396,7 +402,7 @@ async function tailProject(project) {
         const res = await vercelFetch(url, {
           headers: { authorization: "Bearer " + token, accept: "application/json" },
           signal: ac.signal,
-        }, "Vercel runtime log request failed");
+        }, "Vercel runtime log request failed", 3);
         await requireSuccess(res);
         if (!res.body) throw new TailError("Vercel runtime log stream is missing");
         const reader = res.body.getReader();

@@ -9,8 +9,8 @@ const {vercelLogsDriver}=await import(pathToFileURL(join(root,"packages/driver-v
 const pipeline=vercelLogsDriver.generatePipeline({connection:{id:"con",externalAccountId:"team_fixture",displayName:"Vercel"},selection:{kind:"list",sources:[{id:"api",externalId:"prj_fixture",sourceKind:"vercel_project",displayName:"Fixture",metadata:null}]}});
 const asset=pipeline.runtimeAssets.find(asset=>asset.path.endsWith(".mjs"));
 assert.ok(asset,"Generated Vercel helper asset missing");
-const image=pipeline.dockerfileDeps.find(line=>line.directive.startsWith("COPY --from=oven/bun:"))?.directive.match(/^COPY --from=(\S+)/)?.[1];
-assert.ok(image,"Generated Vercel Bun image requirement missing");
+const image="oven/bun:1.3.3-debian";
+assert.ok(pipeline.dockerfileDeps.some(line=>line.directive.startsWith("COPY --from=node:")),"Generated Vercel Node image requirement missing");
 const temporary=mkdtempSync(join(tmpdir(),"logtura-vercel-bun-"));
 const container=`logtura-vercel-bun-${crypto.randomUUID()}`;
 const vectorImage=`${container}-vector`;
@@ -31,7 +31,15 @@ try {
     connections:[{connection:{id:"con",provider:vercelLogsDriver.id,externalAccountId:"team_fixture",displayName:"Vercel"},credentials:{apiToken:"fixture-vercel-token"},selectedSources:[{id:"api",externalId:"prj_fixture",sourceKind:"vercel_project",displayName:"Fixture",metadata:null}]}],
     monitors:[{monitor:{id:"errors",connectionId:null,displayName:"Errors",enabled:true,filterSteps:[{kind:"errors"}]},sinks:[{sink:{id:"delivery",filterSteps:[]},destination:{id:"webhook",kind:"webhook",displayName:"Receiver"},destinationConfig:{url:"http://127.0.0.1:9001/events"}}]}]});
   const context=join(temporary,"image"); mkdirSync(context);
-  for(const file of selfDeployFiles(bundle)) { const path=join(context,file.name); mkdirSync(join(path,".."),{recursive:true}); writeFileSync(path,file.content,{mode:file.mode}); }
+  for(const file of selfDeployFiles(bundle)) {
+    const path=join(context,file.name); mkdirSync(join(path,".."),{recursive:true});
+    // The fixture controller itself uses Bun. Production Vercel helpers use
+    // Node; add Bun only to this throwaway validation image.
+    const content=file.name==="Dockerfile"
+      ? String(file.content).replace(/(FROM timberio\/vector:[^\n]+\n)/,`$1COPY --from=${image} /usr/local/bin/bun /usr/local/bin/bun\n`)
+      : file.content;
+    writeFileSync(path,content,{mode:file.mode});
+  }
   const built=spawnSync("docker",["build","--quiet","--tag",vectorImage,context],{encoding:"utf8",timeout:180_000});
   assert.equal(built.status,0,`Vercel generated forwarder build failed: ${built.stderr}`);
   const env=bundle.envVars.flatMap(variable=>variable.value===null?[]:["--env",`${variable.name}=${variable.value}`]);

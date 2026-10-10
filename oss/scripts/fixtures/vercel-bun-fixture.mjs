@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {writeFileSync} from "node:fs";
 
 const vectorMode=process.env.LOGT_VERCEL_VECTOR === "1";
-const modes=vectorMode ? ["vector"] : ["personal","team","missing","discovery-http","discovery-json","discovery-shape","deployment-id","stream-http","stream-fetch","stream-reset","row-json","row-shape","empty","abort","discovery-abort"];
+const modes=vectorMode ? ["vector"] : ["personal","team","stream-fetch-transient","missing","discovery-http","discovery-json","discovery-shape","deployment-id","stream-http","stream-fetch","stream-reset","row-json","row-shape","empty","abort","discovery-abort"];
 const privateText="private-vercel-fixture-body";
 const row=(id,message="Fixture 🦊 delivery",extra={})=>({rowId:id,message,level:"error",timestampInMs:1790899200000,requestPath:"/api/fixture",...extra});
 for(const mode of modes) {
@@ -71,8 +71,8 @@ for(const mode of modes) {
     }
   });
   const preload=`/fixture/redirect-${mode}.mjs`;
-  writeFileSync(preload,`import assert from "node:assert/strict";\nconst nativeFetch=globalThis.fetch;\nglobalThis.fetch=(input,options)=>{const url=new URL(String(input));assert.equal(url.origin,"https://api.vercel.com");${mode==="stream-fetch"?`if(url.pathname.includes("/runtime-logs"))return Promise.reject(new Error("${privateText}"));`:""}url.host="127.0.0.1:${server.port}";url.protocol="http:";return nativeFetch(url,options);};\n`+(["abort","discovery-abort"].includes(mode)?`const nativeTimeout=globalThis.setTimeout;globalThis.setTimeout=(callback,delay,...args)=>nativeTimeout(callback,delay===300000||delay===30000?100:delay,...args);\n`:""));
-  if(vectorMode)writeFileSync("/fixture/bin/bun",`#!/bin/sh\nexec /usr/local/bin/bun --preload ${preload} "$@"\n`,{mode:0o755});
+  writeFileSync(preload,`import assert from "node:assert/strict";\nconst nativeFetch=globalThis.fetch;let runtimeFetches=0;\nglobalThis.fetch=(input,options)=>{const url=new URL(String(input));assert.equal(url.origin,"https://api.vercel.com");${mode==="stream-fetch"?`if(url.pathname.includes("/runtime-logs"))return Promise.reject(new Error("${privateText}"));`:""}${mode==="stream-fetch-transient"?`if(url.pathname.includes("/runtime-logs")&&runtimeFetches++<2)return Promise.reject(new Error("${privateText}"));`:""}url.host="127.0.0.1:${server.port}";url.protocol="http:";return nativeFetch(url,options);};\n`+(["abort","discovery-abort"].includes(mode)?`const nativeTimeout=globalThis.setTimeout;globalThis.setTimeout=(callback,delay,...args)=>nativeTimeout(callback,delay===300000||delay===30000?100:delay,...args);\n`:""));
+  if(vectorMode)writeFileSync("/fixture/bin/node",`#!/bin/sh\nexec /usr/local/bin/node --import ${preload} "$@"\n`,{mode:0o755});
   const child=Bun.spawn(vectorMode?["/usr/bin/vector","--config","/etc/vector/vector.yaml"]:["bun","--preload",preload,"/fixture/vercel.mjs",team,JSON.stringify([{id:"prj_fixture",name:"Fixture"}])],{env:{...process.env,...(!vectorMode?{VERCEL_API_TOKEN:mode==="missing"?"":"fixture-vercel-token"}:{}),...(vectorMode?{PATH:`/fixture/bin:${process.env.PATH}`}:{})},stdout:"pipe",stderr:"pipe"});
   async function read(stream,target) {
     const decoder=new TextDecoder();let pending="";
@@ -89,8 +89,9 @@ for(const mode of modes) {
       if(mode==="abort"&&streams>=2)break;
       if(mode==="discovery-abort"&&discovery>=2){await Bun.sleep(200);break;}
       if(vectorMode&&deliveries.length>=2)break;
-      if(["personal","team"].includes(mode)&&output.length>=2)break;
-      if(!["personal","team","missing","empty","abort","discovery-abort","vector"].includes(mode)&&discovery>=2){await Bun.sleep(100);break;}
+      if(["personal","team","stream-fetch-transient"].includes(mode)&&output.length>=2)break;
+      if(mode==="stream-fetch"&&errors.length>=2)break;
+      if(!["personal","team","stream-fetch-transient","stream-fetch","missing","empty","abort","discovery-abort","vector"].includes(mode)&&discovery>=2){await Bun.sleep(100);break;}
       await Bun.sleep(25);
     }
     if(protocolFailure)throw protocolFailure;
@@ -114,7 +115,7 @@ for(const mode of modes) {
       assert.equal(deliveries[0].deploymentId,"dpl_first");assert.equal(deliveries[1].deploymentId,"dpl_next");
       if(process.env.LOGT_VERCEL_INJECT_FAILURE === "after-delivery")throw new Error("Injected Vercel delivery failure");
       child.kill("SIGTERM");assert.equal(await child.exited,0);
-    } else if(["personal","team"].includes(mode)) {
+    } else if(["personal","team","stream-fetch-transient"].includes(mode)) {
       assert.equal(streams,2);assert.ok(secondAt-firstAt>=2900,"Successful EOF must back off before reconnecting");
       const events=output.map(line=>JSON.parse(line));assert.equal(events.length,2);
       assert.deepEqual(events.map(event=>event.message),["Fixture 🦊 delivery","After reconnect"]);
@@ -126,6 +127,13 @@ for(const mode of modes) {
       const event=JSON.parse(output[0]);assert.equal(event.source,"logtura_vercel_helper");assert.equal(event.projectId,"prj_fixture");assert.equal(event.message,`vercel tail prj_fixture: ${expected}`);assert.equal(event.helperErrorSuppressed,0);assert.equal(event.helperErrorCooldownMs,300000);
       assert.equal(errors.length,2);assert.ok(errors.every(line=>line===`vercel tail prj_fixture: ${expected}`));
     }
-    console.log(vectorMode?"Actual Vercel Bun → generated Vector → webhook delivery, normalization, filtering, replay dedup, retry and shutdown passed":`Real Bun Vercel helper: ${mode} passed`);
-  } finally { child.kill();await child.exited;await Promise.all(readers);server.stop(true); }
+    console.log(vectorMode?"Actual Vercel Node → generated Vector → webhook delivery, normalization, filtering, replay dedup, retry and shutdown passed":`Vercel helper protocol fixture: ${mode} passed`);
+  } finally {
+    child.kill();
+    await Promise.race([
+      child.exited,
+      Bun.sleep(2000).then(()=>{child.kill(9);return child.exited;}),
+    ]);
+    await Promise.all(readers);server.stop(true);
+  }
 }

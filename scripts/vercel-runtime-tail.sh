@@ -17,7 +17,7 @@ Usage:
   scripts/vercel-runtime-tail.sh [project_id] [deployment_id]
 
 Env:
-  VERCEL_API_TOKEN   (required)
+  VERCEL_API_TOKEN   (required; VERCEL_API_KEY is also accepted)
   VERCEL_TEAM_ID     (optional; required for team-scoped projects)
   VERCEL_PROJECT_ID  (optional if project_id arg provided)
 
@@ -35,10 +35,10 @@ fi
 PROJECT_ID="${1:-${VERCEL_PROJECT_ID:-}}"
 DEPLOYMENT_ID="${2:-}"
 TEAM_ID="${VERCEL_TEAM_ID:-}"
-TOKEN="${VERCEL_API_TOKEN:-}"
+TOKEN="${VERCEL_API_TOKEN:-${VERCEL_API_KEY:-}}"
 
 if [[ -z "$TOKEN" ]]; then
-  echo "error: VERCEL_API_TOKEN is required" >&2
+  echo "error: VERCEL_API_TOKEN or VERCEL_API_KEY is required" >&2
   exit 1
 fi
 
@@ -78,4 +78,4 @@ echo "Tailing project=${PROJECT_ID} deployment=${DEPLOYMENT_ID}${TEAM_ID:+ team=
 exec curl -N \
   -H "Authorization: Bearer $TOKEN" \
   -H "Accept: application/json" \
-  "https://api.vercel.com/v1/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}/runtime-logs?follow=1$(team_qs)"
+  "https://api.vercel.com/v1/projects/${PROJECT_ID}/deployments/${DEPLOYMENT_ID}/runtime-logs?format=lines$(team_qs)"
