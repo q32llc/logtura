@@ -45,6 +45,7 @@ for(const mode of modes) {
           return Response.json({deployments:[{uid:discovery===1?"dpl_first":"dpl_next"}]});
         }
         assert.equal(url.pathname,`/v1/projects/prj_fixture/deployments/${discovery===1?"dpl_first":"dpl_next"}/runtime-logs`);
+        assert.equal(url.searchParams.get("format"),"lines");
         streams++;
         if(streams===1) firstAt=Date.now(); else if(streams===2) secondAt=Date.now();
         if(mode === "stream-http") return openFailure(request,429);

@@ -2,7 +2,7 @@
  * `vercel-logs` source driver.
  *
  * Tails Vercel Runtime Logs over the REST API:
- * GET /v1/projects/{projectId}/deployments/{deploymentId}/runtime-logs
+ * GET /v1/projects/{projectId}/deployments/{deploymentId}/runtime-logs?format=lines
  *
  * This is intentionally not Vercel Drains. Drains are Pro/Enterprise-only;
  * Runtime Logs are available on Hobby, subject to Vercel's short retention
@@ -386,6 +386,10 @@ async function tailProject(project) {
       }
       const url = new URL("/v1/projects/" + project.id + "/deployments/" + deploymentId + "/runtime-logs", "https://api.vercel.com");
       if (teamId) url.searchParams.set("teamId", teamId);
+      // This is the wire format used by the Vercel CLI's follow mode. Without it,
+      // Vercel may negotiate a different response and close Bun's fetch
+      // before a newline-delimited stream is established.
+      url.searchParams.set("format", "lines");
       const ac = new AbortController();
       const timer = setTimeout(() => ac.abort(), 300000);
       try {
