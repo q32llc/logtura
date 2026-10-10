@@ -63,6 +63,9 @@ describe("vercelLogsDriver", () => {
     expect(pipe.runtimeAssets?.[0]?.content).toContain("/v6/deployments");
     expect(pipe.runtimeAssets?.[0]?.content).toContain("/runtime-logs");
     expect(pipe.runtimeAssets?.[0]?.content).toContain(
+      'url.searchParams.set("format", "lines")',
+    );
+    expect(pipe.runtimeAssets?.[0]?.content).toContain(
       "await Promise.all(projects.map",
     );
     expect(pipe.runtimeAssets?.[0]?.content).toContain(
