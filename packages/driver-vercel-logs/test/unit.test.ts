@@ -76,13 +76,16 @@ describe("vercelLogsDriver", () => {
       "await Promise.all(projects.map",
     );
     expect(pipe.runtimeAssets?.[0]?.content).toContain(
-      "const HELPER_ERROR_COOLDOWN_MS = 5 * 60 * 1000",
+      "const HELPER_DIAGNOSTIC_COOLDOWN_MS = 5 * 60 * 1000",
     );
     expect(pipe.runtimeAssets?.[0]?.content).toContain(
-      "helperErrorSuppressed",
+      "MAX_RECONNECT_DELAY_MS = 30000",
     );
     expect(pipe.runtimeAssets?.[0]?.content).toContain(
       '"Vercel runtime log request failed"',
+    );
+    expect(pipe.runtimeAssets?.[0]?.content).not.toContain(
+      'source: "logtura_vercel_helper"',
     );
     expect(pipe.runtimeAssets?.[0]?.content).toContain(
       "Bun can report the server closing it as a rejected read",

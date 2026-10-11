@@ -16,15 +16,17 @@ sources:
       - prj_xxx
 ```
 
-The generated Bun helper polls the latest READY production deployment, decodes
+The generated Node helper polls the latest READY production deployment, decodes
 streamed UTF-8 log rows, keeps final rows without a newline, and deduplicates
 replayed row identities across reconnects. Normal EOF and failures back off before
-reconnecting; deployment discovery has a 30-second deadline. Helper failures contain stable status/protocol messages, with
-repeated error events suppressed for five minutes; upstream response bodies are
-excluded from helper diagnostics.
+reconnecting; repeated failures use bounded exponential backoff, and deployment
+discovery has a 30-second deadline. Helper failures never enter the customer log
+stream. Transient stream transport failures retry quietly; stable status/protocol
+diagnostics are written only to the helper's excluded stderr, with repeats suppressed
+for five minutes. Upstream response bodies are excluded from helper diagnostics.
 
 From the monorepo root, `pnpm build && pnpm test:vercel-runtime` runs the emitted
-helper under its declared Bun image against a controlled HTTP endpoint, then
+helper under its declared Node image against a controlled HTTP endpoint, then
 builds the public install context and verifies actual Vector/webhook delivery.
 The fixture checks personal/team requests, stream restart and cancellation,
 server-ended stream reads, request transport failures, normalization, filters,
