@@ -34,7 +34,7 @@ export async function selectManagedForwarder(env:Env,userId:string,deploymentId:
  if(deployment.external_id && deployment.external_id!==binding)throw new Error("Managed forwarder physical binding changed");
  if(replacement){
   if(replacement.app!==app || (machine as FlyMachine & {name?:string}).name!==replacement.payload.name || machine.id!==replacement.machineId || (machine.config.metadata as Record<string,unknown>)?.["logtura.replacement"]!==replacement.id)throw new Error("Managed replacement identity differs from its journal");
- }else if((machine as FlyMachine & {name?:string}).name!=="forwarder")throw new Error("Managed apply requires one owned forwarder machine");
+ }else if(!deployment.external_id && (machine as FlyMachine & {name?:string}).name!=="forwarder")throw new Error("Managed apply requires one owned forwarder machine");
  return machine;
 }
 

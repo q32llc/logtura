@@ -62,10 +62,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       console.log(global.json ? JSON.stringify(PROVIDER_CATALOG, null, 2) : PROVIDER_CATALOG.map(p => `${p.id} (${p.family}; ${p.selection.mode}; ${p.runtime})`).join("\n"));
       return 0;
     }
-    const readOnly=["providers","login","whoami","logout","stats","diff","validate","bundle","push","deploy","create"].includes(command) || (command==="config" && ["status","recover","hash","diff"].includes(args[0]??""));
+    const readOnly=["providers","login","whoami","logout","stats","diff","validate","bundle","push","deploy","create","redeploy"].includes(command) || (command==="config" && ["status","recover","hash","diff"].includes(args[0]??""));
     if(!readOnly)assertNoPendingPush(findConfigPath(global.config).path);
     if(command==="create")return await cmdCreate(global,args);
     if(command==="push")return await cmdPush(global,args);
+    if(command==="redeploy")return await cmdRedeploy(global,args);
     if (command === "init") return cmdInit(global, args);
     if (command === "login" || command === "whoami" || command === "logout") return await cmdAccount(command, global, args);
     if (command === "diff") return await cmdDiff(global,args);
@@ -108,6 +109,15 @@ async function cmdPush(global:GlobalArgs,args:string[]):Promise<number>{
  if(process.env.LOGT_SERVICE_URL && normalizeServiceUrl(process.env.LOGT_SERVICE_URL)!==link.service)throw new Error("Configured service does not match the linked origin");
  const result=await pushDeploymentConfig(accountClient(link.service),path,{resume:booleanFlag(flags,"resume"),uploadSecrets:booleanFlag(flags,"uploadSecrets"),acceptRemote:booleanFlag(flags,"acceptRemote"),force:booleanFlag(flags,"force")});
  console.log(global.json?JSON.stringify(result):`${result.acceptedRemote?"Accepted remote configuration for":"Pushed"} ${link.deployment.id} (${result.result.revision})`);return 0;
+}
+
+async function cmdRedeploy(global:GlobalArgs,args:string[]):Promise<number>{
+ const id=args[0];if(!id || id.startsWith("-"))throw new Error("redeploy requires a deployment identity");
+ const flags=parseFlags(args.slice(1));for(const flag of Object.keys(flags))if(!["service","target","region","waitSeconds"].includes(flag))throw new Error(`Unsupported redeploy option: ${flag}`);
+ const seconds=stringFlag(flags,"waitSeconds"),waitMs=seconds===undefined?undefined:Number(seconds)*1000;
+ const {redeployHostedDeployment}=await import("./redeploy");
+ const result=await redeployHostedDeployment(accountClient(stringFlag(flags,"service")),id,{targetId:stringFlag(flags,"target"),region:stringFlag(flags,"region"),waitMs});
+ console.log(global.json?JSON.stringify(result):`Redeployed ${id} with job ${result.job.id}`);return 0;
 }
 
 async function cmdDiff(global:GlobalArgs,args:string[]):Promise<number>{
@@ -780,6 +790,7 @@ Commands:
   create --resume                  Recover creation; --abandon archives verified deletion
   pull <deployment-id> [-o file]     Pull a website deployment and private .env
   push [--upload-secrets]            Push a linked graph; --resume recovers an interrupted push
+  redeploy <deployment-id>           Regenerate and apply a hosted deployment bundle
   login [--service URL]             Approve CLI access in your browser
   whoami [--service URL]            Show the signed-in service account
   logout [--local]                  Revoke CLI access and remove credentials

@@ -78,7 +78,9 @@ it("enqueues and deduplicates only compatible managed deploy requests",async()=>
  const mismatched=await seedDeployTarget({userId:own.userId,kind:"other",displayName:"Other",externalAccountId:null,credentials:{}});expect((await request(`/deployments/${own.deployment.id}/deploy`,own.sessionCookie,"POST",{deployTargetId:mismatched.id})).status).toBe(400);
  expect(await (await request(`/deployments/${other.deployment.id}/deploy`,other.sessionCookie,"POST",{deployTargetId:other.target.id})).json()).toEqual({error:"managed_deploy_unsupported"});
  await updateDeployment(env.DB,own.userId,own.deployment.id,{status:"stopped"});
+ await env.DB.prepare("UPDATE deployments SET managed=0 WHERE id=?").bind(own.deployment.id).run();
  const first=await (await request(`/deployments/${own.deployment.id}/deploy`,own.sessionCookie,"POST",{deployTargetId:own.target.id,region:"ord"})).json() as any;expect(first.deduped).toBe(false);expect(first.job.status).toBe("queued");expect((await getDeployment(env.DB,own.userId,own.deployment.id))!.status).toBe("pending");
+ expect((await getDeployment(env.DB,own.userId,own.deployment.id))!.managed).toBe(1);
  const second=await (await request(`/deployments/${own.deployment.id}/deploy`,own.sessionCookie,"POST",{deployTargetId:own.target.id})).json() as any;expect(second.deduped).toBe(true);expect(second.job.id).toBe(first.job.id);
 });
 it.each(["queued","running","succeeded","failed","stale"])("rehydrates child-chain job state without rewriting persisted state (%s)",async state=>{

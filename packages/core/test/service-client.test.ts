@@ -42,6 +42,29 @@ it("rejects non-account credentials before any request",()=>{
  const fetchImpl=vi.fn();expect(()=>new LogturaServiceClient({url:"https://fixture.test",token:"provider-or-reporting-token",fetch:fetchImpl})).toThrow("invalid_account_token");expect(fetchImpl).not.toHaveBeenCalled();
 });
 
+it("lists deploy targets, starts hosted deploys and reads their jobs",async()=>{
+ const job={id:"job_fixture",kind:"fly_deploy",status:"queued",error:null,result:null,progress:null};
+ const transport=client([
+  Response.json({deployTargets:[{id:"target_fixture",kind:"fly",displayName:"Personal",externalAccountId:"personal",ignored:"safe"}]}),
+  Response.json({job,deduped:false}),
+  Response.json({job:{...job,status:"succeeded",result:{machineId:"machine_fixture"}},kids:[]}),
+ ],credential.token);
+ expect(await transport.client.listDeployTargets()).toEqual([{id:"target_fixture",kind:"fly",displayName:"Personal",externalAccountId:"personal"}]);
+ expect(await transport.client.deployDeployment("dep id",{deployTargetId:"target_fixture",region:"iad"})).toEqual({job,deduped:false});
+ expect((await transport.client.getJob("job_fixture")).status).toBe("succeeded");
+ const calls=transport.fetch.mock.calls as unknown as Array<[string,RequestInit]>;
+ expect(calls.map(([url])=>new URL(url).pathname)).toEqual(["/api/deploy-targets","/api/deployments/dep%20id/deploy","/api/jobs/job_fixture"]);
+ expect(JSON.parse(String(calls[1]![1].body))).toEqual({deployTargetId:"target_fixture",region:"iad"});
+});
+
+it("rejects malformed hosted deploy responses before returning them",async()=>{
+ await expect(client([Response.json({deployTargets:[{id:1}]})]).client.listDeployTargets()).rejects.toMatchObject({code:"invalid_deploy_targets"});
+ await expect(client([Response.json({job:{},deduped:false})]).client.deployDeployment("dep",{deployTargetId:"target"})).rejects.toMatchObject({code:"invalid_deploy_job"});
+ await expect(client([Response.json({job:{id:"job",kind:"fly_deploy",status:"unknown",error:null,result:null,progress:null}})]).client.getJob("job")).rejects.toMatchObject({code:"invalid_deploy_job"});
+ await expect(client([]).client.deployDeployment("",{deployTargetId:"target"})).rejects.toThrow("identity");
+ await expect(client([]).client.deployDeployment("dep",{deployTargetId:"target",region:"BAD"})).rejects.toThrow("target");
+});
+
 
 it("validates deployment export identity and secret responses",async()=>{
   const document={kind:"logtura.deployment",schema_version:1,connections:[],monitors:[],runtimeEnv:null};

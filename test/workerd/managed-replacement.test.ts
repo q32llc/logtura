@@ -139,6 +139,7 @@ it.each(["missing-old","running-old","changed-old-region","changed-old-image","c
 it("does not treat names or provider metadata as ownership without an exact completed journal",async()=>{
  const f=await fixture();await expect(selectManagedForwarder(env,"other",f.deployment.id,"app",f.machines)).rejects.toThrow("no longer owned");
  await expect(selectManagedForwarder(env,f.userId,f.deployment.id,"other",f.machines)).rejects.toThrow("binding changed");await expect(selectManagedForwarder(env,f.userId,f.deployment.id,"app",[])).rejects.toThrow("bound forwarder is missing");
+ (f.machines[0] as FlyMachine & {name:string}).name="forwarder-legacy-uuid";expect((await selectManagedForwarder(env,f.userId,f.deployment.id,"app",f.machines))!.id).toBe("legacy");
  await env.DB.prepare("UPDATE deployments SET external_id=NULL WHERE id=?").bind(f.deployment.id).run();expect(await selectManagedForwarder(env,f.userId,f.deployment.id,"app",[])).toBeNull();(f.machines[0] as FlyMachine & {name:string}).name="forwarder-foreign";await expect(selectManagedForwarder(env,f.userId,f.deployment.id,"app",f.machines)).rejects.toThrow("one owned forwarder");
 });
 it("allows a later issued update while retaining the journal-owned stopped rollback VM",async()=>{
