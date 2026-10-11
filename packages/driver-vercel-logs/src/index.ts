@@ -266,9 +266,11 @@ if (!token) {
   process.exit(1);
 }
 const seen = new Map();
-const helperErrors = new Map();
+const helperDiagnostics = new Map();
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const HELPER_ERROR_COOLDOWN_MS = 5 * 60 * 1000;
+const HELPER_DIAGNOSTIC_COOLDOWN_MS = 5 * 60 * 1000;
+const MIN_RECONNECT_DELAY_MS = 3000;
+const MAX_RECONNECT_DELAY_MS = 30000;
 class TailError extends Error {}
 
 function isExpectedStreamRestart(err) {
@@ -357,33 +359,32 @@ function errorMessage(err) {
   return err instanceof TailError ? err.message : "Vercel stream request failed";
 }
 
-function emitHelperError(project, err) {
+function reportHelperDiagnostic(project, err) {
   const now = Date.now();
   const message = errorMessage(err);
+  // A missing HTTP response is a transient stream transport failure. Keep it
+  // entirely inside the collector: retrying it must never manufacture a
+  // customer runtime-log event or create recurring operational noise.
+  if (message === "Vercel runtime log request failed") return;
   const signature = message.slice(0, 240);
-  const state = helperErrors.get(project.id) ?? { signature: "", lastAt: 0, suppressed: 0 };
-  if (state.signature === signature && now - state.lastAt < HELPER_ERROR_COOLDOWN_MS) {
+  const state = helperDiagnostics.get(project.id) ?? { signature: "", lastAt: 0, suppressed: 0 };
+  if (state.signature === signature && now - state.lastAt < HELPER_DIAGNOSTIC_COOLDOWN_MS) {
     state.suppressed += 1;
-    helperErrors.set(project.id, state);
+    helperDiagnostics.set(project.id, state);
     return;
   }
   const suppressed = state.signature === signature ? state.suppressed : 0;
-  helperErrors.set(project.id, { signature, lastAt: now, suppressed: 0 });
-  const event = {
-    level: "error",
-    source: "logtura_vercel_helper",
-    projectId: project.id,
-    projectName: project.name,
-    message: "vercel tail " + project.id + ": " + message,
-    helperErrorSuppressed: suppressed,
-    helperErrorCooldownMs: HELPER_ERROR_COOLDOWN_MS,
-    timestampInMs: now,
-  };
-  process.stdout.write(JSON.stringify(event) + "\n");
+  helperDiagnostics.set(project.id, { signature, lastAt: now, suppressed: 0 });
+  console.error(
+    "vercel tail " + project.id + ": " + message +
+    (suppressed ? " (" + suppressed + " repeated diagnostics suppressed)" : ""),
+  );
 }
 
 async function tailProject(project) {
+  let reconnectDelayMs = MIN_RECONNECT_DELAY_MS;
   for (;;) {
+    let delayMs = MIN_RECONNECT_DELAY_MS;
     try {
       const deploymentId = await latestDeployment(project.id);
       if (!deploymentId) {
@@ -405,6 +406,7 @@ async function tailProject(project) {
         }, "Vercel runtime log request failed", 3);
         await requireSuccess(res);
         if (!res.body) throw new TailError("Vercel runtime log stream is missing");
+        reconnectDelayMs = MIN_RECONNECT_DELAY_MS;
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
@@ -454,12 +456,13 @@ async function tailProject(project) {
       }
     } catch (err) {
       if (!isExpectedStreamRestart(err)) {
-        emitHelperError(project, err);
-        console.error("vercel tail " + project.id + ": " + errorMessage(err));
+        reportHelperDiagnostic(project, err);
+        delayMs = reconnectDelayMs;
+        reconnectDelayMs = Math.min(reconnectDelayMs * 2, MAX_RECONNECT_DELAY_MS);
       }
     }
     // Successful EOF also needs backoff: short-lived streams must not spin.
-    await sleep(3000);
+    await sleep(delayMs);
   }
 }
 

@@ -90,7 +90,7 @@ for(const mode of modes) {
       if(mode==="discovery-abort"&&discovery>=2){await Bun.sleep(200);break;}
       if(vectorMode&&deliveries.length>=2)break;
       if(["personal","team","stream-fetch-transient"].includes(mode)&&output.length>=2)break;
-      if(mode==="stream-fetch"&&errors.length>=2)break;
+      if(mode==="stream-fetch"&&discovery>=2)break;
       if(!["personal","team","stream-fetch-transient","stream-fetch","missing","empty","abort","discovery-abort","vector"].includes(mode)&&discovery>=2){await Bun.sleep(100);break;}
       await Bun.sleep(25);
     }
@@ -123,9 +123,9 @@ for(const mode of modes) {
       assert.ok(events.every(event=>event.projectId==="prj_fixture"&&event.projectName==="Fixture"));assert.deepEqual(errors,[]);
     } else {
       const expected={"discovery-http":"Vercel request failed: HTTP 403","discovery-json":"Invalid Vercel JSON response","discovery-shape":"Invalid Vercel deployment inventory","deployment-id":"Invalid Vercel deployment identity","stream-http":"Vercel request failed: HTTP 429","stream-fetch":"Vercel runtime log request failed","row-json":"Invalid Vercel runtime log JSON","row-shape":"Invalid Vercel runtime log row"}[mode];
-      assert.equal(discovery,2);if(["row-json","discovery-http","stream-http"].includes(mode))assert.equal(cancellations,2,"Failed open HTTP requests must be aborted");assert.equal(output.length,1,"Repeated helper errors must be cooldown suppressed");
-      const event=JSON.parse(output[0]);assert.equal(event.source,"logtura_vercel_helper");assert.equal(event.projectId,"prj_fixture");assert.equal(event.message,`vercel tail prj_fixture: ${expected}`);assert.equal(event.helperErrorSuppressed,0);assert.equal(event.helperErrorCooldownMs,300000);
-      assert.equal(errors.length,2);assert.ok(errors.every(line=>line===`vercel tail prj_fixture: ${expected}`));
+      assert.equal(discovery,2);if(["row-json","discovery-http","stream-http"].includes(mode))assert.equal(cancellations,2,"Failed open HTTP requests must be aborted");assert.deepEqual(output,[],"Helper failures must never become customer runtime-log events");
+      if(mode==="stream-fetch")assert.deepEqual(errors,[],"Transient stream transport failures must retry quietly");
+      else assert.deepEqual(errors,[`vercel tail prj_fixture: ${expected}`],"Non-transport helper diagnostics stay on stderr and are cooldown suppressed");
     }
     console.log(vectorMode?"Actual Vercel Node → generated Vector → webhook delivery, normalization, filtering, replay dedup, retry and shutdown passed":`Vercel helper protocol fixture: ${mode} passed`);
   } finally {
