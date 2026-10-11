@@ -86,13 +86,18 @@ export async function runFlyDischargeCreateApp(
   await ctx.progress({ label: "Authenticating with Fly" });
   const flyAuth = await loadDischargedAuth(ctx.env, ctx.job.userId, parent);
 
+  // Existing apps are authoritative for their organization. A Fly user can
+  // belong to a personal org and one or more team orgs; resolving the token's
+  // preferred org before inspecting the app can pick `personal` even though
+  // the forwarder and its checkpoint live in a team org.
+  const existing = await getFlyApp(flyAuth, p.appName);
   await ctx.progress({ label: "Resolving Fly organization" });
+  const existingOrgSlug = existing?.organization?.slug;
   const orgSlug =
-    parent.orgSlug ?? (await resolveOrgSlugWithFallback(ctx, flyAuth));
+    parent.orgSlug ?? existingOrgSlug ?? (await resolveOrgSlugWithFallback(ctx, flyAuth));
   const region = parent.region ?? DEFAULT_REGION;
 
   await ctx.progress({ label: `Ensuring Fly app ${p.appName}` });
-  const existing = await getFlyApp(flyAuth, p.appName);
   if (!existing) {
     await createFlyApp(flyAuth, { appName: p.appName, orgSlug });
     await ctx.events.record({

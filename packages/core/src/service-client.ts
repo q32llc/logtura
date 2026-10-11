@@ -15,6 +15,9 @@ export interface DeviceAuthorization {deviceCode:string;userCode:string;verifica
 export interface AccountCredential {token:string;expiresAt:number;scope:string;}
 export type DevicePoll = {state:"pending"|"slow_down"} | {state:"authorized";credential:AccountCredential};
 export interface ServiceUser {id:string;githubLogin:string;name:string|null;email:string|null;avatarUrl:string|null;}
+export interface ServiceDeployTarget {id:string;kind:string;displayName:string;externalAccountId:string|null;}
+export type ServiceJobStatus="queued"|"running"|"succeeded"|"failed";
+export interface ServiceJob {id:string;kind:string;status:ServiceJobStatus;error:string|null;result:Record<string,unknown>|null;progress:{label:string;detail?:string;fraction?:number}|null;}
 export class ServiceError extends Error {
   constructor(public readonly status:number,public readonly code:string) {super(`Logtura service: ${code} (HTTP ${status})`);this.name="ServiceError";}
 }
@@ -158,6 +161,27 @@ export class LogturaServiceClient {
     if(!response.user || typeof response.user.id!=="string" || !response.user.id || typeof response.user.githubLogin!=="string" || !response.user.githubLogin)throw new ServiceError(401,"auth_required");
     return response.user;
   }
+  async listDeployTargets():Promise<ServiceDeployTarget[]>{
+    const response=await this.request<{deployTargets:unknown}>("/deploy-targets");
+    if(!response || !Array.isArray(response.deployTargets))throw new ServiceError(200,"invalid_deploy_targets");
+    try{return response.deployTargets.map(value=>{
+      const target=value as ServiceDeployTarget;
+      if(!target || typeof target!=="object" || Array.isArray(target) || typeof target.id!=="string" || !target.id || typeof target.kind!=="string" || !target.kind || typeof target.displayName!=="string" || target.externalAccountId!==null && typeof target.externalAccountId!=="string")throw new Error();
+      return {id:target.id,kind:target.kind,displayName:target.displayName,externalAccountId:target.externalAccountId};
+    });}catch{throw new ServiceError(200,"invalid_deploy_targets");}
+  }
+  async deployDeployment(id:string,input:{deployTargetId:string;region?:string}):Promise<{job:ServiceJob;deduped:boolean}>{
+    if(!id)throw new Error("Deployment identity is required");
+    if(!input.deployTargetId || input.region!==undefined && !/^[a-z]{3}$/.test(input.region))throw new Error("Invalid managed deployment target");
+    const result=await this.request<{job:unknown;deduped:unknown}>(`/deployments/${encodeURIComponent(id)}/deploy`,{method:"POST",body:JSON.stringify(input)});
+    if(typeof result?.deduped!=="boolean")throw new ServiceError(200,"invalid_deploy_job");
+    return {job:validateServiceJob(result.job),deduped:result.deduped};
+  }
+  async getJob(id:string):Promise<ServiceJob>{
+    if(!id)throw new Error("Job identity is required");
+    const result=await this.request<{job:unknown}>(`/jobs/${encodeURIComponent(id)}`);
+    return validateServiceJob(result?.job);
+  }
   async pullDeploymentConfig(id:string,includeSecrets=false):Promise<DeploymentConfigExport> {
     if(!id)throw new Error("Deployment identity is required");
     const result=await this.request<DeploymentConfigExport>(`/deployments/${encodeURIComponent(id)}/config${includeSecrets?"?includeSecrets=1":""}`);
@@ -218,6 +242,14 @@ export class LogturaServiceClient {
     }catch(error){if(error instanceof ServiceError && error.status===404 && error.code==='receipt_not_found')return null;throw error;}
   }
   async logout():Promise<void>{await this.request("/cli/logout",{method:"POST",body:"{}"});}
+}
+
+function validateServiceJob(value:unknown):ServiceJob{
+  try{
+    const job=value as ServiceJob;
+    if(!job || typeof job!=="object" || Array.isArray(job) || typeof job.id!=="string" || !job.id || typeof job.kind!=="string" || !job.kind || !["queued","running","succeeded","failed"].includes(job.status) || job.error!==null && typeof job.error!=="string" || job.result!==null && (typeof job.result!=="object" || Array.isArray(job.result)) || job.progress!==null && (typeof job.progress!=="object" || Array.isArray(job.progress) || typeof job.progress.label!=="string"))throw new Error();
+    return {id:job.id,kind:job.kind,status:job.status,error:job.error,result:job.result,progress:job.progress};
+  }catch{throw new ServiceError(200,"invalid_deploy_job");}
 }
 
 /** Browser and timing adapters allow the same login protocol to be exercised

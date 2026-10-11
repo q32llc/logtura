@@ -1468,6 +1468,10 @@ apiAuth.post("/deployments/:id/deploy", async (c) => {
   }
 
   if(!getDeployTargetDriver(target.kind)?.supportsManaged) return c.json({error:"managed_deploy_unsupported"},400);
+  // Clicking the hosted deploy path is the explicit transition from a
+  // self-managed bundle to a Logtura-managed runtime. Persist ownership before
+  // publishing the queue message so a fast consumer cannot observe managed=0.
+  await updateDeployment(c.env.DB, user.id, id, { status: "pending", managed: true });
   const driver = new JobDriver(c.env.DB, c.env.JOBS_QUEUE);
   const { job, deduped } = await driver.enqueue({
     userId: user.id,
@@ -1479,9 +1483,6 @@ apiAuth.post("/deployments/:id/deploy", async (c) => {
     },
     lockKey: lockKeyForFlyDeploy(id),
   });
-  if (!deduped) {
-    await updateDeployment(c.env.DB, user.id, id, { status: "pending" });
-  }
   return c.json({ job: toApiJob(job), deduped });
 });
 

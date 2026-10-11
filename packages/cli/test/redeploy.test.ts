@@ -1,0 +1,14 @@
+import {describe,expect,it,vi} from "vitest";
+import {redeployHostedDeployment} from "../src/redeploy";
+
+const deployment={document:{kind:"logtura.deployment",schema_version:1,connections:[],monitors:[],runtimeEnv:null},revision:`sha256:${"a".repeat(64)}`,deployment:{id:"dep",displayName:"Fixture"},target:{kind:"fly",managed:false,imageDigest:null,fly:{appName:"app",region:"iad",orgSlug:"personal"}}};
+const queued={id:"job",kind:"fly_deploy",status:"queued" as const,error:null,result:null,progress:null};
+function client(overrides:Record<string,unknown>={}){return {pullDeploymentConfig:vi.fn(async()=>deployment),listDeployTargets:vi.fn(async()=>[{id:"target",kind:"fly",displayName:"Personal",externalAccountId:"personal"}]),deployDeployment:vi.fn(async()=>({job:queued,deduped:false})),getJob:vi.fn(async()=>({...queued,status:"succeeded" as const,result:{machineId:"machine"}})),...overrides} as any;}
+
+describe("hosted redeploy",()=>{
+ it("selects the personal target, starts the deploy and waits for completion",async()=>{const c=client();const result=await redeployHostedDeployment(c,"dep",{sleep:async()=>{},pollMs:1});expect(result.job.status).toBe("succeeded");expect(c.deployDeployment).toHaveBeenCalledWith("dep",{deployTargetId:"target"});});
+ it("supports explicit targets, regions and enqueue-only operation",async()=>{const c=client({listDeployTargets:vi.fn(async()=>[{id:"chosen",kind:"fly",displayName:"Chosen",externalAccountId:"org"},{id:"other",kind:"fly",displayName:"Other",externalAccountId:"personal"}])});const result=await redeployHostedDeployment(c,"dep",{targetId:"chosen",region:"ord",waitMs:0});expect(result.job.status).toBe("queued");expect(c.deployDeployment).toHaveBeenCalledWith("dep",{deployTargetId:"chosen",region:"ord"});});
+ it("selects the sole matching non-personal target",async()=>{const c=client({listDeployTargets:vi.fn(async()=>[{id:"team",kind:"fly",displayName:"Team",externalAccountId:"team"}])});expect((await redeployHostedDeployment(c,"dep",{waitMs:0})).targetId).toBe("team");});
+ it("rejects invalid wait intervals",async()=>{await expect(redeployHostedDeployment(client(),"dep",{waitMs:-1})).rejects.toThrow("wait interval");});
+ it("refuses missing, ambiguous, mismatched and failed targets",async()=>{await expect(redeployHostedDeployment(client({listDeployTargets:vi.fn(async()=>[])}),"dep")).rejects.toThrow("No connected");await expect(redeployHostedDeployment(client({listDeployTargets:vi.fn(async()=>[{id:"a",kind:"fly",displayName:"A",externalAccountId:"org-a"},{id:"b",kind:"fly",displayName:"B",externalAccountId:"org-b"}])}),"dep")).rejects.toThrow("Multiple");await expect(redeployHostedDeployment(client(),"dep",{targetId:"wrong"})).rejects.toThrow("does not match");await expect(redeployHostedDeployment(client({getJob:vi.fn(async()=>({...queued,status:"failed",error:"provider refused"}))}),"dep",{sleep:async()=>{}})).rejects.toThrow("provider refused");});
+});

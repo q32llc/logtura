@@ -212,6 +212,18 @@ These account commands require a service deployment with CLI authorization
 support. Standalone setup, config, bundle and provider deployment commands do not
 require login. `pull` exports existing website deployments; `push` synchronizes local edits back to the website. `deploy fly` applies a linked manifest and reports its accepted revision back to the website.
 
+Redeploy an existing hosted deployment without opening the website:
+
+```sh
+logt redeploy dep_your_deployment_id
+logt redeploy dep_your_deployment_id --target dpt_your_target_id --region iad
+logt redeploy dep_your_deployment_id --wait-seconds 0
+```
+
+The CLI selects the sole matching connected target (or the personal target when
+that is unambiguous), submits the same hosted deploy job used by the website, and
+waits up to ten minutes by default. Pass `--wait-seconds 0` to enqueue only.
+
 
 ## Create and link a hosted deployment
 
