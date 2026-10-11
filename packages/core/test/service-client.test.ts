@@ -58,11 +58,17 @@ it("lists deploy targets, starts hosted deploys and reads their jobs",async()=>{
 });
 
 it("rejects malformed hosted deploy responses before returning them",async()=>{
+ await expect(client([Response.json({})]).client.listDeployTargets()).rejects.toMatchObject({code:"invalid_deploy_targets"});
  await expect(client([Response.json({deployTargets:[{id:1}]})]).client.listDeployTargets()).rejects.toMatchObject({code:"invalid_deploy_targets"});
+ for(const target of [null,[],{id:"",kind:"fly",displayName:"Fly",externalAccountId:null},{id:"target",kind:"",displayName:"Fly",externalAccountId:null},{id:"target",kind:"fly",displayName:1,externalAccountId:null},{id:"target",kind:"fly",displayName:"Fly",externalAccountId:1}])await expect(client([Response.json({deployTargets:[target]})]).client.listDeployTargets()).rejects.toMatchObject({code:"invalid_deploy_targets"});
+ await expect(client([Response.json({job:{},deduped:"no"})]).client.deployDeployment("dep",{deployTargetId:"target"})).rejects.toMatchObject({code:"invalid_deploy_job"});
  await expect(client([Response.json({job:{},deduped:false})]).client.deployDeployment("dep",{deployTargetId:"target"})).rejects.toMatchObject({code:"invalid_deploy_job"});
- await expect(client([Response.json({job:{id:"job",kind:"fly_deploy",status:"unknown",error:null,result:null,progress:null}})]).client.getJob("job")).rejects.toMatchObject({code:"invalid_deploy_job"});
+ const job={id:"job",kind:"fly_deploy",status:"queued",error:null,result:null,progress:null};
+ for(const invalid of [null,[],{...job,id:""},{...job,id:1},{...job,kind:""},{...job,kind:1},{...job,status:"unknown"},{...job,error:1},{...job,result:[]},{...job,result:"bad"},{...job,progress:[]},{...job,progress:"bad"},{...job,progress:{}},{...job,progress:{label:1}}])await expect(client([Response.json({job:invalid})]).client.getJob("job")).rejects.toMatchObject({code:"invalid_deploy_job"});
  await expect(client([]).client.deployDeployment("",{deployTargetId:"target"})).rejects.toThrow("identity");
+ await expect(client([]).client.deployDeployment("dep",{deployTargetId:""})).rejects.toThrow("target");
  await expect(client([]).client.deployDeployment("dep",{deployTargetId:"target",region:"BAD"})).rejects.toThrow("target");
+ await expect(client([]).client.getJob("")).rejects.toThrow("identity");
 });
 
 
