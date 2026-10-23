@@ -24,6 +24,27 @@ import type { Env } from "../env";
 const TOKEN_URL = "https://api.supabase.com/v1/oauth/token";
 const REFRESH_SKEW_MS = 60_000;
 
+/** Only fixed categories and HTTP status may cross into operational logs. */
+export class SupabaseRefreshError extends Error {
+  constructor(
+    readonly reason: "oauth_not_configured" | "provider_rejected" | "invalid_response" | "network_error",
+    readonly status?: number,
+    readonly oauthError?: string,
+  ) {
+    super(reason === "oauth_not_configured"
+      ? "Supabase OAuth client not configured; cannot refresh"
+      : `Supabase refresh failed (${status ?? reason})`);
+  }
+}
+
+function safeOAuthError(text: string): string | undefined {
+  try {
+    const code: unknown = JSON.parse(text)?.error;
+    return typeof code === "string" && ["invalid_grant", "invalid_client", "unauthorized_client", "invalid_request", "temporarily_unavailable"].includes(code)
+      ? code : undefined;
+  } catch { return undefined; }
+}
+
 export async function ensureFreshAccessToken(
   env: Env,
   conn: ConnectionRow,
@@ -36,26 +57,34 @@ export async function ensureFreshAccessToken(
     return creds.pat;
   }
   if (!env.SUPABASE_CLIENT_ID || !env.SUPABASE_CLIENT_SECRET) {
-    throw new Error("Supabase OAuth client not configured; cannot refresh");
+    throw new SupabaseRefreshError("oauth_not_configured");
   }
   const basic = btoa(`${env.SUPABASE_CLIENT_ID}:${env.SUPABASE_CLIENT_SECRET}`);
-  const res = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: {
-      authorization: `Basic ${basic}`,
-      "content-type": "application/x-www-form-urlencoded",
-      accept: "application/json",
-    },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: creds.refreshToken,
-    }).toString(),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`Supabase refresh failed (${res.status})`);
+  let res: Response;
+  let text: string;
+  try {
+    res = await fetch(TOKEN_URL, {
+      method: "POST",
+      headers: {
+        authorization: `Basic ${basic}`,
+        "content-type": "application/x-www-form-urlencoded",
+        accept: "application/json",
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: creds.refreshToken,
+      }).toString(),
+    });
+    text = await res.text();
+  } catch {
+    throw new SupabaseRefreshError("network_error");
   }
-  const body = parseOAuthTokens(text, "Supabase", false);
+  if (!res.ok) {
+    throw new SupabaseRefreshError("provider_rejected", res.status, safeOAuthError(text));
+  }
+  let body: ReturnType<typeof parseOAuthTokens>;
+  try { body = parseOAuthTokens(text, "Supabase", false); }
+  catch { throw new SupabaseRefreshError("invalid_response", res.status); }
   const next: SupabaseCredentials = {
     pat: body.access_token,
     // Supabase rotates — accept whatever they return; if absent (future

@@ -5,6 +5,7 @@ import { DeploymentInputError, parseDeploymentCreation, parseDeploymentMutation,
 import { GraphInputError, parseMonitorMutation, parseSinkMutation } from "./graph-input";
 import { exchangeSlackWebhook, readSlackOAuthState } from "./destinations/slack-oauth";
 import { readProviderOAuthState } from "./providers/oauth-state";
+import { SupabaseRefreshError } from "./providers/supabase-token";
 import { createDeploymentIngest } from "./deployment-ingest";
 import { deploymentStateRoutes,deploymentAppliedRoutes } from "./deployment-state-routes";
 import {managedCleanupRoutes} from "./managed-cleanup-routes";
@@ -233,7 +234,12 @@ api.post("/tail/supabase/token", async (c) => {
     if (typeof accessToken !== "string" || !accessToken || credentials.pat !== accessToken) throw new Error("Credentials changed during token request");
     return c.json({ access_token: accessToken, expires_in: tailTokenCacheSeconds(23 * 3600, credentials.expiresAt) });
   } catch (err) {
-    console.error("supabase tail token refresh failed", {connectionId: conn.id});
+    console.error("supabase tail token refresh failed", {
+      connectionId: conn.id,
+      reason: err instanceof SupabaseRefreshError ? err.reason : "credential_unavailable",
+      ...(err instanceof SupabaseRefreshError && err.status !== undefined ? {status: err.status} : {}),
+      ...(err instanceof SupabaseRefreshError && err.oauthError ? {oauthError: err.oauthError} : {}),
+    });
     return c.json(
       {
         error: "refresh_failed",

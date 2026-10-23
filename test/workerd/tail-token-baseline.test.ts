@@ -64,3 +64,30 @@ it.each(cases)("does not return a stale $route credential after concurrent conne
  }
  error.mockRestore();
 });
+
+it("logs only allowlisted Supabase refresh diagnostics while keeping broker responses generic", async () => {
+ const f = await fixture("supabase-edge-logs", {pat: "old-access", refreshToken: "private-refresh", expiresAt: 1});
+ const error = vi.spyOn(console, "error").mockImplementation(() => {});
+ try {
+  for (const code of ["invalid_grant", "invalid_client", "private-upstream-error"]) {
+   mockFetch("https://api.supabase.com/v1/oauth/token", () => Response.json({error: code, error_description: "private-upstream-description"}, {status: 400}));
+   const response = await request("supabase", `Bearer ${f.token}`);
+   expect(response.status).toBe(503);
+   expect(await response.json()).toEqual({error: "refresh_failed", message: "could not refresh token"});
+   expect(error.mock.lastCall).toEqual(["supabase tail token refresh failed", {
+    connectionId: f.connection.id, reason: "provider_rejected", status: 400,
+    ...(code.startsWith("invalid_") ? {oauthError: code} : {}),
+   }]);
+  }
+  mockFetch("https://api.supabase.com/v1/oauth/token", () => {throw new Error("private-network-error");});
+  await request("supabase", `Bearer ${f.token}`);
+  expect(error.mock.lastCall?.[1]).toEqual({connectionId: f.connection.id, reason: "network_error"});
+  mockFetch("https://api.supabase.com/v1/oauth/token", () => new Response("private-invalid-json"));
+  await request("supabase", `Bearer ${f.token}`);
+  expect(error.mock.lastCall?.[1]).toEqual({connectionId: f.connection.id, reason: "invalid_response", status: 200});
+  await request("supabase", `Bearer ${f.token}`, {SUPABASE_CLIENT_ID: undefined});
+  expect(error.mock.lastCall?.[1]).toEqual({connectionId: f.connection.id, reason: "oauth_not_configured"});
+  expect(JSON.stringify(error.mock.calls)).not.toContain("private-");
+  expect((await getConnection(env.DB, f.userId, f.connection.id))!.credentials_encrypted).toEqual(f.connection.credentials_encrypted);
+ } finally {error.mockRestore();}
+});
